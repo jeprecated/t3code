@@ -3,7 +3,10 @@ import { ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
+  FLOATING_TERMINAL_LAYOUTS,
   migratePersistedTerminalUiStateStoreState,
+  resolveFloatingTerminalLayout,
+  selectThreadTerminalFloating,
   selectThreadTerminalUiState,
   useTerminalUiStateStore,
 } from "./terminalUiStateStore";
@@ -19,6 +22,8 @@ describe("terminalUiStateStore actions", () => {
     useTerminalUiStateStore.setState({
       terminalUiStateByThreadKey: {},
       suppressedTerminalIdsByThreadKey: {},
+      terminalPlacement: "drawer",
+      floatingLayoutIndex: 0,
     });
   });
 
@@ -292,5 +297,77 @@ describe("terminalUiStateStore actions", () => {
     store.clearTerminalUiState(THREAD_REF);
 
     expect(useTerminalUiStateStore.getState()).toBe(before);
+  });
+
+  it("cycles from the dock through every floating layout and back to the dock", () => {
+    const seen = [...FLOATING_TERMINAL_LAYOUTS, null].map(() => {
+      useTerminalUiStateStore.getState().cycleTerminalLayout();
+      const { terminalPlacement, floatingLayoutIndex } = useTerminalUiStateStore.getState();
+      return terminalPlacement === "drawer"
+        ? "dock"
+        : resolveFloatingTerminalLayout(floatingLayoutIndex).id;
+    });
+
+    expect(seen).toEqual([...FLOATING_TERMINAL_LAYOUTS.map((layout) => layout.id), "dock"]);
+  });
+
+  it("returns to the floating layout it left when it floats again", () => {
+    const store = useTerminalUiStateStore.getState();
+    store.cycleTerminalLayout();
+    store.cycleTerminalLayout();
+    const { floatingLayoutIndex } = useTerminalUiStateStore.getState();
+
+    store.setTerminalPlacement("drawer");
+    store.setTerminalPlacement("floating");
+
+    expect(useTerminalUiStateStore.getState().floatingLayoutIndex).toBe(floatingLayoutIndex);
+    expect(resolveFloatingTerminalLayout(floatingLayoutIndex).id).toBe("enlarged");
+  });
+
+  it("docks instead of cycling from a persisted layout index that no longer exists", () => {
+    useTerminalUiStateStore.setState({ terminalPlacement: "floating", floatingLayoutIndex: 99 });
+    expect(resolveFloatingTerminalLayout(99)).toBe(FLOATING_TERMINAL_LAYOUTS[0]);
+
+    useTerminalUiStateStore.getState().cycleTerminalLayout();
+
+    expect(useTerminalUiStateStore.getState().terminalPlacement).toBe("drawer");
+  });
+
+  it("reports a thread as floating only while its terminal is open in the popover", () => {
+    const store = useTerminalUiStateStore.getState();
+    store.setTerminalPlacement("floating");
+    expect(selectThreadTerminalFloating(useTerminalUiStateStore.getState(), THREAD_REF)).toBe(
+      false,
+    );
+
+    store.setTerminalOpen(THREAD_REF, true);
+    expect(selectThreadTerminalFloating(useTerminalUiStateStore.getState(), THREAD_REF)).toBe(true);
+    expect(selectThreadTerminalFloating(useTerminalUiStateStore.getState(), OTHER_THREAD_REF)).toBe(
+      false,
+    );
+
+    store.setTerminalPlacement("drawer");
+    expect(selectThreadTerminalFloating(useTerminalUiStateStore.getState(), THREAD_REF)).toBe(
+      false,
+    );
+  });
+
+  it("keeps the same terminals when moving between the dock and the popover", () => {
+    const store = useTerminalUiStateStore.getState();
+    store.setTerminalOpen(THREAD_REF, true);
+    store.splitTerminal(THREAD_REF, "terminal-2");
+    const docked = selectThreadTerminalUiState(
+      useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+      THREAD_REF,
+    );
+
+    store.setTerminalPlacement("floating");
+
+    expect(
+      selectThreadTerminalUiState(
+        useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+        THREAD_REF,
+      ),
+    ).toBe(docked);
   });
 });

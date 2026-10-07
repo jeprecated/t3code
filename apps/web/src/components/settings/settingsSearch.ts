@@ -271,6 +271,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["red green blue orange additions deletions changes counts palette colorblind"],
   },
   {
+    id: "floating-terminal-border",
+    title: "Floating terminal border",
+    to: "/settings/appearance",
+    searchTerms: ["popover outline frame edge width thickness color colour"],
+  },
+  {
     id: "chat-width",
     title: "Chat width",
     to: "/settings/appearance",

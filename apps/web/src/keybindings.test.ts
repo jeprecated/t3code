@@ -21,6 +21,7 @@ import {
   isOpenFavoriteEditorShortcut,
   isTerminalClearShortcut,
   isTerminalCloseShortcut,
+  isTerminalFloatingShortcut,
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
   isTerminalSplitVerticalShortcut,
@@ -245,6 +246,68 @@ describe("isTerminalToggleShortcut", () => {
         platform: "Win32",
         context: { terminalFocus: true },
       }),
+    );
+  });
+});
+
+describe("floating terminal shortcuts", () => {
+  const focusedTerminal = { terminalFocus: true, terminalOpen: true };
+
+  it("are claimed from the focused terminal by default", () => {
+    assert.isTrue(
+      isTerminalFloatingShortcut(
+        event({ key: "j", ctrlKey: true, altKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Linux", context: focusedTerminal },
+      ),
+    );
+    assert.isTrue(
+      isTerminalFloatingShortcut(
+        event({ key: "J", ctrlKey: true, altKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Linux", context: focusedTerminal },
+      ),
+    );
+  });
+
+  it("cycle layouts from the dock as well as from the popover", () => {
+    const cycle = event({ key: "k", ctrlKey: true, altKey: true });
+    assert.isTrue(
+      isTerminalFloatingShortcut(cycle, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: focusedTerminal,
+      }),
+    );
+    assert.isNull(
+      resolveShortcutCommand(cycle, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { terminalOpen: false },
+      }),
+    );
+  });
+
+  it("follow a user binding on a ctrl+alt+shift chord", () => {
+    const bindings = mergeWithDefaultKeybindings(
+      compileResolvedKeybindingsConfig([
+        { key: "ctrl+alt+shift+f", command: "terminal.toggleFloating" },
+        { key: "ctrl+alt+shift+t", command: "terminal.cycleFloatingLayout" },
+      ]),
+    );
+    const options = {
+      platform: "Linux",
+      context: { ...focusedTerminal, terminalFloating: true },
+    };
+    // Shift makes the browser report the uppercase letter.
+    const chord = { ctrlKey: true, altKey: true, shiftKey: true };
+
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "F", ...chord }), bindings, options),
+      "terminal.toggleFloating",
+    );
+    // The user's rule wins over the default theme editor shortcut on the same chord.
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "T", ...chord }), bindings, options),
+      "terminal.cycleFloatingLayout",
     );
   });
 });

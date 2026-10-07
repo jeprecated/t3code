@@ -104,6 +104,22 @@ export const GlassOpacity = Schema.Int.check(
 export type GlassOpacity = typeof GlassOpacity.Type;
 const DEFAULT_GLASS_OPACITY: GlassOpacity = 80;
 
+export const MIN_FLOATING_TERMINAL_BORDER_WIDTH = 0;
+export const MAX_FLOATING_TERMINAL_BORDER_WIDTH = 6;
+/** Frame thickness of the floating terminal, in CSS pixels. */
+export const FloatingTerminalBorderWidth = Schema.Int.check(
+  Schema.isBetween({
+    minimum: MIN_FLOATING_TERMINAL_BORDER_WIDTH,
+    maximum: MAX_FLOATING_TERMINAL_BORDER_WIDTH,
+  }),
+);
+export type FloatingTerminalBorderWidth = typeof FloatingTerminalBorderWidth.Type;
+const DEFAULT_FLOATING_TERMINAL_BORDER_WIDTH: FloatingTerminalBorderWidth = 2;
+
+/** Theme color the floating terminal's frame takes, so it follows light and dark themes. */
+export const FloatingTerminalBorderColor = Schema.Literals(["subtle", "accent", "text"]);
+export type FloatingTerminalBorderColor = typeof FloatingTerminalBorderColor.Type;
+
 export const MIN_APPEARANCE_CONTRAST = 50;
 export const MAX_APPEARANCE_CONTRAST = 200;
 export const AppearanceContrast = Schema.Int.check(
@@ -402,6 +418,12 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
+  ),
+  floatingTerminalBorderWidth: FloatingTerminalBorderWidth.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_FLOATING_TERMINAL_BORDER_WIDTH)),
+  ),
+  floatingTerminalBorderColor: FloatingTerminalBorderColor.pipe(
+    Schema.withDecodingDefault(Effect.succeed("accent" as const)),
   ),
   fontSizeInterface: InterfaceFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_INTERFACE_FONT_SIZE)),
@@ -1709,6 +1731,8 @@ export const ClientSettingsPatch = Schema.Struct({
   diffLayout: Schema.optionalKey(DiffLayout),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
+  floatingTerminalBorderWidth: Schema.optionalKey(FloatingTerminalBorderWidth),
+  floatingTerminalBorderColor: Schema.optionalKey(FloatingTerminalBorderColor),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),

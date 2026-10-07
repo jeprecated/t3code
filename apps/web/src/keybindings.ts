@@ -304,6 +304,20 @@ export function isTerminalToggleShortcut(
   return matchesCommandShortcut(event, keybindings, "terminal.toggle", options);
 }
 
+/** Matches the shortcuts that show, resize or dock the floating terminal. */
+export function isTerminalFloatingShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  const command = resolveShortcutCommand(event, keybindings, options);
+  return (
+    command === "terminal.toggleFloating" ||
+    command === "terminal.cycleFloatingLayout" ||
+    command === "terminal.toggleDocked"
+  );
+}
+
 export function isTerminalSplitShortcut(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,
