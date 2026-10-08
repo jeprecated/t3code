@@ -355,7 +355,11 @@ import { type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useEnvironmentDisconnectDelay } from "../hooks/useEnvironmentDisconnectDelay";
-import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
+import {
+  selectThreadTerminalUiState,
+  type TerminalPlacement,
+  useTerminalUiStateStore,
+} from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { useEnvironmentQuery } from "../state/query";
 import { useEnvironmentScope } from "~/state/session";
@@ -1401,6 +1405,10 @@ export default function ChatView(props: ChatViewProps) {
     ),
   );
   const storeSetTerminalOpen = useTerminalUiStateStore((s) => s.setTerminalOpen);
+  const terminalPlacement = useTerminalUiStateStore((s) => s.terminalPlacement);
+  const storeSetTerminalPlacement = useTerminalUiStateStore((s) => s.setTerminalPlacement);
+  const storeToggleTerminalPlacement = useTerminalUiStateStore((s) => s.toggleTerminalPlacement);
+  const storeCycleTerminalLayout = useTerminalUiStateStore((s) => s.cycleTerminalLayout);
   const storeEnsureTerminal = useTerminalUiStateStore((state) => state.ensureTerminal);
   const storeSplitTerminal = useTerminalUiStateStore((s) => s.splitTerminal);
   const storeSplitTerminalVertical = useTerminalUiStateStore((s) => s.splitTerminalVertical);
@@ -3403,6 +3411,31 @@ export default function ChatView(props: ChatViewProps) {
     setTerminalOpen(nextOpen);
   };
   const toggleTerminalVisibilityStable = useStableCallback(toggleTerminalVisibility);
+  const terminalDocked = terminalUiState.terminalOpen && terminalPlacement === "drawer";
+  const canShowTerminal = activeProject !== null && (canReadTerminal || canOperateTerminal);
+  // Shows the terminal in the given placement, or hides it when it is already
+  // showing there. `terminal.toggle` instead shows and hides it wherever it was.
+  const toggleTerminalIn = (placement: TerminalPlacement) => {
+    if (terminalUiState.terminalOpen && terminalPlacement === placement) {
+      setTerminalOpen(false);
+      return;
+    }
+    // Placement is shared by every thread, so leave it alone when this
+    // thread cannot show a terminal.
+    if (!terminalUiState.terminalOpen && !canShowTerminal) return;
+    storeSetTerminalPlacement(placement);
+    if (terminalUiState.terminalOpen) {
+      setTerminalFocusRequestId((value) => value + 1);
+      return;
+    }
+    toggleTerminalVisibility();
+  };
+  const toggleFloatingTerminalStable = useStableCallback(() => toggleTerminalIn("floating"));
+  const toggleDockedTerminalStable = useStableCallback(() => toggleTerminalIn("drawer"));
+  const swapTerminalPlacementStable = useStableCallback(() => {
+    storeToggleTerminalPlacement();
+    setTerminalFocusRequestId((value) => value + 1);
+  });
   const splitTerminal = (direction: "horizontal" | "vertical" = "horizontal") => {
     if (!activeThreadRef || hasReachedSplitLimit) return;
     const launched = terminalActions.launchTerminal({
@@ -5485,6 +5518,7 @@ export default function ChatView(props: ChatViewProps) {
   const getShortcutContext = (eventTarget: EventTarget | null = document.activeElement) => ({
     terminalFocus: getTerminalFocusOwner() !== null,
     terminalOpen: Boolean(terminalUiState.terminalOpen),
+    terminalFloating: Boolean(terminalUiState.terminalOpen) && terminalPlacement === "floating",
     previewFocus: isPreviewFocused(),
     previewOpen: previewPanelOpen,
     editableFocus: isEditableFocused(eventTarget),
@@ -5566,6 +5600,19 @@ export default function ChatView(props: ChatViewProps) {
       "chat.find": () => {
         if (!isServerThread || serverConfig?.threadFind !== true) return false;
         openThreadFindStable();
+      },
+      "terminal.toggleFloating": ({ event }) => {
+        if (!terminalUiState.terminalOpen && !canShowTerminal) return false;
+        if (!event.repeat) toggleFloatingTerminalStable();
+      },
+      "terminal.cycleFloatingLayout": ({ event }) => {
+        // Only a visible terminal has a layout to change.
+        if (!terminalUiState.terminalOpen) return false;
+        if (!event.repeat) storeCycleTerminalLayout();
+      },
+      "terminal.toggleDocked": ({ event }) => {
+        if (!terminalUiState.terminalOpen) return false;
+        if (!event.repeat) swapTerminalPlacementStable();
       },
       "rightPanel.toggle": () => toggleRightPanelStable(),
       "rightPanel.toggleMaximized": ({ event }) => {
@@ -7767,8 +7814,13 @@ export default function ChatView(props: ChatViewProps) {
   ) : null;
   const panelToggleControlProps = {
     terminalAvailable: activeProject !== null,
-    terminalOpen: terminalUiState.terminalOpen,
-    terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
+    // The button always docks. `terminal.toggle` does the same only while the
+    // terminal's place is the dock, so the shortcut is advertised only then.
+    terminalOpen: terminalDocked,
+    terminalShortcutLabel:
+      terminalPlacement === "drawer"
+        ? shortcutLabelForCommand(keybindings, "terminal.toggle")
+        : null,
     threadPanelOpen,
     threadPanelPresentation,
     threadPanelPopoverHandle,
@@ -7776,7 +7828,7 @@ export default function ChatView(props: ChatViewProps) {
     rightPanelAvailable: activeProject !== null,
     rightPanelOpen,
     rightPanelShortcutLabel: shortcutLabelForCommand(keybindings, "rightPanel.toggle"),
-    onToggleTerminal: toggleTerminalVisibilityStable,
+    onToggleTerminal: toggleDockedTerminalStable,
     onToggleThreadPanel: toggleThreadPanelStable,
     onToggleRightPanel: toggleRightPanelStable,
   } satisfies PanelLayoutControlsProps;

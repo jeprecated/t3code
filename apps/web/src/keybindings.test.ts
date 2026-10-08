@@ -249,6 +249,66 @@ describe("isTerminalToggleShortcut", () => {
   });
 });
 
+describe("floating terminal shortcuts", () => {
+  const focusedTerminal = { terminalFocus: true, terminalOpen: true };
+  const meh = { ctrlKey: true, altKey: true, shiftKey: true };
+
+  it("resolve from the focused terminal by default", () => {
+    const options = { platform: "Linux", context: focusedTerminal };
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "j", ctrlKey: true, altKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        options,
+      ),
+      "terminal.toggleFloating",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "k", ctrlKey: true, altKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        options,
+      ),
+      "terminal.cycleFloatingLayout",
+    );
+    // Shift makes the browser report the uppercase letter.
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "J", ...meh }), DEFAULT_RESOLVED_KEYBINDINGS, options),
+      "terminal.toggleDocked",
+    );
+  });
+
+  it("leave the layout and dock chords alone while the terminal is closed", () => {
+    const options = { platform: "Linux", context: { terminalOpen: false } };
+    assert.isNull(
+      resolveShortcutCommand(
+        event({ key: "k", ctrlKey: true, altKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        options,
+      ),
+    );
+    assert.isNull(
+      resolveShortcutCommand(event({ key: "J", ...meh }), DEFAULT_RESOLVED_KEYBINDINGS, options),
+    );
+  });
+
+  it("let a user binding take a chord from the default theme editor shortcut", () => {
+    const bindings = mergeWithDefaultKeybindings(
+      compileResolvedKeybindingsConfig([
+        { key: "ctrl+alt+shift+t", command: "terminal.cycleFloatingLayout" },
+      ]),
+    );
+
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "T", ...meh }), bindings, {
+        platform: "Linux",
+        context: focusedTerminal,
+      }),
+      "terminal.cycleFloatingLayout",
+    );
+  });
+});
+
 describe("settle thread shortcut", () => {
   it("resolves outside the terminal", () => {
     assert.equal(
