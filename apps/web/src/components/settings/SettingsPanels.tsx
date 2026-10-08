@@ -515,6 +515,11 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.htmlPreviewWidth !== DEFAULT_UNIFIED_SETTINGS.htmlPreviewWidth
       ? [gt("HTML preview width")]
       : []),
+    ...(settings.floatingTerminalBorderWidth !==
+      DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderWidth ||
+    settings.floatingTerminalBorderColor !== DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderColor
+      ? [gt("Floating terminal border")]
+      : []),
     ...(settings.effortDisplay !== DEFAULT_UNIFIED_SETTINGS.effortDisplay
       ? [gt("Effort display")]
       : []),
@@ -735,6 +740,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       screenReaderWindowTitle: DEFAULT_UNIFIED_SETTINGS.screenReaderWindowTitle,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
+      floatingTerminalBorderWidth: DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderWidth,
+      floatingTerminalBorderColor: DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderColor,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
