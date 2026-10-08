@@ -373,6 +373,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "floating-terminal-border",
+    title: msg("Floating terminal border"),
+    to: "/settings/appearance",
+    searchTerms: [msg("popover outline frame edge width thickness color colour")],
+  },
+  {
     id: "chat-width",
     title: msg("Chat width"),
     to: "/settings/appearance",
