@@ -1,6 +1,7 @@
 import {
   AuthTerminalOperateScope,
   type EnvironmentId,
+  type FloatingTerminalBorderColor,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type ThreadId,
@@ -8,9 +9,11 @@ import {
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
-import { memo, useEffect, useState } from "react";
+import { type CSSProperties, memo, useEffect, useState } from "react";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { useClientSettings } from "../hooks/useSettings";
 import { useStableCallback } from "../hooks/useStableCallback";
+import { shortcutLabelForCommand } from "../keybindings";
 import type { TerminalContextSelection } from "../lib/terminalContext";
 import { cn } from "~/lib/utils";
 import {
@@ -21,7 +24,11 @@ import {
 import { useProject, useThreadShell } from "../state/entities";
 import { useEnvironmentScope } from "../state/session";
 import { useKnownTerminalSessions } from "../state/terminalSessions";
-import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
+import {
+  resolveFloatingTerminalLayout,
+  selectThreadTerminalUiState,
+  useTerminalUiStateStore,
+} from "../terminalUiStateStore";
 import { useThreadTerminalActions } from "./terminal/useThreadTerminalActions";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 
@@ -76,6 +83,12 @@ interface TerminalLaunchLocationWithEnv {
   readonly runtimeEnv: Record<string, string>;
 }
 
+const FLOATING_TERMINAL_BORDER_COLORS = {
+  subtle: "var(--color-border)",
+  accent: "var(--color-primary)",
+  text: "var(--color-foreground)",
+} satisfies Record<FloatingTerminalBorderColor, string>;
+
 interface PersistentThreadTerminalDrawerProps {
   threadRef: { environmentId: EnvironmentId; threadId: ThreadId };
   threadId: ThreadId;
@@ -117,6 +130,16 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     selectThreadTerminalUiState(state.terminalUiStateByThreadKey, threadRef),
   );
   const visible = active && terminalUiState.terminalOpen;
+  const floating = useTerminalUiStateStore((state) => state.terminalPlacement === "floating");
+  const floatingLayoutInset = useTerminalUiStateStore(
+    (state) => resolveFloatingTerminalLayout(state.floatingLayoutId).inset,
+  );
+  const storeToggleTerminalPlacement = useTerminalUiStateStore(
+    (state) => state.toggleTerminalPlacement,
+  );
+  const storeCycleTerminalLayout = useTerminalUiStateStore((state) => state.cycleTerminalLayout);
+  const floatingBorderWidth = useClientSettings((settings) => settings.floatingTerminalBorderWidth);
+  const floatingBorderColor = useClientSettings((settings) => settings.floatingTerminalBorderColor);
   const knownTerminalSessions = useKnownTerminalSessions({
     environmentId: threadRef.environmentId,
     threadId,
@@ -205,6 +228,28 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     storeSetTerminalHeight(threadRef, height);
   };
 
+  const toggleDocked = () => {
+    storeToggleTerminalPlacement();
+    bumpFocusRequestId();
+  };
+  const cycleLayout = () => {
+    storeCycleTerminalLayout();
+    bumpFocusRequestId();
+  };
+  const floatingShortcutOptions = {
+    context: { terminalFocus: true, terminalOpen: true, terminalFloating: floating },
+  };
+  const toggleDockedShortcutLabel = shortcutLabelForCommand(
+    keybindings,
+    "terminal.toggleDocked",
+    floatingShortcutOptions,
+  );
+  const cycleLayoutShortcutLabel = shortcutLabelForCommand(
+    keybindings,
+    "terminal.cycleFloatingLayout",
+    floatingShortcutOptions,
+  );
+
   const launchDrawerTerminal = (place: (terminalId: string) => void) => {
     if (!cwd) return;
     const launched = terminalActions.launchTerminal({
@@ -248,18 +293,49 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     return null;
   }
 
+  // Docked and floating share these two wrappers so switching placement only
+  // restyles them and the terminal sessions underneath stay mounted.
   return (
     <div
       className={cn(
-        "grid shrink-0 overflow-clip",
-        active ? (visible ? "grid-rows-[1fr]" : "grid-rows-[0fr]") : "hidden",
+        floating
+          ? // Positioned against the workspace root, so the popover spans the
+            // chat and the right panel but leaves the top bar clear. z-50 puts
+            // it over the composer and timeline chrome; portalled menus and
+            // dialogs come later in the document and still stack above it.
+            "pointer-events-none @container absolute inset-x-0 top-(--workspace-topbar-height) bottom-0 z-50"
+          : "grid shrink-0 overflow-clip",
+        active && floating && !visible && "invisible",
+        active && !floating && (visible ? "grid-rows-[1fr]" : "grid-rows-[0fr]"),
         active &&
+          !floating &&
           "[[data-panel-animations=true]_&]:transition-[grid-template-rows] [[data-panel-animations=true]_&]:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:ease-out",
-        active && visible && "[[data-panel-animations=true]_&]:starting:grid-rows-[0fr]!",
+        active &&
+          !floating &&
+          visible &&
+          "[[data-panel-animations=true]_&]:starting:grid-rows-[0fr]!",
+        // Last, so it overrides the display the placement classes set.
+        !active && "hidden",
       )}
     >
-      <div className="min-h-0 overflow-clip">
+      <div
+        className={
+          floating
+            ? "pointer-events-auto absolute m-2 overflow-clip rounded-lg border-solid shadow-xl [-webkit-app-region:no-drag] @max-2xl:inset-0 @2xl:inset-(--floating-terminal-inset)"
+            : "min-h-0 overflow-clip"
+        }
+        style={
+          floating
+            ? ({
+                "--floating-terminal-inset": floatingLayoutInset,
+                borderWidth: floatingBorderWidth,
+                borderColor: FLOATING_TERMINAL_BORDER_COLORS[floatingBorderColor],
+              } as CSSProperties)
+            : undefined
+        }
+      >
         <ThreadTerminalDrawer
+          mode={floating ? "floating" : "drawer"}
           threadRef={threadRef}
           threadId={threadId}
           cwd={cwd}
@@ -276,6 +352,10 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
           onSplitTerminal={splitTerminal}
           onSplitTerminalVertical={splitTerminalVertical}
           onNewTerminal={createNewTerminal}
+          onToggleDocked={toggleDocked}
+          onCycleLayout={cycleLayout}
+          toggleDockedShortcutLabel={visible ? (toggleDockedShortcutLabel ?? undefined) : undefined}
+          cycleLayoutShortcutLabel={visible ? (cycleLayoutShortcutLabel ?? undefined) : undefined}
           splitShortcutLabel={visible ? splitShortcutLabel : undefined}
           splitVerticalShortcutLabel={visible ? splitVerticalShortcutLabel : undefined}
           newShortcutLabel={visible ? newShortcutLabel : undefined}
