@@ -19,12 +19,36 @@ interface ThreadTerminalUiState {
   activeTerminalGroupId: string;
 }
 
+export type TerminalPlacement = "drawer" | "floating";
+
+/**
+ * Rectangles the floating terminal can take, as CSS `inset` values relative to
+ * the workspace below the top bar. The layout cycle visits the dock, then these.
+ */
+export const FLOATING_TERMINAL_LAYOUTS = [
+  { id: "centered", inset: "18% 20%" },
+  { id: "enlarged", inset: "5%" },
+  { id: "right-half", inset: "0 0 0 50%" },
+  { id: "bottom-right", inset: "50% 0 0 50%" },
+] as const;
+
+export type FloatingTerminalLayoutId = (typeof FLOATING_TERMINAL_LAYOUTS)[number]["id"];
+
+/** Falls back to the first layout for an id a newer or older build persisted. */
+export function resolveFloatingTerminalLayout(id: string) {
+  return (
+    FLOATING_TERMINAL_LAYOUTS.find((layout) => layout.id === id) ?? FLOATING_TERMINAL_LAYOUTS[0]
+  );
+}
+
 // Keep the old storage key so existing drawer layout preferences migrate.
 const TERMINAL_UI_STATE_STORAGE_KEY = "t3code:terminal-state:v1";
 
 interface PersistedTerminalUiStateStoreState {
   terminalUiStateByThreadKey?: Record<string, ThreadTerminalUiState>;
   terminalStateByThreadKey?: Record<string, ThreadTerminalUiState>;
+  terminalPlacement?: TerminalPlacement;
+  floatingLayoutId?: FloatingTerminalLayoutId;
 }
 
 export function migratePersistedTerminalUiStateStoreState(
@@ -44,7 +68,13 @@ export function migratePersistedTerminalUiStateStoreState(
     ),
   );
 
-  return { terminalUiStateByThreadKey };
+  return {
+    terminalUiStateByThreadKey,
+    ...(candidate.terminalPlacement === "floating" ? { terminalPlacement: "floating" } : {}),
+    ...(typeof candidate.floatingLayoutId === "string"
+      ? { floatingLayoutId: resolveFloatingTerminalLayout(candidate.floatingLayoutId).id }
+      : {}),
+  };
 }
 
 function createTerminalUiStateStorage() {
@@ -482,6 +512,17 @@ export function selectThreadTerminalUiState(
   );
 }
 
+/** True while the thread's terminal is showing as the floating popover. */
+export function selectThreadTerminalFloating(
+  state: Pick<TerminalUiStateStoreState, "terminalUiStateByThreadKey" | "terminalPlacement">,
+  threadRef: ScopedThreadRef | null | undefined,
+): boolean {
+  return (
+    state.terminalPlacement === "floating" &&
+    selectThreadTerminalUiState(state.terminalUiStateByThreadKey, threadRef).terminalOpen
+  );
+}
+
 function updateTerminalUiStateByThreadKey(
   terminalUiStateByThreadKey: Record<string, ThreadTerminalUiState>,
   threadRef: ScopedThreadRef,
@@ -556,6 +597,15 @@ function removeRecordEntry<T>(record: Record<string, T>, key: string): Record<st
 interface TerminalUiStateStoreState {
   terminalUiStateByThreadKey: Record<string, ThreadTerminalUiState>;
   suppressedTerminalIdsByThreadKey: Record<string, string[]>;
+  /** Where every thread's terminal shows: docked below the chat or floating over it. */
+  terminalPlacement: TerminalPlacement;
+  /** The floating layout in use, kept while docked so floating again restores it. */
+  floatingLayoutId: FloatingTerminalLayoutId;
+  setTerminalPlacement: (placement: TerminalPlacement) => void;
+  /** Switches between the dock and the floating layout last in use. */
+  toggleTerminalPlacement: () => void;
+  /** Moves the terminal to the next place: the dock, then each floating layout. */
+  cycleTerminalLayout: () => void;
   setTerminalOpen: (threadRef: ScopedThreadRef, open: boolean) => void;
   setTerminalHeight: (threadRef: ScopedThreadRef, height: number) => void;
   splitTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
@@ -617,6 +667,25 @@ export const useTerminalUiStateStore = create<TerminalUiStateStoreState>()(
       return {
         terminalUiStateByThreadKey: {},
         suppressedTerminalIdsByThreadKey: {},
+        terminalPlacement: "drawer",
+        floatingLayoutId: FLOATING_TERMINAL_LAYOUTS[0].id,
+        setTerminalPlacement: (terminalPlacement) => set({ terminalPlacement }),
+        toggleTerminalPlacement: () =>
+          set((state) => ({
+            terminalPlacement: state.terminalPlacement === "floating" ? "drawer" : "floating",
+          })),
+        cycleTerminalLayout: () =>
+          set((state) => {
+            if (state.terminalPlacement !== "floating") {
+              return {
+                terminalPlacement: "floating",
+                floatingLayoutId: FLOATING_TERMINAL_LAYOUTS[0].id,
+              };
+            }
+            const current = resolveFloatingTerminalLayout(state.floatingLayoutId);
+            const next = FLOATING_TERMINAL_LAYOUTS[FLOATING_TERMINAL_LAYOUTS.indexOf(current) + 1];
+            return next ? { floatingLayoutId: next.id } : { terminalPlacement: "drawer" };
+          }),
         setTerminalOpen: (threadRef, open) => {
           const terminalState = selectThreadTerminalUiState(
             get().terminalUiStateByThreadKey,
@@ -767,6 +836,8 @@ export const useTerminalUiStateStore = create<TerminalUiStateStoreState>()(
       migrate: migratePersistedTerminalUiStateStoreState,
       partialize: (state) => ({
         terminalUiStateByThreadKey: state.terminalUiStateByThreadKey,
+        terminalPlacement: state.terminalPlacement,
+        floatingLayoutId: state.floatingLayoutId,
       }),
     },
   ),
