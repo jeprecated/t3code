@@ -73,6 +73,7 @@ import {
   type ServerProvider,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
+  type FloatingTerminalBorderColor,
   type ThreadId,
   type ThreadLinkedPullRequest,
   type RunId,
@@ -154,6 +155,7 @@ import { Debouncer } from "@tanstack/react-pacer";
 import { useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
+  type CSSProperties,
   Fragment,
   lazy,
   memo,
@@ -410,7 +412,12 @@ import { type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useEnvironmentDisconnectDelay } from "../hooks/useEnvironmentDisconnectDelay";
-import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
+import {
+  resolveFloatingTerminalLayout,
+  selectThreadTerminalUiState,
+  type TerminalPlacement,
+  useTerminalUiStateStore,
+} from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { useEnvironmentQuery } from "../state/query";
 import { useEnvironmentScope } from "~/state/session";
@@ -959,6 +966,12 @@ function serverTerminalIdsStrictSubsetOfClient(
   return true;
 }
 
+const FLOATING_TERMINAL_BORDER_COLORS = {
+  subtle: "var(--color-border)",
+  accent: "var(--color-primary)",
+  text: "var(--color-foreground)",
+} satisfies Record<FloatingTerminalBorderColor, string>;
+
 interface PersistentThreadTerminalDrawerProps {
   threadRef: { environmentId: EnvironmentId; threadId: ThreadId };
   threadId: ThreadId;
@@ -1006,6 +1019,16 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     selectThreadTerminalUiState(state.terminalUiStateByThreadKey, threadRef),
   );
   const visible = active && terminalUiState.terminalOpen;
+  const floating = useTerminalUiStateStore((state) => state.terminalPlacement === "floating");
+  const floatingLayoutInset = useTerminalUiStateStore(
+    (state) => resolveFloatingTerminalLayout(state.floatingLayoutId).inset,
+  );
+  const storeToggleTerminalPlacement = useTerminalUiStateStore(
+    (state) => state.toggleTerminalPlacement,
+  );
+  const storeCycleTerminalLayout = useTerminalUiStateStore((state) => state.cycleTerminalLayout);
+  const floatingBorderWidth = useClientSettings((settings) => settings.floatingTerminalBorderWidth);
+  const floatingBorderColor = useClientSettings((settings) => settings.floatingTerminalBorderColor);
   const knownTerminalSessions = useKnownTerminalSessions({
     environmentId: threadRef.environmentId,
     threadId,
@@ -1164,6 +1187,24 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     [storeSetTerminalHeight, threadRef],
   );
 
+  const toggleDocked = useCallback(() => {
+    storeToggleTerminalPlacement();
+    bumpFocusRequestId();
+  }, [bumpFocusRequestId, storeToggleTerminalPlacement]);
+  const cycleLayout = useCallback(() => {
+    storeCycleTerminalLayout();
+    bumpFocusRequestId();
+  }, [bumpFocusRequestId, storeCycleTerminalLayout]);
+  const floatingShortcutLabels = useMemo(() => {
+    const options = {
+      context: { terminalFocus: true, terminalOpen: true, terminalFloating: floating },
+    };
+    return {
+      toggleDocked: shortcutLabelForCommand(keybindings, "terminal.toggleDocked", options),
+      cycleLayout: shortcutLabelForCommand(keybindings, "terminal.cycleFloatingLayout", options),
+    };
+  }, [floating, keybindings]);
+
   const splitTerminal = useCallback(() => {
     if (!hasTerminalWriteAccess() || !cwd) {
       return;
@@ -1316,18 +1357,49 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     return null;
   }
 
+  // Docked and floating share these two wrappers so switching placement only
+  // restyles them and the terminal sessions underneath stay mounted.
   return (
     <div
       className={cn(
-        "grid shrink-0 overflow-clip",
-        active ? (visible ? "grid-rows-[1fr]" : "grid-rows-[0fr]") : "hidden",
+        floating
+          ? // Positioned against the workspace root, so the popover spans the
+            // chat and the right panel but leaves the top bar clear. z-50 puts
+            // it over the composer and timeline chrome; portalled menus and
+            // dialogs come later in the document and still stack above it.
+            "pointer-events-none @container absolute inset-x-0 top-(--workspace-topbar-height) bottom-0 z-50"
+          : "grid shrink-0 overflow-clip",
+        active && floating && !visible && "invisible",
+        active && !floating && (visible ? "grid-rows-[1fr]" : "grid-rows-[0fr]"),
         active &&
+          !floating &&
           "[[data-panel-animations=true]_&]:transition-[grid-template-rows] [[data-panel-animations=true]_&]:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:ease-out",
-        active && visible && "[[data-panel-animations=true]_&]:starting:grid-rows-[0fr]!",
+        active &&
+          !floating &&
+          visible &&
+          "[[data-panel-animations=true]_&]:starting:grid-rows-[0fr]!",
+        // Last, so it overrides the display the placement classes set.
+        !active && "hidden",
       )}
     >
-      <div className="min-h-0 overflow-clip">
+      <div
+        className={
+          floating
+            ? "pointer-events-auto absolute m-2 overflow-clip rounded-lg border-solid shadow-xl [-webkit-app-region:no-drag] @max-2xl:inset-0 @2xl:inset-(--floating-terminal-inset)"
+            : "min-h-0 overflow-clip"
+        }
+        style={
+          floating
+            ? ({
+                "--floating-terminal-inset": floatingLayoutInset,
+                borderWidth: floatingBorderWidth,
+                borderColor: FLOATING_TERMINAL_BORDER_COLORS[floatingBorderColor],
+              } as CSSProperties)
+            : undefined
+        }
+      >
         <ThreadTerminalDrawer
+          mode={floating ? "floating" : "drawer"}
           threadRef={threadRef}
           threadId={threadId}
           cwd={cwd}
@@ -1343,6 +1415,14 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
           onSplitTerminal={splitTerminal}
           onSplitTerminalVertical={splitTerminalVertical}
           onNewTerminal={createNewTerminal}
+          onToggleDocked={toggleDocked}
+          onCycleLayout={cycleLayout}
+          toggleDockedShortcutLabel={
+            visible ? (floatingShortcutLabels.toggleDocked ?? undefined) : undefined
+          }
+          cycleLayoutShortcutLabel={
+            visible ? (floatingShortcutLabels.cycleLayout ?? undefined) : undefined
+          }
           splitShortcutLabel={visible ? splitShortcutLabel : undefined}
           splitVerticalShortcutLabel={visible ? splitVerticalShortcutLabel : undefined}
           newShortcutLabel={visible ? newShortcutLabel : undefined}
@@ -2076,6 +2156,10 @@ export default function ChatView(props: ChatViewProps) {
     ),
   );
   const storeSetTerminalOpen = useTerminalUiStateStore((s) => s.setTerminalOpen);
+  const terminalPlacement = useTerminalUiStateStore((s) => s.terminalPlacement);
+  const storeSetTerminalPlacement = useTerminalUiStateStore((s) => s.setTerminalPlacement);
+  const storeToggleTerminalPlacement = useTerminalUiStateStore((s) => s.toggleTerminalPlacement);
+  const storeCycleTerminalLayout = useTerminalUiStateStore((s) => s.cycleTerminalLayout);
   const storeEnsureTerminal = useTerminalUiStateStore((state) => state.ensureTerminal);
   const storeSplitTerminal = useTerminalUiStateStore((s) => s.splitTerminal);
   const storeSplitTerminalVertical = useTerminalUiStateStore((s) => s.splitTerminalVertical);
@@ -4712,6 +4796,31 @@ export default function ChatView(props: ChatViewProps) {
     setTerminalOpen(nextOpen);
   };
   const toggleTerminalVisibilityStable = useStableCallback(toggleTerminalVisibility);
+  const terminalDocked = terminalUiState.terminalOpen && terminalPlacement === "drawer";
+  const canShowTerminal = activeProject !== null && (canReadTerminal || canOperateTerminal);
+  // Shows the terminal in the given placement, or hides it when it is already
+  // showing there. `terminal.toggle` instead shows and hides it wherever it was.
+  const toggleTerminalIn = (placement: TerminalPlacement) => {
+    if (terminalUiState.terminalOpen && terminalPlacement === placement) {
+      setTerminalOpen(false);
+      return;
+    }
+    // Placement is shared by every thread, so leave it alone when this
+    // thread cannot show a terminal.
+    if (!terminalUiState.terminalOpen && !canShowTerminal) return;
+    storeSetTerminalPlacement(placement);
+    if (terminalUiState.terminalOpen) {
+      setTerminalFocusRequestId((value) => value + 1);
+      return;
+    }
+    toggleTerminalVisibility();
+  };
+  const toggleFloatingTerminalStable = useStableCallback(() => toggleTerminalIn("floating"));
+  const toggleDockedTerminalStable = useStableCallback(() => toggleTerminalIn("drawer"));
+  const swapTerminalPlacementStable = useStableCallback(() => {
+    storeToggleTerminalPlacement();
+    setTerminalFocusRequestId((value) => value + 1);
+  });
   const splitTerminal = (direction: "horizontal" | "vertical" = "horizontal") => {
     if (
       !hasTerminalWriteAccess() ||
@@ -7605,6 +7714,7 @@ export default function ChatView(props: ChatViewProps) {
   const getShortcutContext = (eventTarget: EventTarget | null = document.activeElement) => ({
     terminalFocus: getTerminalFocusOwner() !== null,
     terminalOpen: Boolean(terminalUiState.terminalOpen),
+    terminalFloating: Boolean(terminalUiState.terminalOpen) && terminalPlacement === "floating",
     previewFocus: isPreviewFocused(),
     previewOpen: previewPanelOpen,
     editableFocus: isEditableFocused(eventTarget),
@@ -7729,6 +7839,31 @@ export default function ChatView(props: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         openThreadFindStable();
+        return;
+      }
+
+      if (command === "terminal.toggleFloating") {
+        if (!terminalUiState.terminalOpen && !canShowTerminal) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) toggleFloatingTerminalStable();
+        return;
+      }
+
+      if (command === "terminal.cycleFloatingLayout") {
+        // Only a visible terminal has a layout to change.
+        if (!terminalUiState.terminalOpen) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) storeCycleTerminalLayout();
+        return;
+      }
+
+      if (command === "terminal.toggleDocked") {
+        if (!terminalUiState.terminalOpen) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) swapTerminalPlacementStable();
         return;
       }
 
@@ -7972,6 +8107,10 @@ export default function ChatView(props: ChatViewProps) {
     toggleRightPanelMaximizedStable,
     toggleThreadPanelStable,
     toggleTerminalVisibilityStable,
+    toggleFloatingTerminalStable,
+    swapTerminalPlacementStable,
+    storeCycleTerminalLayout,
+    canShowTerminal,
     composerRef,
     draftId,
     environmentId,
@@ -10736,8 +10875,13 @@ export default function ChatView(props: ChatViewProps) {
   };
   const panelToggleControlProps = {
     terminalAvailable: activeProject !== null,
-    terminalOpen: terminalUiState.terminalOpen,
-    terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
+    // The button always docks. `terminal.toggle` does the same only while the
+    // terminal's place is the dock, so the shortcut is advertised only then.
+    terminalOpen: terminalDocked,
+    terminalShortcutLabel:
+      terminalPlacement === "drawer"
+        ? shortcutLabelForCommand(keybindings, "terminal.toggle")
+        : null,
     threadPanelOpen,
     threadPanelPresentation,
     threadPanelPopoverHandle,
@@ -10745,7 +10889,7 @@ export default function ChatView(props: ChatViewProps) {
     rightPanelAvailable: activeProject !== null,
     rightPanelOpen,
     rightPanelShortcutLabel: shortcutLabelForCommand(keybindings, "rightPanel.toggle"),
-    onToggleTerminal: toggleTerminalVisibilityStable,
+    onToggleTerminal: toggleDockedTerminalStable,
     onToggleThreadPanel: toggleThreadPanelStable,
     onToggleRightPanel: toggleRightPanelStable,
   } satisfies PanelLayoutControlsProps;
