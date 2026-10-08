@@ -111,10 +111,12 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 
 ## When conditions
 
-Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
-`previewOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`,
-`turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
+Available context keys are `terminalFocus`, `terminalOpen`, `terminalFloating`,
+`previewFocus`, `previewOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`,
+`draftThreadRoute`, `turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
 `draftThreadRoute` is true on a draft thread, including a restored draft, until it is first sent.
+`terminalFloating` is true while the terminal is showing as a
+[floating popover](terminal.md#floating-terminal).
 `editableFocus` is true while a text field, the composer, or another editor has
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
 desktop app. Unknown keys evaluate to `false`.

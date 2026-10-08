@@ -434,6 +434,11 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["Diff colors"]
       : []),
     ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
+    ...(settings.floatingTerminalBorderWidth !==
+      DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderWidth ||
+    settings.floatingTerminalBorderColor !== DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderColor
+      ? ["Floating terminal border"]
+      : []),
     ...(settings.effortDisplay !== DEFAULT_UNIFIED_SETTINGS.effortDisplay
       ? ["Effort display"]
       : []),
@@ -627,6 +632,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
+      floatingTerminalBorderWidth: DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderWidth,
+      floatingTerminalBorderColor: DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderColor,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,

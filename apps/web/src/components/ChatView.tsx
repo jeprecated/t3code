@@ -1866,7 +1866,8 @@ export default function ChatView(props: ChatViewProps) {
     runShellCommandStable,
     splitPanelTerminalStable,
     splitPanelTerminalVerticalStable,
-    toggleTerminalVisibilityStable,
+    toggleDockedTerminalStable,
+    terminalPlacement,
     shortcuts: terminalShortcuts,
   } = useChatTerminalActions({
     environmentId,
@@ -2625,6 +2626,7 @@ export default function ChatView(props: ChatViewProps) {
   const getShortcutContext = (eventTarget: EventTarget | null = document.activeElement) => ({
     terminalFocus: getTerminalFocusOwner() !== null,
     terminalOpen: Boolean(terminalUiState.terminalOpen),
+    terminalFloating: Boolean(terminalUiState.terminalOpen) && terminalPlacement === "floating",
     previewFocus: isPreviewFocused(),
     previewOpen: previewPanelOpen,
     editableFocus: isEditableFocused(eventTarget),
@@ -3152,10 +3154,16 @@ export default function ChatView(props: ChatViewProps) {
       }}
     />
   ) : null;
+  const terminalDocked = terminalUiState.terminalOpen && terminalPlacement === "drawer";
   const panelToggleControlProps = {
     terminalAvailable: activeProject !== null,
-    terminalOpen: terminalUiState.terminalOpen,
-    terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
+    // The button always docks. `terminal.toggle` does the same only while the
+    // terminal's place is the dock, so the shortcut is advertised only then.
+    terminalOpen: terminalDocked,
+    terminalShortcutLabel:
+      terminalPlacement === "drawer"
+        ? shortcutLabelForCommand(keybindings, "terminal.toggle")
+        : null,
     threadPanelOpen,
     threadPanelPresentation,
     threadPanelPopoverHandle,
@@ -3163,7 +3171,7 @@ export default function ChatView(props: ChatViewProps) {
     rightPanelAvailable: activeProject !== null,
     rightPanelOpen,
     rightPanelShortcutLabel: shortcutLabelForCommand(keybindings, "rightPanel.toggle"),
-    onToggleTerminal: toggleTerminalVisibilityStable,
+    onToggleTerminal: toggleDockedTerminalStable,
     onToggleThreadPanel: toggleThreadPanelStable,
     onToggleRightPanel: toggleRightPanelStable,
   } satisfies PanelLayoutControlsProps;
