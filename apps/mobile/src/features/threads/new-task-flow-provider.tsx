@@ -380,12 +380,29 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   // workspaceRoot, and an "" basename would reject every real host below.
   const selectedWorkspaceBasename = selectedProject?.workspaceRoot.split("/").at(-1) || null;
   const selectedProjectTitle = selectedProject?.title ?? null;
+  const selectedProjectEnvironmentId = selectedProject?.environmentId ?? null;
   const environments = useMemo(() => {
     if (isScratchDraft) {
-      return scratchEnvironments.map((environment) => ({
+      const scratchOptions = scratchEnvironments.map((environment) => ({
         environmentId: environment.environmentId,
         environmentLabel: environment.environmentLabel,
       }));
+      // An offline draft keeps naming its own machine; switching still needs
+      // a connected one.
+      const ownEnvironment =
+        selectedProjectEnvironmentId !== null
+          ? savedConnectionsById[selectedProjectEnvironmentId]
+          : undefined;
+      return ownEnvironment &&
+        !scratchOptions.some((option) => option.environmentId === ownEnvironment.environmentId)
+        ? [
+            {
+              environmentId: ownEnvironment.environmentId,
+              environmentLabel: ownEnvironment.environmentLabel,
+            },
+            ...scratchOptions,
+          ]
+        : scratchOptions;
     }
     const seen = new Set<EnvironmentId>();
     const result: Array<{
@@ -430,6 +447,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     projects,
     savedConnectionsById,
     scratchEnvironments,
+    selectedProjectEnvironmentId,
     selectedRepositoryKey,
     selectedWorkspaceBasename,
     selectedProjectTitle,

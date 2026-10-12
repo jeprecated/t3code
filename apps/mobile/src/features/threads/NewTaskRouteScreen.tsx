@@ -198,7 +198,18 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
     ) ??
     scratchEnvironments[0] ??
     null;
-  const canStartScratch = scratchEnvironment !== null && reservedDestinationProject === null;
+  // Offline, a machine's existing "No project" folder still takes a queued
+  // task; only creating a missing one needs the connection.
+  const knownScratchProjects = projects.filter((project) =>
+    isScratchProject(project, serverConfigs.get(project.environmentId)?.scratchWorkspaceRoot),
+  );
+  const knownScratchProject =
+    knownScratchProjects.find((project) => project.environmentId === selectedEnvironmentId) ??
+    knownScratchProjects[0] ??
+    null;
+  const canStartScratch =
+    (scratchEnvironment !== null || knownScratchProject !== null) &&
+    reservedDestinationProject === null;
   const scratchStartInFlightRef = useRef(false);
 
   async function selectProject(project: EnvironmentProject): Promise<void> {
@@ -234,7 +245,11 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
   }
 
   async function startScratch(): Promise<void> {
-    if (!scratchEnvironment || scratchStartInFlightRef.current) return;
+    if (scratchStartInFlightRef.current) return;
+    if (!scratchEnvironment) {
+      if (knownScratchProject) await selectProject(knownScratchProject);
+      return;
+    }
     const environmentId = scratchEnvironment.environmentId;
     scratchStartInFlightRef.current = true;
     try {

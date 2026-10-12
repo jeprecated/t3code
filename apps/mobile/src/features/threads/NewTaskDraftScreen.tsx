@@ -314,6 +314,9 @@ export function NewTaskDraftScreen(props: {
     });
   const queuesInsteadOfStarting = !environmentConnected || attachmentsUploading;
   const promptInputRef = useRef<ComposerEditorHandle>(null);
+  // Send opened the branch picker ("opening" until this screen actually blurs);
+  // returning to the draft with a branch sends.
+  const branchPickForSendRef = useRef<"none" | "opening" | "open">("none");
   const loadedBranchesProjectKeyRef = useRef<string | null>(null);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [previewVideo, setPreviewVideo] = useState<VideoPreviewSource | null>(null);
@@ -1208,15 +1211,13 @@ export function NewTaskDraftScreen(props: {
         selectedProject.id,
       ) ?? flow.selectedModel;
     const workspaceMode = draft.workspaceSelection?.mode ?? flow.workspaceMode;
-    const selectedBranchName = draft.workspaceSelection?.branch ?? flow.selectedBranchName;
     const initialMessageText = draft.text.trim();
 
     if (
       attachmentBlockReason !== null ||
       !modelSelection ||
       (initialMessageText.length === 0 && draft.attachments.length === 0) ||
-      flow.submitting ||
-      (workspaceMode === "worktree" && !selectedBranchName)
+      flow.submitting
     ) {
       return;
     }
@@ -1265,6 +1266,25 @@ export function NewTaskDraftScreen(props: {
     if (contextBlockReason) {
       Dialog.alert("Too much context", contextBlockReason);
       return;
+    }
+
+    // A worktree needs a base branch. Send with the one the branch chip shows,
+    // or ask for one and send once it is picked.
+    if (
+      workspaceMode === "worktree" &&
+      !(draft.workspaceSelection?.branch ?? flow.selectedBranchName)
+    ) {
+      const shownBranch =
+        flow.availableBranches.find((branch) => branch.current) ??
+        flow.availableBranches.find((branch) => branch.isDefault);
+      if (!shownBranch) {
+        branchPickForSendRef.current = "opening";
+        promptInputRef.current?.blur();
+        void KeyboardController.dismiss({ animated: true });
+        navigation.dispatch(StackActions.push("NewTaskBranch"));
+        return;
+      }
+      flow.selectBranch(shownBranch);
     }
 
     const editingPendingTask = flow.editingPendingTask;
@@ -1334,6 +1354,22 @@ export function NewTaskDraftScreen(props: {
     scheduleUnusedComposerAttachmentCleanup(draftSnapshot.attachments);
   }
 
+  useEffect(
+    () =>
+      navigation.addListener("blur", () => {
+        if (branchPickForSendRef.current === "opening") branchPickForSendRef.current = "open";
+      }),
+    [navigation],
+  );
+  useFocusEffect(
+    useCallback(() => {
+      if (branchPickForSendRef.current !== "open") return;
+      branchPickForSendRef.current = "none";
+      // Backing out of the picker without a branch just returns to the draft.
+      if (flow.selectedBranchName) void handleStart();
+    }, [flow.selectedBranchName, handleStart]),
+  );
+
   if (!selectedProject) {
     return (
       <View className="flex-1 bg-sheet" collapsable={false}>
@@ -1367,8 +1403,7 @@ export function NewTaskDraftScreen(props: {
     !isImportingShare &&
     !flow.submitting &&
     pendingPastedTextAttachmentCount === 0 &&
-    !voiceInput.blocksSubmission &&
-    !(flow.workspaceMode === "worktree" && !flow.selectedBranchName);
+    !voiceInput.blocksSubmission;
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     // A draft attachment lives only in the draft. Without its key the screen would fall through
     // to a remote lookup for bytes the server has never seen.
