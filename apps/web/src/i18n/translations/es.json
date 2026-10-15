@@ -2533,6 +2533,13 @@
       "v": "v"
     }
   ],
+  "54ccc22be28a985d": "Personalizado…",
+  "c44c7604788e6bec": "Elegir una hora",
+  "021fe65858278fe9": "Posponer hilo",
+  "d733142d9607d7ff": "Posponer hasta",
+  "eb18cca94f59234e": "Posponer hasta…",
+  "b24d1c564aecea08": "Elegir",
+  "39b4070d872d2028": "Posponer",
   "7f8ed52b364cd3bd": [
     {
       "i": 1,
@@ -8784,6 +8791,7 @@
   "ee0314fdb92ae18f": "Hilo: resolver",
   "c215c34cf5f38f7f": "Hilo: fijar",
   "79a68734ee1191a1": "Hilo: regenerar título",
+  "35600c06fffb93cf": "Hilo: posponer o reactivar",
   "24737c375b670b30": "Hilo: deshacer",
   "8f43a21871389594": "Uso: coste",
   "18f76b5ef95b84ff": "Uso: tokens",
@@ -12001,7 +12009,6 @@
   "aa5c379423baace1": "Nuevo hilo en el proyecto actual: Shift+clic",
   "9d9d32b401d2931a": "{count, plural, one {{count} proceso de terminal en ejecución} other {{count} procesos de terminal en ejecución}}",
   "ade06f6723949b39": "Se produjo un error",
-  "021fe65858278fe9": "Posponer hilo",
   "e7c18f33bc1326f7": "Preparando",
   "26375cafb52d0503": "Objetivo",
   "ad78fae7d373cf21": "Trabajando",
