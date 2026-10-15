@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 
-import { ResolvedKeybindingsConfig } from "./keybindings.ts";
+import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings.ts";
 
 const decode = <S extends Schema.Top>(
   schema: S,
@@ -48,5 +48,16 @@ it.effect("drops malformed resolved rule entries", () =>
       parsed.map((rule) => rule.command),
       ["terminal.toggle"],
     );
+  }),
+);
+
+it.effect("accepts the snooze command", () =>
+  Effect.gen(function* () {
+    const parsedThreadSnooze = yield* decode(KeybindingRule, {
+      key: "mod+alt+shift+z",
+      command: "thread.snooze",
+      when: "!terminalFocus",
+    });
+    assert.strictEqual(parsedThreadSnooze.command, "thread.snooze");
   }),
 );

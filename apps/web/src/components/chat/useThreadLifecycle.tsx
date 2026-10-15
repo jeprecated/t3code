@@ -24,11 +24,17 @@ import {
   RuntimeMode,
 } from "@t3tools/contracts";
 import {
+  canSnooze,
   effectiveSnoozed,
   snoozeWakeLabel,
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
-import { useAcknowledgeThreadWoke, useThreadActions } from "../../hooks/useThreadActions";
+import {
+  ThreadSnoozeBlockedError,
+  useAcknowledgeThreadWoke,
+  useThreadActions,
+} from "../../hooks/useThreadActions";
+import { requestSnoozeTime } from "../SnoozePrompt";
 import { settleAndAdvance } from "../../settleAndAdvance";
 import type { ChatShortcutCommands } from "./useChatShortcuts";
 import { resolveThreadLastVisitedAt } from "../Sidebar.logic";
@@ -168,7 +174,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   } = input;
   const navigate = useNavigate();
   const router = useRouter();
-  const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
+  const { settleThread, pinThread, confirmAndUnpinThread, snoozeThread } = useThreadActions();
   const canWriteSourceControl = useEnvironmentScope(environmentId, AuthSourceControlWriteScope);
   const switchGitRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
@@ -293,6 +299,41 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     setUnsnoozingThreadKey((current) => (current === threadKey ? null : current));
   };
   const handleUnsnoozeActiveThreadStable = useStableCallback(handleUnsnoozeActiveThread);
+  // Keyboard snooze: wakes a snoozed thread; otherwise snoozes to the time
+  // chosen in the snooze picker.
+  const snoozeActiveThreadFromShortcut = async () => {
+    if (!activeThreadRef || !activeThreadShell || !serverConfigLoaded) return;
+    if (activeThreadSnoozed) {
+      await handleUnsnoozeActiveThread();
+      return;
+    }
+    const reportFailure = (error: unknown) =>
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to snooze thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    // Reject before opening the prompt rather than after a time is chosen.
+    if (!canSnooze(activeThreadShell, { now: new Date().toISOString() })) {
+      reportFailure(
+        new ThreadSnoozeBlockedError({
+          environmentId: activeThreadRef.environmentId,
+          threadId: activeThreadRef.threadId,
+        }),
+      );
+      return;
+    }
+    const threadRef = activeThreadRef;
+    const choice = await requestSnoozeTime(threadRef.environmentId);
+    if (!choice) return;
+    const result = await snoozeThread(threadRef, choice.snoozedUntil);
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      reportFailure(squashAtomCommandFailure(result));
+    }
+  };
+  const snoozeActiveThreadFromShortcutStable = useStableCallback(snoozeActiveThreadFromShortcut);
   const [restoringBranchThreadKeys, setRestoringBranchThreadKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -640,6 +681,11 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
           activeThreadPinned ? "Failed to unpin thread" : "Failed to pin thread",
         ),
       );
+    },
+    "thread.snooze": ({ event }) => {
+      if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
+      if (event.repeat || !activeThreadShell) return;
+      void snoozeActiveThreadFromShortcutStable();
     },
   } satisfies ChatShortcutCommands;
   return {
