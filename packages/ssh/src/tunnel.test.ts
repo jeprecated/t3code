@@ -820,12 +820,12 @@ describe("remote port picker", () => {
   );
 });
 
-const runScript = (home: string, args: ReadonlyArray<string>) =>
+const runScript = (home: string, args: ReadonlyArray<string>, path = process.env.PATH ?? "") =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const child = yield* spawner.spawn(
       ChildProcess.make("sh", args, {
-        env: { PATH: process.env.PATH ?? "", HOME: home },
+        env: { PATH: path, HOME: home },
         extendEnv: false,
       }),
     );
@@ -857,8 +857,17 @@ describe("archive runner script", () => {
   const hostArch = HostProcess.Architecture.defaultValue();
   const windowsHost = hostPlatform === "win32";
   const archiveVersion = "1.2.3-preview.20260911.4";
+  // The runner runs a t3 it finds on PATH, so hide any the test machine has.
+  const pathWithoutT3 = Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const directories = yield* Effect.forEach((process.env.PATH ?? "").split(":"), (directory) =>
+      fs.exists(`${directory}/t3`).pipe(Effect.map((hasT3) => (hasT3 ? [] : [directory]))),
+    );
+    return directories.flat().join(":");
+  });
 
-  const runRunner = (home: string, runner: string) => runScript(home, [runner, "--version"]);
+  const runRunner = (home: string, runner: string, path: string) =>
+    runScript(home, [runner, "--version"], path);
 
   const makeMirror = Effect.fn("makeMirror")(function* (root: string) {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -894,9 +903,14 @@ describe("archive runner script", () => {
         );
         const home = `${root}/home`;
         yield* fs.makeDirectory(home, { recursive: true });
+        const path = yield* pathWithoutT3;
 
         const results = yield* Effect.all(
-          [runRunner(home, runner), runRunner(home, runner), runRunner(home, runner)],
+          [
+            runRunner(home, runner, path),
+            runRunner(home, runner, path),
+            runRunner(home, runner, path),
+          ],
           { concurrency: "unbounded" },
         );
         for (const result of results) {
@@ -914,16 +928,55 @@ describe("archive runner script", () => {
         yield* fs.remove(`${versionsDir}/${archiveVersion}`, { recursive: true });
         yield* fs.makeDirectory(lock);
         yield* fs.writeFileString(`${lock}/pid`, "999999\n");
-        const afterDead = yield* runRunner(home, runner);
+        const afterDead = yield* runRunner(home, runner, path);
         assert.equal(afterDead.exitCode, 0, afterDead.stderr);
 
         yield* fs.remove(`${versionsDir}/${archiveVersion}`, { recursive: true });
         yield* fs.makeDirectory(lock);
-        const afterUnowned = yield* runRunner(home, runner);
+        const afterUnowned = yield* runRunner(home, runner, path);
         assert.equal(afterUnowned.exitCode, 0, afterUnowned.stderr);
         assert.isFalse(yield* fs.exists(lock));
       }).pipe(Effect.provide(NodeServices.layer)),
     60_000,
+  );
+
+  // A host's own t3 stands in for a version it lacks, so hosts running
+  // different builds still connect; the exact version still wins.
+  it.effect.skipIf(windowsHost)(
+    "runs the host's own t3 instead of downloading a missing version",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-host-runner-" });
+        const runner = `${root}/run-t3.sh`;
+        yield* fs.writeFileString(
+          runner,
+          SshTunnel.buildRemoteT3RunnerScript({
+            archiveVersion,
+            releaseBaseUrl: `file://${root}/no-mirror`,
+          }),
+        );
+        const home = `${root}/home`;
+        yield* fs.makeDirectory(`${root}/bin`, { recursive: true });
+        yield* fs.makeDirectory(home, { recursive: true });
+        yield* fs.writeFileString(`${root}/bin/t3`, '#!/bin/sh\necho "host t3 $*"\n');
+        yield* fs.chmod(`${root}/bin/t3`, 0o755);
+        const path = `${root}/bin:${yield* pathWithoutT3}`;
+
+        const fallback = yield* runRunner(home, runner, path);
+        assert.equal(fallback.exitCode, 0, fallback.stderr);
+        assert.equal(fallback.stdout, "host t3 --version\n");
+        assert.isFalse(yield* fs.exists(`${home}/.t3/runtime/versions`));
+
+        const installed = `${home}/.t3/runtime/versions/${archiveVersion}`;
+        yield* fs.makeDirectory(installed, { recursive: true });
+        yield* fs.writeFileString(`${installed}/t3`, '#!/bin/sh\necho "installed t3"\n');
+        yield* fs.chmod(`${installed}/t3`, 0o755);
+        yield* fs.writeFileString(`${installed}/.install-complete`, `${archiveVersion}\n`);
+        const exact = yield* runRunner(home, runner, path);
+        assert.equal(exact.exitCode, 0, exact.stderr);
+        assert.equal(exact.stdout, "installed t3\n");
+      }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
 
