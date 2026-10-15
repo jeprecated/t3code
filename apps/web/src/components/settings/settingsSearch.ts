@@ -1193,6 +1193,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("auto pull default branch current checkout fast forward upstream")],
   },
   {
+    id: "jujutsu-workspaces",
+    title: msg("Jujutsu workspaces"),
+    to: "/settings/source-control",
+    scope: "project-defaults",
+    searchTerms: [msg("jj jujutsu workspace colocate colocated worktree vcs")],
+  },
+  {
     id: "remove-agent-credits-on-merge",
     title: msg("Remove agent credits when merging"),
     to: "/settings/source-control",
