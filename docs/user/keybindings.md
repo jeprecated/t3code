@@ -153,6 +153,11 @@ actions of the same kind undo together. The notice remains available for five
 seconds after the latest action. The default shortcut skips text fields and
 terminals so native undo keeps working there.
 
+`thread.snooze` has no default shortcut. On the open thread it opens a snooze picker:
+press the arrow keys or Tab to move between the snooze presets and Enter to pick one.
+**Custom…** opens the same date and duration dialog as the thread menu. If the thread
+is already snoozed, the shortcut wakes it instead.
+
 `navigation.back` (`mod+[` by default) and `navigation.forward` (`mod+]`) move
 through the pages you have visited, like a browser's back and forward buttons.
 
