@@ -965,17 +965,19 @@ export const make = Effect.gen(function* () {
   const createWorktree: GitManager["Service"]["createWorktree"] = Effect.fn(
     "GitManager.createWorktree",
   )(function* (input, options) {
-    const submodules =
-      options?.submodules !== undefined
-        ? options.submodules
-        : yield* projectSettingsFor(input).pipe(
-            Effect.map(({ settings }) => settings.worktreeSubmodules),
-            Effect.orElseSucceed(() => null),
-          );
+    // Best effort: a settings read failure falls back to the checkout's t3.json and git.
+    const settings = yield* projectSettingsFor(input).pipe(
+      Effect.map(({ settings }) => settings),
+      Effect.orElseSucceed(() => null),
+    );
     const result = yield* gitCore.createWorktree(input, {
       ...(yield* readWorktreeCreationSettings),
+      jujutsu: settings?.jujutsuWorkspaces ?? false,
       ...options,
-      submodules,
+      submodules:
+        options?.submodules !== undefined
+          ? options.submodules
+          : (settings?.worktreeSubmodules ?? null),
     });
     if (input.newRefName && input.baseRefName) {
       yield* shareBranchBase(input.cwd, input.newRefName);
@@ -3937,10 +3939,13 @@ export const make = Effect.gen(function* () {
           {
             ...(onWorktreeClaimed ? { progress: { onWorktreeClaimed } } : {}),
             ...(yield* readWorktreeCreationSettings),
-            submodules: yield* projectSettingsFor(input).pipe(
-              Effect.map(({ settings }) => settings.worktreeSubmodules),
-              Effect.orElseSucceed(() => null),
-            ),
+            ...(yield* projectSettingsFor(input).pipe(
+              Effect.map(({ settings }) => ({
+                submodules: settings.worktreeSubmodules,
+                jujutsu: settings.jujutsuWorkspaces,
+              })),
+              Effect.orElseSucceed(() => ({ submodules: null, jujutsu: false })),
+            )),
           },
         );
       });

@@ -3768,6 +3768,8 @@
   "bfb159e4ddc070b9": "New worktrees",
   "88553740587a9beb": "Start from remote",
   "ae0b91ed52736998": "Uses the latest commit of the base branch’s tracked remote branch, even if its name differs. Otherwise uses the same-named branch on origin. Uses your local branch if that remote branch is missing.",
+  "e3ae45753028889c": "Jujutsu workspaces",
+  "aa121d387bea3911": "Create worktrees with jj so they show up in jj too. Needs jj 0.46+.",
   "1c97d5a78ca1fdb6": "Worktree submodules",
   "3da4debace63b2e5": "Server and provider updates",
   "e48e93f44d89ea86": "Updates",
