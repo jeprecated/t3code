@@ -55,6 +55,7 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
     "defaultAutoPull",
     "removeAgentCreditsOnMerge",
     "newWorktreesStartFromOrigin",
+    "jujutsuWorkspaces",
     "branchNamingMode",
     "branchNamePrefix",
     "branchNameInstructions",
@@ -385,6 +386,14 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       value={uniform("newWorktreesStartFromOrigin")}
                       disabled={disabledFor("newWorktreesStartFromOrigin")}
                       onValueChange={(value) => write({ newWorktreesStartFromOrigin: value })}
+                    />
+                    <SettingsSwitchRow
+                      icon="square.3.layers.3d"
+                      label="Jujutsu workspaces"
+                      subtitle="Create worktrees with jj so they show up in jj too. Needs jj 0.46+."
+                      value={uniform("jujutsuWorkspaces")}
+                      disabled={disabledFor("jujutsuWorkspaces")}
+                      onValueChange={(value) => write({ jujutsuWorkspaces: value })}
                     />
                   </SettingsSection>
                 </>
