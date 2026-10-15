@@ -167,7 +167,9 @@ credentials, and agent work stay on the remote machine.
 The remote host must be Linux or an Apple Silicon Mac with `curl` or `wget`,
 `tar`, `sha256sum` or `shasum`, and [provider setup](./install.md#providers).
 The first launch downloads T3 Code's server to `~/.t3/runtime` on the host, so
-it takes longer than later ones.
+it takes longer than later ones. A host that has `t3` on the `PATH` of a
+non-interactive shell uses that copy instead, even when it is a different
+version from your app.
 Provider CLIs must be on the `PATH` of a non-interactive login shell there;
 check with:
 

@@ -459,6 +459,11 @@ T3_RUNTIME_DIR="$HOME/.t3/runtime/versions/$T3_ARCHIVE_VERSION"
 t3_runtime_ready() {
   [ -x "$T3_RUNTIME_DIR/t3" ] && [ "$(cat "$T3_RUNTIME_DIR/.install-complete" 2>/dev/null)" = "$T3_ARCHIVE_VERSION" ]
 }
+# Fork: a host with its own t3 runs that rather than download this exact
+# version. The fork publishes no releases, and hosts may run different builds.
+if ! t3_runtime_ready && T3_HOST_T3="$(command -v t3 2>/dev/null)"; then
+  exec "$T3_HOST_T3" "$@"
+fi
 if ! t3_runtime_ready; then
   mkdir -p "$HOME/.t3/runtime/versions"
   # Concurrent launches (two clients, a retry racing a slow first run) must
