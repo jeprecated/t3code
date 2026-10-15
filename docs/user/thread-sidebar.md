@@ -408,3 +408,5 @@ A snoozed thread keeps working and stays hidden until its wake time, even while
 its agent wakes itself for background work. It comes back early for an approval,
 a new question, a failed run, or a message or answer you send. You can snooze an existing
 question and answer when the thread wakes; the question stays unanswered.
+To snooze from the keyboard, bind `thread.snooze`; see
+[keybindings](./keybindings.md#commands-with-special-behavior).

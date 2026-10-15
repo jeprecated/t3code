@@ -2589,6 +2589,13 @@
       "v": "v"
     }
   ],
+  "54ccc22be28a985d": "Benutzerdefiniert…",
+  "c44c7604788e6bec": "Zeit auswählen",
+  "021fe65858278fe9": "Thread zurückstellen",
+  "d733142d9607d7ff": "Zurückstellen bis",
+  "eb18cca94f59234e": "Zurückstellen bis…",
+  "b24d1c564aecea08": "Auswählen",
+  "39b4070d872d2028": "Zurückstellen",
   "7f8ed52b364cd3bd": [
     {
       "i": 1,
@@ -8861,6 +8868,7 @@
   "ee0314fdb92ae18f": "Thread: Erledigen",
   "c215c34cf5f38f7f": "Thread: Anheften",
   "79a68734ee1191a1": "Thread: Titel neu erzeugen",
+  "35600c06fffb93cf": "Thread: Zurückstellen oder wecken",
   "24737c375b670b30": "Thread: Rückgängig",
   "8f43a21871389594": "Nutzung: Kosten",
   "18f76b5ef95b84ff": "Nutzung: Tokens",
@@ -12100,7 +12108,6 @@
   "aa5c379423baace1": "Neuer Thread im aktuellen Projekt: Shift+Klick",
   "9d9d32b401d2931a": "{count, plural, one {{count} Terminal-Prozess läuft} other {{count} Terminal-Prozesse laufen}}",
   "ade06f6723949b39": "Fehler aufgetreten",
-  "021fe65858278fe9": "Thread zurückstellen",
   "e7c18f33bc1326f7": "Wird eingerichtet",
   "26375cafb52d0503": "Ziel",
   "ad78fae7d373cf21": "Arbeitet",
