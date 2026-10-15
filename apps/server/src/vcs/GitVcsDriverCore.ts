@@ -31,6 +31,7 @@ import {
   type ReviewDiffPreviewInput,
   type ReviewDiffFileStat,
   type ReviewDiffPreviewSource,
+  type VcsCreateWorktreeInput,
   type VcsRef,
 } from "@t3tools/contracts";
 import { dedupeRemoteBranchesWithLocalMatches } from "@t3tools/shared/git";
@@ -42,6 +43,7 @@ import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 import { resolveProjectFileBackedSetting } from "@t3tools/shared/projectSettings";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../observability/Metrics.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
+import * as JjWorkspaces from "./JjWorkspaces.ts";
 import { removeEmptyDirectory } from "./removeEmptyDirectory.ts";
 import { explicitBareRepositoryEnv, gitConfigEnv } from "./VcsProcess.ts";
 import { removeLinkedWorktree } from "./worktreeRemoval.ts";
@@ -948,6 +950,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const serviceScope = yield* Effect.scope;
   const statusFetches = new Map<string, Fiber.Fiber<void, GitCommandError>>();
   const statusFetchProcesses = yield* Semaphore.make(4);
+  const jj = yield* JjWorkspaces.make();
 
   const executeRaw: GitVcsDriver.GitVcsDriver["Service"]["execute"] = Effect.fnUntraced(
     function* (input) {
@@ -4040,6 +4043,92 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     },
   );
 
+  /** The colocated jj repository root for `cwd`, or null when it has none. */
+  const resolveJjRoot = (cwd: string) =>
+    resolveRepositoryPaths(cwd).pipe(
+      Effect.flatMap((paths) =>
+        paths ? jj.repositoryRoot(paths.gitCommonDir) : Effect.succeed(null),
+      ),
+    );
+
+  // Creates the worktree as a colocated jj workspace, then leaves git where
+  // `git worktree add` would: on the new branch, on `refName` when that is a
+  // local branch, and otherwise detached at `refName`.
+  const addJjWorktree = Effect.fn("GitVcsDriver.addJjWorktree")(function* (
+    input: VcsCreateWorktreeInput,
+    worktreePath: string,
+  ) {
+    const operation = "GitVcsDriver.createWorktree";
+    const root = yield* resolveJjRoot(input.cwd);
+    if (root === null) {
+      return yield* new GitCommandError({
+        operation,
+        command: "jj workspace add",
+        cwd: input.cwd,
+        detail:
+          "Jujutsu workspaces are on for this project, but its repository has no .jj folder beside .git. Run `jj git init --colocate` in the repository, or turn the setting off.",
+      });
+    }
+    yield* jj.requireSupportedVersion(operation, root);
+
+    const branch =
+      input.newRefName ??
+      ((yield* executeGit(
+        operation,
+        input.cwd,
+        ["show-ref", "--verify", "--quiet", `refs/heads/${input.refName}`],
+        { allowNonZeroExit: true },
+      )).exitCode === 0
+        ? input.refName
+        : null);
+    if (input.newRefName) {
+      yield* createBranchAt(
+        "GitVcsDriver.createWorktree.createBranch",
+        { cwd: input.cwd, branch: input.newRefName, startPoint: input.refName },
+        "git branch failed",
+      );
+    }
+    const pathExisted = yield* fileSystem
+      .exists(worktreePath)
+      .pipe(Effect.orElseSucceed(() => true));
+
+    yield* Effect.gen(function* () {
+      const commit = (yield* runGitStdout(operation, input.cwd, [
+        "rev-parse",
+        "--verify",
+        `${branch === null ? input.refName : `refs/heads/${branch}`}^{commit}`,
+      ])).trim();
+      yield* jj.add({
+        operation,
+        cwd: root,
+        name: path.basename(worktreePath),
+        path: worktreePath,
+        commit,
+      });
+      if (branch !== null) {
+        yield* runGit(operation, worktreePath, ["switch", "--quiet", branch], {
+          fallbackErrorDetail: "git switch failed in the new jj workspace",
+        });
+      }
+    }).pipe(
+      // Undo only what this call made: never a folder that was already there.
+      Effect.onError(() =>
+        Effect.gen(function* () {
+          if (!pathExisted) {
+            yield* jj.forgetAt({ operation, cwd: root, path: worktreePath }).pipe(Effect.ignore);
+            yield* fileSystem.remove(worktreePath, { recursive: true }).pipe(Effect.ignore);
+            yield* runGit(operation, input.cwd, ["worktree", "prune"]).pipe(Effect.ignore);
+          }
+          if (input.newRefName) {
+            yield* runGit(operation, input.cwd, ["branch", "-D", "--", input.newRefName]).pipe(
+              Effect.ignore,
+            );
+          }
+        }),
+      ),
+    );
+  });
+
   const createWorktree: GitVcsDriver.GitVcsDriver["Service"]["createWorktree"] = Effect.fn(
     "createWorktree",
   )(function* (input, options) {
@@ -4076,43 +4165,47 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       }
       worktreePath = path.join(parentDir, repoName, directoryName);
     }
-    if (input.newRefName) {
-      // Kept apart from the checkout so the shared-config lock only covers the tracking write.
-      yield* createBranchAt(
-        "GitVcsDriver.createWorktree.createBranch",
-        { cwd: input.cwd, branch: input.newRefName, startPoint: input.refName },
-        "git worktree add failed",
-      );
-    }
-    const args = ["worktree", "add", "--", worktreePath, input.newRefName ?? input.refName];
     const progress = options?.progress;
     const onCheckoutProgress = progress?.onCheckoutProgress;
 
-    const checkoutWorkers = (yield* readConfigValue(input.cwd, "checkout.workers")) ?? "0";
-    yield* executeGitWithStableDiagnostics(
-      "GitVcsDriver.createWorktree",
-      input.cwd,
-      ["-c", `checkout.workers=${checkoutWorkers}`, ...args],
-      {
-        fallbackErrorDetail: "git worktree add failed",
-        // Large checkouts and post-checkout hooks can legitimately run for many
-        // minutes; a fixed deadline kills them and leaves an orphaned worktree.
-        timeoutMs: null,
-        ...(onCheckoutProgress
-          ? {
-              // Git only prints checkout progress when stderr is a tty or the
-              // delay elapsed. GIT_PROGRESS_DELAY=0 forces it through the pipe.
-              env: { GIT_PROGRESS_DELAY: "0" },
-              progress: {
-                onStderrLine: (line) => {
-                  const parsed = parseGitCheckoutProgressLine(line);
-                  return parsed ? onCheckoutProgress(parsed) : Effect.void;
+    if (options?.jujutsu) {
+      yield* addJjWorktree(input, worktreePath);
+    } else {
+      if (input.newRefName) {
+        // Kept apart from the checkout so the shared-config lock only covers the tracking write.
+        yield* createBranchAt(
+          "GitVcsDriver.createWorktree.createBranch",
+          { cwd: input.cwd, branch: input.newRefName, startPoint: input.refName },
+          "git worktree add failed",
+        );
+      }
+      const args = ["worktree", "add", "--", worktreePath, input.newRefName ?? input.refName];
+      const checkoutWorkers = (yield* readConfigValue(input.cwd, "checkout.workers")) ?? "0";
+      yield* executeGitWithStableDiagnostics(
+        "GitVcsDriver.createWorktree",
+        input.cwd,
+        ["-c", `checkout.workers=${checkoutWorkers}`, ...args],
+        {
+          fallbackErrorDetail: "git worktree add failed",
+          // Large checkouts and post-checkout hooks can legitimately run for many
+          // minutes; a fixed deadline kills them and leaves an orphaned worktree.
+          timeoutMs: null,
+          ...(onCheckoutProgress
+            ? {
+                // Git only prints checkout progress when stderr is a tty or the
+                // delay elapsed. GIT_PROGRESS_DELAY=0 forces it through the pipe.
+                env: { GIT_PROGRESS_DELAY: "0" },
+                progress: {
+                  onStderrLine: (line) => {
+                    const parsed = parseGitCheckoutProgressLine(line);
+                    return parsed ? onCheckoutProgress(parsed) : Effect.void;
+                  },
                 },
-              },
-            }
-          : {}),
-      },
-    );
+              }
+            : {}),
+        },
+      );
+    }
 
     if (progress?.onWorktreeClaimed) {
       yield* progress.onWorktreeClaimed(worktreePath);
@@ -4565,6 +4658,21 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     // folder than this path. Resolving it once keeps Git, the Windows deletion
     // in removeLinkedWorktree, and the leftover cleanup below on one directory.
     const target = path.resolve(input.cwd, input.path);
+    // jj keeps listing a workspace whose folder git removed. Best effort, and
+    // regardless of the setting, so turning it off strands nothing.
+    const forgetJjWorkspace = resolveJjRoot(input.cwd).pipe(
+      Effect.flatMap((root) =>
+        root === null
+          ? Effect.void
+          : jj.forgetAt({ operation: "GitVcsDriver.removeWorktree", cwd: root, path: target }),
+      ),
+      Effect.catch((cause) =>
+        Effect.logWarning("GitVcsDriver.removeWorktree: could not forget the jj workspace", {
+          path: target,
+          cause,
+        }),
+      ),
+    );
     const result = yield* removeLinkedWorktree({
       operation: "GitVcsDriver.removeWorktree",
       cwd: input.cwd,
@@ -4599,7 +4707,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           );
         }
       }
-      return;
+      return yield* forgetJjWorkspace;
     }
     // Threads share paths and outside Git can remove worktrees; already-gone removals are no-ops.
     const alreadyGone =
@@ -4607,7 +4715,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       !(yield* fileSystem.exists(target).pipe(Effect.orElseSucceed(() => false)));
     if (alreadyGone) {
       yield* pruneWorktrees({ cwd: input.cwd });
-      return;
+      return yield* forgetJjWorkspace;
     }
     yield* Effect.logWarning(
       `GitVcsDriver.removeWorktree: git worktree remove exited with code ${result.exitCode} for ${input.path} (stderr length ${result.stderr.length}).`,

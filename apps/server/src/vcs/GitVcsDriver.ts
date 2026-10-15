@@ -143,6 +143,11 @@ export interface CreateWorktreeOptions {
   readonly progress?: CreateWorktreeProgress;
   /** Null or omitted defers to the checkout's t3.json. */
   readonly submodules?: WorktreeSubmodules | null;
+  /**
+   * The project-over-environment `jujutsuWorkspaces` setting: create the
+   * worktree as a colocated jj workspace instead of with `git worktree add`.
+   */
+  readonly jujutsu?: boolean;
   readonly worktreesDirectory?: string;
 }
 
