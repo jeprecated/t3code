@@ -473,6 +473,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["new worktrees latest matching remote branch local"],
   },
   {
+    id: "jujutsu-workspaces",
+    title: "Jujutsu workspaces",
+    to: "/settings/general",
+    scope: "project-defaults",
+    searchTerms: ["jj jujutsu workspace colocate colocated worktree vcs"],
+  },
+  {
     id: "add-project-starts-in",
     title: "Add project starts in",
     to: "/settings/general",

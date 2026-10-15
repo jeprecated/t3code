@@ -138,6 +138,16 @@ such as another drive, set **Settings → Storage → Worktree location** to an 
 `D:\worktrees` or `~/worktrees`. The setting is per machine. Existing worktrees stay where they
 are, and cleanup covers both the default folder and the custom one.
 
+## Jujutsu workspaces
+
+If you use [Jujutsu](https://jj-vcs.github.io/jj/) in a colocated repository (`.jj` beside
+`.git`), turn on **Jujutsu workspaces** in **Settings → General**, with the project selected to
+turn it on for one project only. New worktrees are then created with `jj workspace add`, so they
+appear in `jj workspace list` and `jj log` as well as `git worktree list`. Everything else in the
+worktree still runs git. It needs jj 0.46 or newer on the machine running T3 Code; without it, or
+in a repository that is not colocated, creating the worktree fails with a message saying why.
+Removing a worktree also removes jj's workspace, whether or not the setting is still on.
+
 ## Storage cleanup
 
 Open **Settings → Storage** to enable automatic cleanup on one machine or all connected
