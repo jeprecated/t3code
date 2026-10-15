@@ -297,3 +297,5 @@ several selected threads together. Choose **Wake thread** to bring a thread back
 A snoozed thread keeps working and stays hidden until its wake time, even while
 its agent wakes itself for background work. It comes back early only when it needs
 an approval or answer from you, when a run fails, or when you send it a message.
+To snooze from the keyboard, bind `thread.snooze`; see
+[keybindings](./keybindings.md#commands-with-special-behavior).
