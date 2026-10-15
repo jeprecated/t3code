@@ -635,9 +635,6 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin
       ? ["New worktrees start from origin"]
       : []),
-    ...(settings.jujutsuWorkspaces !== DEFAULT_UNIFIED_SETTINGS.jujutsuWorkspaces
-      ? ["Jujutsu workspaces"]
-      : []),
     ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
       ? ["Add project base directory"]
       : []),
@@ -754,7 +751,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
-      jujutsuWorkspaces: DEFAULT_UNIFIED_SETTINGS.jujutsuWorkspaces,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
@@ -2959,30 +2955,6 @@ export function GeneralSettingsPanel() {
                 updateSettings({ newWorktreesStartFromOrigin: Boolean(checked) })
               }
               aria-label="Start new worktrees from origin by default"
-            />
-          }
-        />
-        <SettingsRow
-          serverScoped
-          settingKeys={["jujutsuWorkspaces"]}
-          {...searchableSetting("jujutsu-workspaces")}
-          description="Creates new worktrees with jj workspace add, so they show up in jj as well as git. Needs a colocated jj repository and jj 0.46 or newer."
-          resetAction={
-            settings.jujutsuWorkspaces !== DEFAULT_UNIFIED_SETTINGS.jujutsuWorkspaces ? (
-              <SettingResetButton
-                label="jujutsu workspaces"
-                onClick={() =>
-                  updateSettings({ jujutsuWorkspaces: DEFAULT_UNIFIED_SETTINGS.jujutsuWorkspaces })
-                }
-              />
-            ) : null
-          }
-          control={
-            <ScopedSwitch
-              settingKeys={["jujutsuWorkspaces"]}
-              checked={settings.jujutsuWorkspaces}
-              onCheckedChange={(checked) => updateSettings({ jujutsuWorkspaces: Boolean(checked) })}
-              aria-label="Create new worktrees as Jujutsu workspaces"
             />
           }
         />
