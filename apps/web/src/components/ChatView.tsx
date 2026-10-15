@@ -95,9 +95,20 @@ import {
 } from "@t3tools/client-runtime/errors";
 import { readPastedComposerContext } from "./composerInlineTokenPaste";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
-import { effectiveSnoozed, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
+import {
+  canSnooze,
+  effectiveSnoozed,
+  resolveSnoozePresets,
+  threadWokeAt,
+  type SnoozePresetId,
+} from "@t3tools/client-runtime/state/thread-settled";
 import { childThreadInputsTitle } from "@t3tools/client-runtime/state/threads";
-import { useAcknowledgeThreadWoke, useThreadActions } from "../hooks/useThreadActions";
+import {
+  ThreadSnoozeBlockedError,
+  useAcknowledgeThreadWoke,
+  useThreadActions,
+} from "../hooks/useThreadActions";
+import { requestSnoozeTime, snoozePresetForCommand } from "./SnoozePrompt";
 import {
   deriveProviderSubagentStatus,
   deriveReportedModelSelection,
@@ -1666,7 +1677,7 @@ export default function ChatView(props: ChatViewProps) {
   const canReadTerminal = useEnvironmentScope(environmentId, AuthTerminalReadScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
   const handleNewThread = useNewThreadHandler();
-  const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
+  const { settleThread, pinThread, confirmAndUnpinThread, snoozeThread } = useThreadActions();
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
@@ -6940,6 +6951,44 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
   const handleUnsnoozeActiveThreadStable = useStableCallback(handleUnsnoozeActiveThread);
+  // Keyboard snooze: wakes a snoozed thread; otherwise snoozes to the preset,
+  // or, with no preset, to the time chosen in the snooze prompt.
+  const snoozeActiveThreadFromShortcut = async (presetId: SnoozePresetId | null) => {
+    if (!activeThreadRef || !activeThreadShell || !supportsSnooze) return;
+    if (activeThreadSnoozed) {
+      if (presetId === null) await handleUnsnoozeActiveThread();
+      return;
+    }
+    const reportFailure = (error: unknown) =>
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to snooze thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    // Reject before opening the prompt rather than after a time is chosen.
+    if (!canSnooze(activeThreadShell, { now: new Date().toISOString() })) {
+      reportFailure(
+        new ThreadSnoozeBlockedError({
+          environmentId: activeThreadRef.environmentId,
+          threadId: activeThreadRef.threadId,
+        }),
+      );
+      return;
+    }
+    const threadRef = activeThreadRef;
+    const snoozedUntil =
+      presetId === null
+        ? (await requestSnoozeTime())?.snoozedUntil
+        : resolveSnoozePresets(new Date()).find((preset) => preset.id === presetId)?.snoozedUntil;
+    if (!snoozedUntil) return;
+    const result = await snoozeThread(threadRef, snoozedUntil);
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      reportFailure(squashAtomCommandFailure(result));
+    }
+  };
+  const snoozeActiveThreadFromShortcutStable = useStableCallback(snoozeActiveThreadFromShortcut);
   const [isRestoringThreadBranch, setIsRestoringThreadBranch] = useState(false);
   const [branchRestoreConfirmOpen, setBranchRestoreConfirmOpen] = useState(false);
   const [revealedBranchMismatchKey, setRevealedBranchMismatchKey] = useState<string | null>(null);
@@ -7717,6 +7766,16 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      const snoozePresetId = snoozePresetForCommand(command);
+      if (command === "thread.snooze" || snoozePresetId !== null) {
+        if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat || !isServerThread) return;
+        void snoozeActiveThreadFromShortcutStable(snoozePresetId);
+        return;
+      }
+
       if (command === "terminal.toggle") {
         if (!terminalUiState.terminalOpen && !canReadTerminal && !canOperateTerminal) return;
         event.preventDefault();
@@ -7960,6 +8019,7 @@ export default function ChatView(props: ChatViewProps) {
     onToggleDiffStable,
     pinThread,
     settleThread,
+    snoozeActiveThreadFromShortcutStable,
     supportsPinning,
     supportsSettlement,
     confirmAndUnpinThread,

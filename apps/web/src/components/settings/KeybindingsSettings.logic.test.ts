@@ -285,6 +285,9 @@ describe("KeybindingsSettings.logic", () => {
     expect(commandLabel("view.reopenClosed")).toBe("Reopen Closed Tab");
     expect(commandLabel("preview.focusUrl")).toBe("Preview: Focus URL");
     expect(commandLabel("script.setup-db.run")).toBe("Run Script: Setup Db");
+    expect(commandLabel("thread.snooze")).toBe("Thread: Snooze or Wake");
+    expect(commandLabel("thread.snooze.threeHours")).toBe("Thread: Snooze 3 Hours");
+    expect(commandLabel("thread.snooze.nextWeek")).toBe("Thread: Snooze Until Next Week");
   });
 
   it("builds known when variable options from defaults without frontend labels", () => {
