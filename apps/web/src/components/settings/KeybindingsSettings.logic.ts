@@ -351,6 +351,14 @@ export function buildKeybindingCommandOptions(
   return [...commands].toSorted((left, right) => compareCommands(left, right, commandLabel));
 }
 
+const THREAD_SNOOZE_PRESET_LABELS: Partial<Record<KeybindingCommand, string>> = {
+  "thread.snooze.hour": "1 Hour",
+  "thread.snooze.threeHours": "3 Hours",
+  "thread.snooze.evening": "Until Evening",
+  "thread.snooze.tomorrow": "Until Tomorrow",
+  "thread.snooze.nextWeek": "Until Next Week",
+};
+
 export function commandLabel(command: KeybindingCommand): string {
   if (command === "composer.sendAlternate") return "Composer: Opposite Queue or Steer Action";
   if (command === "composer.sendBackground") return "Composer: Start in Background";
@@ -358,6 +366,9 @@ export function commandLabel(command: KeybindingCommand): string {
   if (command === "thread.steerQueuedMessage") return "Queue: Send First Queued Message as Steer";
   if (command === "thread.editQueuedMessage") return "Queue: Edit Last Queued Message";
   if (command === "thread.copyReference") return "Pull Request: Copy Link or Thread ID";
+  if (command === "thread.snooze") return "Thread: Snooze or Wake";
+  const snoozePresetLabel = THREAD_SNOOZE_PRESET_LABELS[command];
+  if (snoozePresetLabel) return `Thread: Snooze ${snoozePresetLabel}`;
   const usageMetric = METRIC_OPTIONS.find((option) => option.command === command);
   if (usageMetric) return `Usage: ${usageMetric.label}`;
   const usagePeriod = WINDOW_OPTIONS.find((option) => option.command === command);

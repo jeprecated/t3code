@@ -153,6 +153,14 @@ actions of the same kind undo together. The notice remains available for five
 seconds after the latest action. The default shortcut skips text fields and
 terminals so native undo keeps working there.
 
+`thread.snooze` has no default shortcut. On the open thread it opens a snooze prompt:
+press Tab or Shift+Tab to move between the snooze presets and Enter to pick one, or type
+a time such as `3h`, `5d`, `14`, `tomorrow 14`, `fri 9`, or `oct 20 8am`. Days without
+a time mean 9:00. If the thread is already snoozed, the shortcut wakes it instead.
+`thread.snooze.hour`, `thread.snooze.threeHours`, `thread.snooze.evening`,
+`thread.snooze.tomorrow`, and `thread.snooze.nextWeek` skip the prompt and snooze to
+that preset directly.
+
 `navigation.back` (`mod+[` by default) and `navigation.forward` (`mod+]`) move
 through the pages you have visited, like a browser's back and forward buttons.
 
