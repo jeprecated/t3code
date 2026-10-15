@@ -3710,6 +3710,8 @@
   "bfb159e4ddc070b9": "Nya worktrees",
   "88553740587a9beb": "Starta från fjärrgrenen",
   "ae0b91ed52736998": "Använder den senaste commiten i basgrenens spårade fjärrgren, även om namnet skiljer sig. Annars används grenen med samma namn på origin. Använder din lokala gren om fjärrgrenen saknas.",
+  "e3ae45753028889c": "Jujutsu-arbetsytor",
+  "aa121d387bea3911": "Skapar worktrees med jj så att de syns i jj också. Kräver jj 0.46+.",
   "1c97d5a78ca1fdb6": "Worktree-submoduler",
   "3da4debace63b2e5": "Server- och leverantörsuppdateringar",
   "e48e93f44d89ea86": "Uppdateringar",

@@ -14,6 +14,7 @@ import * as Queue from "effect/Queue";
 import type * as Path from "effect/Path";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import type { ChildProcessSpawner } from "effect/process";
 import { SCAN_CACHE_FILE_NAME } from "./usage/usageScanCache.ts";
 import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -684,6 +685,7 @@ const runCleanupTest = <A, E>(
     | Digest.Digest
     | ServerConfig.ServerConfig
     | GitVcsDriver.GitVcsDriver
+    | ChildProcessSpawner.ChildProcessSpawner
     | Path.Path
     | Scope.Scope
   >,

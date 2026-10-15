@@ -3704,6 +3704,8 @@
   "bfb159e4ddc070b9": "Worktrees nuevos",
   "88553740587a9beb": "Iniciar desde el remoto",
   "ae0b91ed52736998": "Usa el último commit de la rama remota a la que sigue la rama base, aunque su nombre sea distinto. Si no, usa la rama con el mismo nombre en origin. Usa tu rama local si falta esa rama remota.",
+  "e3ae45753028889c": "Workspaces de Jujutsu",
+  "aa121d387bea3911": "Crea worktrees con jj para que también aparezcan en jj. Requiere jj 0.46+.",
   "1c97d5a78ca1fdb6": "Submódulos de worktrees",
   "3da4debace63b2e5": "Actualizaciones del servidor y los proveedores",
   "e48e93f44d89ea86": "Actualizaciones",
