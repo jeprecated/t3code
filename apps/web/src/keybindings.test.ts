@@ -330,6 +330,48 @@ describe("settle thread shortcut", () => {
   });
 });
 
+describe("snooze thread shortcut", () => {
+  const snoozeKey = { key: "Z", ctrlKey: true, altKey: true, shiftKey: true };
+
+  it("is unbound by default", () => {
+    assert.isNull(
+      resolveShortcutCommand(event(snoozeKey), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: false },
+      }),
+    );
+  });
+
+  it("resolves a user binding, including from the composer", () => {
+    const bindings = mergeWithDefaultKeybindings(
+      compileResolvedKeybindingsConfig([
+        { key: "mod+alt+shift+z", command: "thread.snooze", when: "!terminalFocus" },
+        { key: "mod+alt+shift+y", command: "thread.snooze.tomorrow", when: "!terminalFocus" },
+      ]),
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event(snoozeKey), bindings, {
+        platform: "Linux",
+        context: { terminalFocus: false, composerFocus: true, editableFocus: true },
+      }),
+      "thread.snooze",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ ...snoozeKey, key: "Y" }), bindings, {
+        platform: "Linux",
+        context: { terminalFocus: false },
+      }),
+      "thread.snooze.tomorrow",
+    );
+    assert.isNull(
+      resolveShortcutCommand(event(snoozeKey), bindings, {
+        platform: "Linux",
+        context: { terminalFocus: true },
+      }),
+    );
+  });
+});
+
 describe("thread undo shortcut", () => {
   it("resolves mod+z with nothing editable focused", () => {
     assert.equal(

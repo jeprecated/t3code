@@ -34,6 +34,17 @@ export const MODEL_PICKER_JUMP_KEYBINDING_COMMANDS = [
 export type ModelPickerJumpKeybindingCommand =
   (typeof MODEL_PICKER_JUMP_KEYBINDING_COMMANDS)[number];
 
+/** Snooze the current thread straight to one preset, skipping the snooze prompt. */
+export const THREAD_SNOOZE_PRESET_KEYBINDING_COMMANDS = [
+  "thread.snooze.hour",
+  "thread.snooze.threeHours",
+  "thread.snooze.evening",
+  "thread.snooze.tomorrow",
+  "thread.snooze.nextWeek",
+] as const;
+export type ThreadSnoozePresetKeybindingCommand =
+  (typeof THREAD_SNOOZE_PRESET_KEYBINDING_COMMANDS)[number];
+
 const THREAD_KEYBINDING_COMMANDS = [
   "thread.stop",
   "thread.steerQueuedMessage",
@@ -44,6 +55,8 @@ const THREAD_KEYBINDING_COMMANDS = [
   "thread.settle",
   "thread.pin",
   "thread.undo",
+  "thread.snooze",
+  ...THREAD_SNOOZE_PRESET_KEYBINDING_COMMANDS,
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
 ] as const;
 export type ThreadKeybindingCommand = (typeof THREAD_KEYBINDING_COMMANDS)[number];

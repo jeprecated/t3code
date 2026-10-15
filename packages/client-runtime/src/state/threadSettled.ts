@@ -230,9 +230,9 @@ function snoozeTimeOfDayLabel(date: Date): string {
   return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-function snoozeAtHour(base: Date, hour: number): Date {
+function snoozeAtHour(base: Date, hour: number, minute = 0): Date {
   const next = DateTime.toDate(DateTime.makeUnsafe(base));
-  next.setHours(hour, 0, 0, 0);
+  next.setHours(hour, minute, 0, 0);
   return next;
 }
 
@@ -243,6 +243,10 @@ function addSnoozeDays(base: Date, days: number): Date {
   const next = DateTime.toDate(DateTime.makeUnsafe(base));
   next.setDate(next.getDate() + days);
   return next;
+}
+
+function nextMondayMorning(now: Date): Date {
+  return snoozeAtHour(addSnoozeDays(now, (1 - now.getDay() + 7) % 7 || 7), MORNING_HOUR);
 }
 
 /**
@@ -288,8 +292,7 @@ export function resolveSnoozePresets(now: Date): ReadonlyArray<SnoozePreset> {
     snoozedUntil: tomorrow.toISOString(),
   });
 
-  const daysUntilMonday = (1 - now.getDay() + 7) % 7 || 7;
-  const nextWeek = snoozeAtHour(addSnoozeDays(now, daysUntilMonday), MORNING_HOUR);
+  const nextWeek = nextMondayMorning(now);
   if (nextWeek.getTime() !== tomorrow.getTime()) {
     presets.push({
       id: "next-week",
@@ -351,4 +354,163 @@ export function localSnoozeDate(date: Date): string {
 
 export function localSnoozeTime(date: Date): string {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+export type TypedSnooze =
+  | { readonly _tag: "Wake"; readonly snoozedUntil: string }
+  | { readonly _tag: "Past" }
+  | { readonly _tag: "Unknown" };
+
+const SNOOZE_UNIT_MS: Readonly<Record<string, number>> = {
+  m: 60_000,
+  min: 60_000,
+  mins: 60_000,
+  minute: 60_000,
+  minutes: 60_000,
+  h: HOUR_MS,
+  hr: HOUR_MS,
+  hrs: HOUR_MS,
+  hour: HOUR_MS,
+  hours: HOUR_MS,
+  d: DAY_MS,
+  day: DAY_MS,
+  days: DAY_MS,
+  w: 7 * DAY_MS,
+  wk: 7 * DAY_MS,
+  week: 7 * DAY_MS,
+  weeks: 7 * DAY_MS,
+};
+
+const SNOOZE_WEEKDAYS: Readonly<Record<string, number>> = {
+  sun: 0,
+  sunday: 0,
+  mon: 1,
+  monday: 1,
+  tue: 2,
+  tues: 2,
+  tuesday: 2,
+  wed: 3,
+  wednesday: 3,
+  thu: 4,
+  thur: 4,
+  thurs: 4,
+  thursday: 4,
+  fri: 5,
+  friday: 5,
+  sat: 6,
+  saturday: 6,
+};
+
+const SNOOZE_MONTHS = [
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "may",
+  "jun",
+  "jul",
+  "aug",
+  "sep",
+  "oct",
+  "nov",
+  "dec",
+] as const;
+
+/** "14", "14:30", "2pm", "9:15am" as [hour, minute] on a 24-hour clock. */
+function parseSnoozeTimeOfDay(text: string): readonly [number, number] | null {
+  const match = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/.exec(text);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = match[2] === undefined ? 0 : Number(match[2]);
+  if (match[3] !== undefined) {
+    if (hour < 1 || hour > 12) return null;
+    hour = (hour % 12) + (match[3] === "pm" ? 12 : 0);
+  }
+  if (hour > 23 || minute > 59) return null;
+  return [hour, minute];
+}
+
+/** "oct 20" or "20 oct", optionally followed by a time. The next such date, this year or next. */
+function parseSnoozeCalendarDate(
+  text: string,
+  now: Date,
+): { readonly day: Date; readonly rest: string } | null {
+  const match =
+    /^([a-z]{3})[a-z]* (\d{1,2})(?: (.*))?$/.exec(text) ??
+    /^(\d{1,2}) ([a-z]{3})[a-z]*(?: (.*))?$/.exec(text);
+  if (!match) return null;
+  const [monthText, dayText] = /^\d/.test(match[1]!)
+    ? [match[2]!, match[1]!]
+    : [match[1]!, match[2]!];
+  const month = SNOOZE_MONTHS.indexOf(monthText as (typeof SNOOZE_MONTHS)[number]);
+  const dayOfMonth = Number(dayText);
+  if (month === -1) return null;
+  for (const year of [now.getFullYear(), now.getFullYear() + 1]) {
+    const day = new Date(year, month, dayOfMonth);
+    // Reject rolled-over dates such as "feb 30".
+    if (day.getMonth() !== month) return null;
+    if (snoozeAtHour(day, 24).getTime() > now.getTime()) return { day, rest: match[3] ?? "" };
+  }
+  return null;
+}
+
+/**
+ * Free-text snooze time for keyboard entry: durations ("30m", "5d",
+ * "1h30m", "in 3h"), times ("14", "2pm", today or else tomorrow), days with
+ * an optional time ("tomorrow 14", "fri", "oct 20 8am"; 9:00 by default),
+ * "evening", and "next week". Distinguishes text that names a past time
+ * from text it does not understand so the prompt can say which.
+ */
+export function parseTypedSnooze(input: string, now: Date): TypedSnooze {
+  const text = input.trim().toLowerCase().replace(/\s+/g, " ").replace(/^in /, "");
+  const wake = (date: Date): TypedSnooze =>
+    !Number.isFinite(date.getTime())
+      ? { _tag: "Unknown" }
+      : date.getTime() > now.getTime()
+        ? { _tag: "Wake", snoozedUntil: date.toISOString() }
+        : { _tag: "Past" };
+  if (text === "") return { _tag: "Unknown" };
+
+  const durationParts = [...text.matchAll(/(\d+(?:\.\d+)?) ?([a-z]+)/g)];
+  if (
+    durationParts.length > 0 &&
+    durationParts
+      .map((part) => part[0])
+      .join("")
+      .replaceAll(" ", "") === text.replaceAll(" ", "") &&
+    durationParts.every((part) => SNOOZE_UNIT_MS[part[2]!] !== undefined)
+  ) {
+    const elapsed = durationParts.reduce(
+      (total, part) => total + Number(part[1]) * SNOOZE_UNIT_MS[part[2]!]!,
+      0,
+    );
+    return elapsed > 0 ? wake(new Date(now.getTime() + elapsed)) : { _tag: "Unknown" };
+  }
+
+  if (text === "next week") return wake(nextMondayMorning(now));
+  if (text === "evening" || text === "tonight") return wake(snoozeAtHour(now, EVENING_HOUR));
+
+  const [first = "", ...restWords] = text.split(" ");
+  const afterFirst = restWords.join(" ");
+  let dated: { readonly day: Date; readonly rest: string } | null = null;
+  if (first === "tomorrow" || first === "tom" || first === "tmr" || first === "tmrw") {
+    dated = { day: addSnoozeDays(now, 1), rest: afterFirst };
+  } else if (first === "today") {
+    dated = { day: now, rest: afterFirst };
+  } else if (SNOOZE_WEEKDAYS[first] !== undefined) {
+    const daysAhead = (SNOOZE_WEEKDAYS[first] - now.getDay() + 7) % 7 || 7;
+    dated = { day: addSnoozeDays(now, daysAhead), rest: afterFirst };
+  } else {
+    dated = parseSnoozeCalendarDate(text, now);
+  }
+  if (dated) {
+    if (dated.rest === "") return wake(snoozeAtHour(dated.day, MORNING_HOUR));
+    const time = parseSnoozeTimeOfDay(dated.rest);
+    return time ? wake(snoozeAtHour(dated.day, time[0], time[1])) : { _tag: "Unknown" };
+  }
+
+  const time = parseSnoozeTimeOfDay(text);
+  if (!time) return { _tag: "Unknown" };
+  const today = snoozeAtHour(now, time[0], time[1]);
+  return wake(today.getTime() > now.getTime() ? today : addSnoozeDays(today, 1));
 }
