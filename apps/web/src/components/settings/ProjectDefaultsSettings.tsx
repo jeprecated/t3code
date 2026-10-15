@@ -83,6 +83,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const mixedSubmodules = useScopedSettingsMixed(["worktreeSubmodules"]);
   const mixedBrowser = useScopedSettingsMixed(["enableAgentBrowserAccess"]);
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
+  const mixedJujutsu = useScopedSettingsMixed(["jujutsuWorkspaces"]);
   const mixedAgentCredits = useScopedSettingsMixed(["removeAgentCreditsOnMerge"]);
   const mixedMergeMethod = useScopedSettingsMixed(["pullRequestMergeMethod"]);
   const modelSource = useScopedSettingSource(["defaultModelSelection"]);
@@ -411,6 +412,34 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 mixed={mixedAutoPull}
                 checked={mixedAutoPull ? false : settings.defaultAutoPull}
                 onCheckedChange={(enabled) => updateSettings({ defaultAutoPull: enabled })}
+              />
+            }
+          />
+          <SettingsRow
+            serverScoped
+            settingKeys={["jujutsuWorkspaces"]}
+            mixed={mixedJujutsu}
+            {...searchableSetting("jujutsu-workspaces")}
+            description={
+              isProjectScope
+                ? "Creates this project's new worktrees with jj workspace add, so they show up in jj as well as git. Needs a colocated jj repository and jj 0.46 or newer."
+                : "Creates new worktrees with jj workspace add, so they show up in jj as well as git. Needs a colocated jj repository and jj 0.46 or newer. Projects can override it."
+            }
+            resetAction={
+              settings.jujutsuWorkspaces ? (
+                <SettingResetButton
+                  label="jujutsu workspaces"
+                  tooltip="Reset Jujutsu workspaces to off"
+                  onClick={() => updateSettings({ jujutsuWorkspaces: false })}
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                aria-label="Create new worktrees as Jujutsu workspaces"
+                mixed={mixedJujutsu}
+                checked={mixedJujutsu ? false : settings.jujutsuWorkspaces}
+                onCheckedChange={(enabled) => updateSettings({ jujutsuWorkspaces: enabled })}
               />
             }
           />
