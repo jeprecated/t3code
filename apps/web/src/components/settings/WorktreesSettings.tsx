@@ -51,6 +51,35 @@ function StartFromRemoteRow() {
   );
 }
 
+function JujutsuWorkspacesRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  return (
+    <SettingsRow
+      serverScoped
+      settingKeys={["jujutsuWorkspaces"]}
+      {...searchableSetting("jujutsu-workspaces")}
+      description="Creates new worktrees with jj workspace add, so they show up in jj as well as git. Needs a colocated jj repository and jj 0.46 or newer."
+      resetAction={
+        settings.jujutsuWorkspaces ? (
+          <SettingResetButton
+            label="Jujutsu workspaces"
+            onClick={() => updateSettings({ jujutsuWorkspaces: false })}
+          />
+        ) : null
+      }
+      control={
+        <ScopedSwitch
+          settingKeys={["jujutsuWorkspaces"]}
+          checked={settings.jujutsuWorkspaces}
+          onCheckedChange={(checked) => updateSettings({ jujutsuWorkspaces: Boolean(checked) })}
+          aria-label="Create new worktrees as Jujutsu workspaces"
+        />
+      }
+    />
+  );
+}
+
 export function WorktreesSettingsPanel() {
   const { scope } = useSettingsScope();
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
@@ -60,6 +89,7 @@ export function WorktreesSettingsPanel() {
       <SettingsSection id="worktree-creation" title="Creation">
         {!isProjectScope && <WorktreesDirectoryRow />}
         <StartFromRemoteRow />
+        <JujutsuWorkspacesRow />
         <AdvancedSettings targetIds={[searchableSetting("worktree-submodules").id]}>
           <WorktreeSubmodulesRow />
         </AdvancedSettings>
