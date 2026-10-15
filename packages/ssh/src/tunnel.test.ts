@@ -298,6 +298,60 @@ describe("ssh tunnel scripts", () => {
     );
   });
 
+  // The runner runs a t3 it finds on PATH, so hide any the test machine has.
+  const pathWithoutT3 = (process.env.PATH ?? "")
+    .split(":")
+    .filter((directory) => !NodeFS.existsSync(NodePath.join(directory, "t3")))
+    .join(":");
+
+  // A host's own t3 stands in for a version it lacks, so hosts running
+  // different builds still connect; the exact version still wins.
+  it("runs the host's own t3 instead of downloading a missing version", () => {
+    const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-ssh-runner-"));
+    try {
+      const bin = NodePath.join(root, "bin");
+      const home = NodePath.join(root, "home");
+      NodeFS.mkdirSync(bin);
+      NodeFS.mkdirSync(home);
+      NodeFS.writeFileSync(NodePath.join(bin, "t3"), '#!/bin/sh\necho "host t3 $*"\n', {
+        mode: 0o755,
+      });
+      const runner = NodePath.join(root, "run-t3.sh");
+      NodeFS.writeFileSync(
+        runner,
+        SshTunnel.buildRemoteT3RunnerScript({
+          ...ARCHIVE,
+          releaseBaseUrl: `file://${root}/no-mirror`,
+        }),
+      );
+      const run = () =>
+        NodeChildProcess.spawnSync("sh", [runner, "--version"], {
+          encoding: "utf8",
+          env: { HOME: home, PATH: `${bin}:${pathWithoutT3}` },
+        });
+
+      const fallback = run();
+      assert.equal(fallback.status, 0, fallback.stderr);
+      assert.equal(fallback.stdout, "host t3 --version\n");
+      assert.isFalse(NodeFS.existsSync(NodePath.join(home, ".t3", "runtime", "versions")));
+
+      const installed = NodePath.join(home, ".t3", "runtime", "versions", ARCHIVE.archiveVersion);
+      NodeFS.mkdirSync(installed, { recursive: true });
+      NodeFS.writeFileSync(NodePath.join(installed, "t3"), '#!/bin/sh\necho "installed t3"\n', {
+        mode: 0o755,
+      });
+      NodeFS.writeFileSync(
+        NodePath.join(installed, ".install-complete"),
+        `${ARCHIVE.archiveVersion}\n`,
+      );
+      const exact = run();
+      assert.equal(exact.status, 0, exact.stderr);
+      assert.equal(exact.stdout, "installed t3\n");
+    } finally {
+      NodeFS.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     { host: "Darwin x86_64", system: "Darwin", machine: "x86_64", downloads: false },
     { host: "Darwin arm64", system: "Darwin", machine: "arm64", downloads: true },
@@ -323,7 +377,7 @@ describe("ssh tunnel scripts", () => {
         NodeFS.writeFileSync(runner, SshTunnel.buildRemoteT3RunnerScript(ARCHIVE));
         const result = NodeChildProcess.spawnSync("sh", [runner, "--version"], {
           encoding: "utf8",
-          env: { HOME: NodePath.join(root, "home"), PATH: `${bin}:${process.env.PATH ?? ""}` },
+          env: { HOME: NodePath.join(root, "home"), PATH: `${bin}:${pathWithoutT3}` },
         });
         assert.notEqual(result.status, 0);
         if (downloads) {
