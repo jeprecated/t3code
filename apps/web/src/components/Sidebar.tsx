@@ -63,10 +63,12 @@ import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 import {
   CheckIcon,
   ChevronDownIcon,
+  CircleAlertIcon,
   FolderIcon,
   ListFilterIcon,
   PlusIcon,
   SettingsIcon,
+  XIcon,
 } from "lucide-react";
 import {
   useEffect,
@@ -162,6 +164,25 @@ import {
 } from "../threadRoutes";
 import type { SidebarThreadSummary } from "../types";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import {
+  resolveSidebarCategoryScope,
+  sidebarCategoryScopeIncludes,
+  type SidebarCategoryScope,
+} from "@t3tools/client-runtime/state/sidebar-categories";
+import {
+  compileThreadCategoryRules,
+  resolveThreadCategoryIds,
+  threadCategoryChange,
+  threadCategoryLabel,
+} from "@t3tools/shared/threadCategories";
+import type { ProjectIconColor } from "@t3tools/contracts";
+import { CategorySwatch } from "./CategorySwatch";
+import {
+  readThreadCategoryMembership,
+  selectSidebarCategoryScope,
+  useThreadCategories,
+  useUpdateThreadCategories,
+} from "../threadCategories";
 import { cn } from "~/lib/utils";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import {
@@ -171,6 +192,7 @@ import {
 } from "./threadActionMenu.logic";
 import {
   applySidebarThreadDrop,
+  countSidebarThreadsNeedingUserOutsideScope,
   filterSidebarV2VisibleThreads,
   groupSidebarThreadsByProject,
   sidebarFolderExpansionKeys,
@@ -252,7 +274,11 @@ import {
   type SidebarProviderEntry,
   type SidebarSweepAction,
 } from "./sidebar/SidebarThreadRow";
-import { SidebarDraftBlock } from "./sidebar/SidebarDraftBlock";
+import {
+  draftScopeSubject,
+  SidebarDraftBlock,
+  type SidebarScopeSubject,
+} from "./sidebar/SidebarDraftBlock";
 import {
   SidebarProjectFolderHeader,
   sidebarFolderRowId,
@@ -336,7 +362,7 @@ type SidebarOptimisticDrop = {
 
 interface SidebarThreadPartitionInput {
   readonly threads: readonly EnvironmentThreadShell[];
-  readonly scopedProjectKeys: ReadonlySet<string> | null;
+  readonly inScope: ((thread: EnvironmentThreadShell) => boolean) | null;
   /** Tasks linked environments run for a listed thread; they show under it. */
   readonly delegatedUnderParent: ReadonlySet<string>;
   readonly serverConfigs: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>;
@@ -398,7 +424,9 @@ function routeThreadOnly(
 
 // Separate hooks cache maps independently of later Sidebar hooks and preserve dnd-kit inputs.
 function useSidebarThreads(input: {
-  readonly projectScopeKey: string | null;
+  readonly scopeKey: string | null;
+  readonly inScope: ((thread: EnvironmentThreadShell) => boolean) | null;
+  // Older settled threads page from the server by project; null pages every project.
   readonly scopedProjectKeys: ReadonlySet<string> | null;
   readonly serverConfigs: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>;
   readonly connectedEnvironmentIds: readonly EnvironmentId[];
@@ -412,7 +440,8 @@ function useSidebarThreads(input: {
   readonly keepEmptyFolders: boolean;
 }) {
   const {
-    projectScopeKey,
+    scopeKey,
+    inScope,
     scopedProjectKeys,
     serverConfigs,
     connectedEnvironmentIds,
@@ -451,19 +480,20 @@ function useSidebarThreads(input: {
   // Shared with the old per-project sidebar, so folders keep their open state.
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
+  // The settled tail restarts whenever the project or category scope changes.
   const [settledTail, setSettledTail] = useState({
-    scopeKey: projectScopeKey,
+    scopeKey,
     count: SETTLED_TAIL_INITIAL_COUNT,
   });
-  if (settledTail.scopeKey !== projectScopeKey) {
-    setSettledTail({ scopeKey: projectScopeKey, count: SETTLED_TAIL_INITIAL_COUNT });
+  if (settledTail.scopeKey !== scopeKey) {
+    setSettledTail({ scopeKey, count: SETTLED_TAIL_INITIAL_COUNT });
   }
   const settledVisibleCount =
-    settledTail.scopeKey === projectScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
+    settledTail.scopeKey === scopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
 
   const partition = partitionSidebarThreads({
     threads,
-    scopedProjectKeys,
+    inScope,
     delegatedUnderParent,
     serverConfigs,
     connectedEnvironmentIds,
@@ -599,7 +629,7 @@ function useSidebarThreads(input: {
 function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const {
     threads,
-    scopedProjectKeys,
+    inScope,
     delegatedUnderParent,
     serverConfigs,
     optimisticDrop,
@@ -607,7 +637,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     sortActiveBySend,
   } = input;
   const preciseNow = new Date().toISOString();
-  const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
+  const visible = filterSidebarV2VisibleThreads(threads, inScope, delegatedUnderParent);
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
@@ -793,6 +823,7 @@ function useSidebarLookups() {
   const serverConfigs = useServerConfigs();
   const providerEntriesByEnvironment = useAtomValue(sidebarProviderEntriesAtom);
   const projectGroups = useSidebarProjectGroups();
+  const threadCategories = useThreadCategories();
   const environmentLabelById = new Map(
     environments.map((environment) => [environment.environmentId, environment.label] as const),
   );
@@ -809,10 +840,39 @@ function useSidebarLookups() {
   const projectGroupByScopeKey = new Map(
     projectGroups.map((project) => [project.projectKey, project] as const),
   );
-  const projectScopeItems = [
+  const projectScopeItems: SidebarScopeItem[] = [
     { value: "all", label: "All projects" },
+    ...threadCategories.map((category) => ({
+      value: `category:${category.id}`,
+      label: threadCategoryLabel(category),
+      categoryScope: { type: "category" as const, categoryId: category.id },
+      color: category.color,
+    })),
+    ...(threadCategories.length > 0
+      ? [
+          {
+            value: "uncategorized",
+            label: "Uncategorized",
+            categoryScope: { type: "uncategorized" as const },
+          },
+        ]
+      : []),
     ...projectGroups.map((project) => ({ value: project.projectKey, label: project.displayName })),
   ];
+  const matchCategoryRules = compileThreadCategoryRules(threadCategories);
+  // Filtering and stripes both read this, so a thread's own category changes
+  // apply everywhere its rule matches do.
+  const categoryIdsOf = (subject: SidebarScopeSubject) =>
+    resolveThreadCategoryIds(
+      threadCategories,
+      matchCategoryRules({
+        environmentId: subject.environmentId,
+        providerInstanceId: subject.providerInstanceId,
+        branch: subject.branch,
+        project: projectByKey.get(`${subject.environmentId}:${subject.projectId}`) ?? null,
+      }),
+      subject.categories,
+    );
   return {
     projects,
     serverConfigs,
@@ -823,7 +883,18 @@ function useSidebarLookups() {
     projectDisplayNameByKey,
     projectGroupByScopeKey,
     projectScopeItems,
+    threadCategories,
+    categoryIdsOf,
   };
+}
+
+const MAX_CATEGORY_STRIPES = 3;
+
+interface SidebarScopeItem {
+  readonly value: string;
+  readonly label: string;
+  readonly categoryScope?: SidebarCategoryScope;
+  readonly color?: ProjectIconColor;
 }
 
 function ProjectScopeRowIcon(props: { isSelected: boolean; children: ReactNode }) {
@@ -887,7 +958,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     projectDisplayNameByKey,
     projectGroupByScopeKey,
     projectScopeItems,
+    threadCategories,
+    categoryIdsOf,
   } = useSidebarLookups();
+  const updateThreadCategories = useUpdateThreadCategories();
   const delegatedUnderParent = useDelegatedUnderParent();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -989,6 +1063,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const projectGroupsRef = useRef(projectGroups);
   const persistedProjectScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const setPersistedProjectScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
+  const persistedCategoryScope = useUiStateStore((store) => store.sidebarCategoryScope);
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
     reduceSidebarProjectScopeMenuState,
     { open: false, query: "" },
@@ -1073,6 +1148,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ),
         );
+  // Unknown categories resolve to "everything" without being cleared from
+  // storage, since server settings arrive after the first render.
+  const chosenCategoryScope = resolveSidebarCategoryScope(persistedCategoryScope, threadCategories);
+  // A category scope and a project scope never apply together (uiStateStore clears one for the other).
+  const chosenInScope =
+    chosenCategoryScope !== null
+      ? (subject: SidebarScopeSubject) =>
+          sidebarCategoryScopeIncludes(chosenCategoryScope, categoryIdsOf(subject))
+      : chosenScopeProjectKeys !== null
+        ? (subject: SidebarScopeSubject) =>
+            chosenScopeProjectKeys.has(`${subject.environmentId}:${subject.projectId}`)
+        : null;
   const threads = useQuietThreadShells();
   const routeRowThreadKey =
     routeThreadRef === null
@@ -1093,16 +1180,32 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   // scrolled away; a remount starts at the top, so each mount scrolls to the open
   // thread once. Render decides the widening, so the first frame of the new route
   // already lists the row; the active row's ref callback scrolls to it.
-  const { widensScope: revealWidensScope } = resolveSidebarRouteReveal({
+  const { widensScope: revealWidensScope } = resolveSidebarRouteReveal<EnvironmentThreadShell>({
     reveal: routeReveal,
     routeKey: routeRowThreadKey,
     isSearching: isSearchingThreads,
-    scopedProjectKeys: chosenScopeProjectKeys,
+    inScope: chosenInScope,
     delegatedUnderParent,
     findThread: (key) => threads.find((candidate) => threadShellKey(candidate) === key),
   });
   const projectScopeKeys = revealWidensScope ? [] : chosenProjectScopeKeys;
-  const projectScopeKey = projectScopeKeys.length === 0 ? null : projectScopeKeys.join("\n");
+  const categoryScope = revealWidensScope ? null : chosenCategoryScope;
+  const focusedCategory =
+    categoryScope?.type === "category"
+      ? (threadCategories.find((category) => category.id === categoryScope.categoryId) ?? null)
+      : null;
+  const categoryScopeValue =
+    categoryScope?.type === "category"
+      ? `category:${categoryScope.categoryId}`
+      : categoryScope?.type === "uncategorized"
+        ? "uncategorized"
+        : null;
+  const scopeKey =
+    categoryScopeValue ?? (projectScopeKeys.length === 0 ? null : projectScopeKeys.join("\n"));
+  const selectCategoryScope = (scope: SidebarCategoryScope | null) => {
+    clearSelection();
+    selectSidebarCategoryScope(scope);
+  };
   const toggleProjectScopeKey = (key: string) =>
     setProjectScopeKeys(
       projectScopeKeys.includes(key)
@@ -1117,8 +1220,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   useEffect(() => {
     if (!revealWidensScope) return;
     clearSelection();
-    setPersistedProjectScopeKeys([]);
-  }, [clearSelection, revealWidensScope, setPersistedProjectScopeKeys]);
+    selectSidebarCategoryScope(null);
+  }, [clearSelection, revealWidensScope]);
   const revealActiveRow = useActiveRowReveal(routeReveal, routeRowThreadKey);
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
   const scratchMachineLabelFor = (
@@ -1135,10 +1238,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     return environmentLabelById.get(thread.environmentId) ?? null;
   };
   const selectedProjectScopeItem =
-    projectScopeKeys.length > 1
+    categoryScopeValue === null && projectScopeKeys.length > 1
       ? null
-      : (projectScopeItems.find((item) => item.value === (projectScopeKeys[0] ?? "all")) ??
-        projectScopeItems[0]!);
+      : (projectScopeItems.find(
+          (item) => item.value === (categoryScopeValue ?? projectScopeKeys[0] ?? "all"),
+        ) ?? projectScopeItems[0]!);
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
     items: projectScopeItems,
     query: projectScopeMenuState.query,
@@ -1148,6 +1252,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
   const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
   const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
+  const threadInScope = revealWidensScope ? null : chosenInScope;
   const threadSearch = useThreadSearch(
     connectedEnvironmentIds,
     threadSearchQuery,
@@ -1166,8 +1271,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         continue;
       }
       if (
-        scopedProjectKeys !== null &&
-        !scopedProjectKeys.has(`${session.environmentId}:${session.projectId}`)
+        threadInScope !== null &&
+        !threadInScope(draftScopeSubject(session, store.draftsByThreadKey[draftKey]))
       ) {
         continue;
       }
@@ -1278,8 +1383,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     pinnedKeysById,
     activeKeysById,
   } = useSidebarThreads({
-    projectScopeKey,
-    scopedProjectKeys,
+    scopeKey,
+    inScope: threadInScope,
+    scopedProjectKeys: categoryScope === null ? scopedProjectKeys : null,
     serverConfigs,
     connectedEnvironmentIds,
     optimisticDrop,
@@ -1293,6 +1399,44 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       : null,
     keepEmptyFolders: scopedProjectGroups.length > 0,
   });
+  // The focused category's own stripe is redundant, so only the other
+  // categories a thread belongs to are marked.
+  const categoryColorsByThreadKey = (() => {
+    const colorsByThreadKey = new Map<string, string>();
+    if (threadCategories.length === 0) return colorsByThreadKey;
+    const colorByCategoryId = new Map(
+      threadCategories.map((category) => [category.id, category.color]),
+    );
+    for (const thread of threads) {
+      if (thread.archivedAt !== null) continue;
+      // Categories sharing a color would only draw identical adjacent bars,
+      // and more than three bars would run into the row's content inset.
+      const colors = [
+        ...new Set(
+          categoryIdsOf(thread)
+            .filter((categoryId) => categoryId !== focusedCategory?.id)
+            .map((categoryId) => colorByCategoryId.get(categoryId)),
+        ),
+      ]
+        .slice(0, MAX_CATEGORY_STRIPES)
+        .join(" ");
+      if (colors.length > 0) colorsByThreadKey.set(threadShellKey(thread), colors);
+    }
+    return colorsByThreadKey;
+  })();
+  const hiddenThreadsNeedingUserCount =
+    categoryScope === null ? 0 : countSidebarThreadsNeedingUserOutsideScope(threads, threadInScope);
+  // A branch or project change can move a selected thread out of the scope;
+  // bulk actions must not keep acting on rows the user can no longer see.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- prunes the selection store when a thread leaves the category scope by itself
+  useEffect(() => {
+    if (threadInScope === null) return;
+    const { selectedThreadKeys } = useThreadSelectionStore.getState();
+    if (selectedThreadKeys.size === 0) return;
+    const visibleKeys = new Set(searchableThreads.map(threadShellKey));
+    const hiddenKeys = [...selectedThreadKeys].filter((key) => !visibleKeys.has(key));
+    if (hiddenKeys.length > 0) removeFromSelection(hiddenKeys);
+  }, [removeFromSelection, searchableThreads, threadInScope]);
 
   // Ranked across environments as the palette ranks them, so one
   // environment's list does not sit above another's better matches; rows
@@ -2544,6 +2688,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
+        const categoryMembership = readThreadCategoryMembership(threadRef);
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
@@ -2577,12 +2722,31 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 titleRegeneration: configLoaded,
               },
               snoozePresets,
+              categories:
+                categoryMembership?.categories.map((category) => ({
+                  id: category.id,
+                  label: threadCategoryLabel(category),
+                  member: categoryMembership.categoryIds.includes(category.id),
+                })) ?? [],
             }),
             position,
           ),
         );
         if (clicked._tag === "Failure" || clicked.value === null) return;
         if (threadActionRequiresOperate(clicked.value) && !checkThreadOperations([thread])) return;
+        if (clicked.value.startsWith("category:") && categoryMembership) {
+          const categoryId = clicked.value.slice("category:".length);
+          void updateThreadCategories(threadRef, {
+            changes: [
+              threadCategoryChange({
+                ruleCategoryIds: categoryMembership.ruleCategoryIds,
+                categoryId,
+                member: !categoryMembership.categoryIds.includes(categoryId),
+              }),
+            ],
+          });
+          return;
+        }
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
             clicked.value === "snooze:custom"
@@ -2928,8 +3092,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       return;
                     }
                     if (!item) return;
-                    if (item.value === "all") {
-                      setProjectScopeKeys([]);
+                    if (item.categoryScope || item.value === "all") {
+                      selectCategoryScope(item.categoryScope ?? null);
                     } else if (
                       eventDetails.event instanceof MouseEvent &&
                       eventDetails.event.shiftKey
@@ -2946,14 +3110,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     render={
                       <SidebarHeaderIconButton
                         label={
-                          scopedProjectGroups.length > 0
-                            ? `Filter threads by project: ${scopedProjectGroups.map((project) => project.displayName).join(", ")}`
-                            : "Filter threads by project"
+                          categoryScope && selectedProjectScopeItem
+                            ? `Filter threads: ${selectedProjectScopeItem.label}`
+                            : scopedProjectGroups.length > 0
+                              ? `Filter threads by project: ${scopedProjectGroups.map((project) => project.displayName).join(", ")}`
+                              : "Filter threads by project"
                         }
                       />
                     }
                   >
-                    {scopedProjectGroups.length > 1 ? (
+                    {categoryScope ? (
+                      <CategorySwatch color={focusedCategory?.color ?? null} className="size-3" />
+                    ) : scopedProjectGroups.length > 1 ? (
                       <span className="flex shrink-0 -space-x-1.5">
                         {scopedProjectGroups.slice(0, 2).map((project) => (
                           <ProjectFavicon
@@ -3020,7 +3188,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         const project = projectGroupByScopeKey.get(item.value) ?? null;
                         const isSelected = project
                           ? projectScopeKeys.includes(item.value)
-                          : projectScopeKeys.length === 0;
+                          : item.categoryScope
+                            ? item.value === categoryScopeValue
+                            : projectScopeKeys.length === 0 && categoryScope === null;
                         return (
                           <ComboboxItem
                             key={item.value}
@@ -3036,6 +3206,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             <ProjectScopeRowIcon isSelected={isSelected}>
                               {project ? (
                                 <ProjectFavicon project={project} className="size-4 shrink-0" />
+                              ) : item.categoryScope ? (
+                                <span className="flex size-4 shrink-0 items-center justify-center">
+                                  <CategorySwatch color={item.color ?? null} className="size-3" />
+                                </span>
                               ) : (
                                 <FolderIcon className="size-4 shrink-0" />
                               )}
@@ -3089,10 +3263,49 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               activeSearchResultIndex={activeSearchResultIndex}
               onClearSearch={clearThreadSearch}
             />
+            {categoryScope || scopedProjectGroups.length > 0 ? (
+              <div className="mt-1 flex h-7 items-center gap-2 rounded-md bg-sidebar-row-hover pr-1 pl-2.5 text-xs font-medium text-sidebar-foreground">
+                {categoryScope ? (
+                  <CategorySwatch color={focusedCategory?.color ?? null} className="size-3" />
+                ) : scopedProjectGroups[0] ? (
+                  <ProjectFavicon project={scopedProjectGroups[0]} className="size-3.5 shrink-0" />
+                ) : null}
+                <span className="min-w-0 flex-1 truncate">
+                  {categoryScope
+                    ? selectedProjectScopeItem?.label
+                    : scopedProjectGroups.map((project) => project.displayName).join(", ")}
+                </span>
+                <Button
+                  type="button"
+                  size="icon-micro"
+                  variant="ghost-muted"
+                  aria-label="Show all threads"
+                  title="Show all threads"
+                  onClick={() => selectCategoryScope(null)}
+                >
+                  <XIcon className="size-3" />
+                </Button>
+              </div>
+            ) : null}
           </SidebarGroup>
         }
       >
         <SidebarGroup className="flex-1" role="presentation">
+          {hiddenThreadsNeedingUserCount > 0 && !isSearchingThreads ? (
+            <button
+              type="button"
+              onClick={() => selectCategoryScope(null)}
+              className="mb-1 flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-xs text-warning hover:bg-sidebar-row-hover"
+            >
+              <CircleAlertIcon aria-hidden className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {hiddenThreadsNeedingUserCount === 1
+                  ? "1 hidden thread needs you"
+                  : `${hiddenThreadsNeedingUserCount} hidden threads need you`}
+              </span>
+              <span className="shrink-0 text-sidebar-muted-foreground">Show all</span>
+            </button>
+          ) : null}
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider
@@ -3220,6 +3433,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             }
                             thread={thread}
                             variant={rowVariant}
+                            categoryColors={categoryColorsByThreadKey.get(threadKey) ?? ""}
                             navigationParent={
                               folderRow ??
                               (section === "working" ||
@@ -3315,7 +3529,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           key="draft-sessions"
                           projectByKey={projectByKey}
                           projectDisplayNameByKey={projectDisplayNameByKey}
-                          scopedProjectKeys={scopedProjectKeys}
+                          inScope={threadInScope}
                           routeDraftId={routeDraftIdForRows}
                           onNavigateToDraft={navigateToDraft}
                           onDraftContextMenu={handleDraftContextMenu}
@@ -3517,6 +3731,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     Add project
                   </button>
                 </>
+              ) : categoryScope ? (
+                focusedCategory ? (
+                  `No threads in ${selectedProjectScopeItem?.label} yet`
+                ) : (
+                  "Every thread has a category"
+                )
               ) : scopedProjectGroups.length > 1 ? (
                 "No threads in these projects yet"
               ) : scopedProjectGroups[0] ? (

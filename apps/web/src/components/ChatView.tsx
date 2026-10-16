@@ -48,6 +48,7 @@ import {
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
+import { useThreadCategorySuggestionBanner } from "./chat/ThreadCategorySuggestion";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
 import { useChatShortcuts } from "./chat/useChatShortcuts";
@@ -2520,6 +2521,19 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const categorySuggestionBanner = useThreadCategorySuggestionBanner({
+    threadRef: activeThreadShell ? activeThreadRef : null,
+    subject: activeThreadShell
+      ? {
+          environmentId: activeThreadShell.environmentId,
+          providerInstanceId: activeThreadShell.providerInstanceId,
+          branch: activeThreadShell.branch,
+          project: activeProject,
+        }
+      : null,
+    state: activeThreadShell?.categories,
+    messages: serverProjection?.messages ?? null,
+  });
   const composerBannerItems = (() => {
     const fallbackSelection = draftFallback?.selection;
     const defaultSelection =
@@ -2569,6 +2583,8 @@ export default function ChatView(props: ChatViewProps) {
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
+    const categorySuggestionItems =
+      categorySuggestionBanner === null ? [] : [categorySuggestionBanner];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,
@@ -2577,6 +2593,7 @@ export default function ChatView(props: ChatViewProps) {
         ...usageLimitsItems,
         ...projectCloneItems,
         ...systemComposerBannerItems,
+        ...categorySuggestionItems,
       ];
     }
     return [
@@ -2586,6 +2603,7 @@ export default function ChatView(props: ChatViewProps) {
       ...usageLimitsItems,
       ...projectCloneItems,
       ...systemComposerBannerItems,
+      ...categorySuggestionItems,
       branchMismatchBannerItem({
         mismatchKey: activeBranchMismatchKey,
         mismatch: localCheckoutBranchMismatch,

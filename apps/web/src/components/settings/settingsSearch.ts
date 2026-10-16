@@ -426,6 +426,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     scope: "environment-defaults",
   },
   {
+    id: "thread-categories",
+    title: "Thread categories",
+    to: "/settings/general",
+    searchTerms: [
+      "filter sidebar threads repositories client work color stripe rules groups focus suggested tags agents",
+    ],
+  },
+  {
     id: "snooze-limited-threads",
     title: "Snooze until limits reset",
     to: "/settings/threads",

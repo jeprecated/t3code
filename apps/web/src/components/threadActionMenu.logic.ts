@@ -21,6 +21,8 @@ export type ThreadActionMenuId =
   | "regenerate-title"
   | "mark-unread"
   | "share-guest"
+  | "categories"
+  | `category:${string}`
   | "copy"
   | "copy-path"
   | "copy-branch"
@@ -95,6 +97,12 @@ export interface ThreadActionMenuState {
   readonly canShareWithGuest?: boolean;
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
+  /** Empty when the thread's environment cannot store categories or none are defined. */
+  readonly categories: ReadonlyArray<{
+    readonly id: string;
+    readonly label: string;
+    readonly member: boolean;
+  }>;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -180,6 +188,20 @@ export function buildThreadActionMenuItems(
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
     ...(state.canShareWithGuest
       ? [{ id: "share-guest" as const, label: "Share with guest", icon: "user-plus" }]
+      : []),
+    ...(state.categories.length > 0
+      ? [
+          {
+            id: "categories" as const,
+            label: "Categories",
+            icon: "tag",
+            children: state.categories.map((category) => ({
+              id: `category:${category.id}` as const,
+              label: category.label,
+              checked: category.member,
+            })),
+          },
+        ]
       : []),
     ...(state.projectFilter
       ? [

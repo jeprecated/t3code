@@ -619,12 +619,10 @@ export function resolveSidebarRowThreadId(
  * the sidebar lists, by thread key; they show under that thread, as subagents do.
  */
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage"> & {
-    projectId: string;
-  },
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage">,
 >(
   threads: readonly T[],
-  scopedProjectKeys: ReadonlySet<string> | null,
+  inScope: ((thread: T) => boolean) | null,
   delegatedUnderParent: ReadonlySet<string>,
 ): T[] {
   return threads.filter(
@@ -635,9 +633,22 @@ export function filterSidebarV2VisibleThreads<
         thread.lineage,
         delegatedUnderParent,
       ) &&
-      (scopedProjectKeys === null ||
-        scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+      (inScope === null || inScope(thread)),
   );
+}
+
+/** Threads a scope hides that are blocked on the user, so a focus never buries them. */
+export function countSidebarThreadsNeedingUserOutsideScope<
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & SidebarThreadStatusInput,
+>(threads: readonly T[], inScope: ((thread: T) => boolean) | null): number {
+  if (inScope === null) return 0;
+  let count = 0;
+  for (const thread of threads) {
+    if (thread.archivedAt !== null || isSidebarSubagentThread(thread) || inScope(thread)) continue;
+    const status = resolveSidebarThreadStatus(thread);
+    if (status === "approval" || status === "input") count += 1;
+  }
+  return count;
 }
 
 export function buildBulkTitleRegenerationContextMenuItem(input: {
