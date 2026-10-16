@@ -62,6 +62,7 @@ import { freshSessionBannerItem } from "./chat/ComposerFreshSession";
 import { heldComposerSendBannerItem } from "./chat/ComposerHeldSendBanner";
 import { armFreshSession, disarmFreshSession, useFreshSessionArmed } from "./chat/freshSessionArms";
 import { cancelHeldComposerSend, useComposerSendHeld } from "./chat/preparingComposerImages";
+import { useThreadCategorySuggestionBanner } from "./chat/ThreadCategorySuggestion";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
 import { useChatShortcuts } from "./chat/useChatShortcuts";
@@ -2720,6 +2721,19 @@ export default function ChatView(props: ChatViewProps) {
       : null,
     messages,
   );
+  const categorySuggestionBanner = useThreadCategorySuggestionBanner({
+    threadRef: activeThreadShell ? activeThreadRef : null,
+    subject: activeThreadShell
+      ? {
+          environmentId: activeThreadShell.environmentId,
+          providerInstanceId: activeThreadShell.providerInstanceId,
+          branch: activeThreadShell.branch,
+          project: activeProject,
+        }
+      : null,
+    state: activeThreadShell?.categories,
+    messages: serverProjection?.messages ?? null,
+  });
   const composerBannerItems = (() => {
     const fallbackSelection = draftFallback?.selection;
     const defaultSelection =
@@ -2789,6 +2803,8 @@ export default function ChatView(props: ChatViewProps) {
           ),
         ]
       : [];
+    const categorySuggestionItems =
+      categorySuggestionBanner === null ? [] : [categorySuggestionBanner];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,
@@ -2800,6 +2816,7 @@ export default function ChatView(props: ChatViewProps) {
         ...freshSessionItems,
         ...heldSendItems,
         ...systemComposerBannerItems,
+        ...categorySuggestionItems,
       ];
     }
     return [
@@ -2812,6 +2829,7 @@ export default function ChatView(props: ChatViewProps) {
       ...freshSessionItems,
       ...heldSendItems,
       ...systemComposerBannerItems,
+      ...categorySuggestionItems,
       branchMismatchBannerItem(
         {
           mismatchKey: activeBranchMismatchKey,

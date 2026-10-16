@@ -46,6 +46,8 @@ import {
   selectProjectGroupingSettings,
 } from "@t3tools/client-runtime/state/project-grouping";
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
+import { threadCategoryChange, threadCategoryLabel } from "@t3tools/shared/threadCategories";
+import { readThreadCategoryMembership, useUpdateThreadCategories } from "../threadCategories";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
@@ -96,6 +98,7 @@ export function useThreadActionMenu(input: {
     reportFailure: false,
   });
   const handleNewThread = useNewThreadHandler();
+  const updateThreadCategories = useUpdateThreadCategories();
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
@@ -138,6 +141,7 @@ export function useThreadActionMenu(input: {
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
+      const categoryMembership = readThreadCategoryMembership(threadRef);
       const items = buildThreadActionMenuItems({
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         canFind: onFind !== undefined,
@@ -154,6 +158,12 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+        categories:
+          categoryMembership?.categories.map((category) => ({
+            id: category.id,
+            label: threadCategoryLabel(category),
+            member: categoryMembership.categoryIds.includes(category.id),
+          })) ?? [],
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -166,6 +176,19 @@ export function useThreadActionMenu(input: {
           m(msg("Thread action unavailable")),
           new Error(m(msg("This connection cannot change threads."))),
         );
+        return;
+      }
+      if (action.startsWith("category:") && categoryMembership) {
+        const categoryId = action.slice("category:".length);
+        await updateThreadCategories(threadRef, {
+          changes: [
+            threadCategoryChange({
+              ruleCategoryIds: categoryMembership.ruleCategoryIds,
+              categoryId,
+              member: !categoryMembership.categoryIds.includes(categoryId),
+            }),
+          ],
+        });
         return;
       }
       if (action.startsWith("snooze:")) {

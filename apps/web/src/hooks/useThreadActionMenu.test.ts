@@ -85,6 +85,10 @@ vi.mock("@t3tools/client-runtime/state/project-grouping", () => ({
   derivePhysicalProjectKey: () => "project",
   selectProjectGroupingSettings: () => ({}),
 }));
+vi.mock("../threadCategories", () => ({
+  readThreadCategoryMembership: () => null,
+  useUpdateThreadCategories: () => vi.fn(),
+}));
 vi.mock("../sidebarProjectGrouping", () => ({
   buildPhysicalToLogicalProjectKeyMap: () => new Map(),
 }));

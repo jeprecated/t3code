@@ -69,6 +69,7 @@ import { scopedIdleCompaction } from "./scopedSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { ThreadTitleInstructionsSettings } from "./ThreadTitleInstructionsSettings";
 import { SnoozePresetsRow } from "./SnoozePresetsSettings";
+import { ThreadCategoriesSetting } from "./ThreadCategoriesSetting";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import { managedTelemetryOffMessage, usePrimaryManagedPolicy } from "../../state/managedPolicy";
 import {
@@ -898,6 +899,7 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+        <ThreadCategoriesSetting />
         <SettingsRow
           {...setting("project-order")}
           description={<T>Order of projects in the sidebar project picker and command palette.</T>}

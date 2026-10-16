@@ -1003,6 +1003,40 @@ export function summarizeT3ToolCalls(
           );
       break;
     }
+    case "thread-categories": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Listed thread categories {count} time} other {Listed thread categories {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to list thread categories {count} time} other {Tried to list thread categories {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
+    case "thread-categorize": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Categorized threads {count} time} other {Categorized threads {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to categorize threads {count} time} other {Tried to categorize threads {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "queue-list": {
       const count = selected.length;
       label = done
