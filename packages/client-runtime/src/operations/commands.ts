@@ -456,6 +456,24 @@ export const pinThread = Effect.fn("EnvironmentCommands.pinThread")(function* (
 export interface SetThreadAutoSettleInput extends ThreadCommandInput {
   readonly enabled: boolean;
 }
+
+export interface UpdateThreadCategoriesInput extends ThreadCommandInput {
+  readonly changes?: ReadonlyArray<
+    import("@t3tools/contracts").OrchestrationV2ThreadCategoryChange
+  >;
+  readonly resolveSuggestion?: boolean;
+}
+export const updateThreadCategories = Effect.fn("EnvironmentCommands.updateThreadCategories")(
+  function* (input: UpdateThreadCategoriesInput) {
+    return yield* dispatch({
+      type: "thread.categories.update",
+      commandId: yield* allocateCommandId(input),
+      threadId: input.threadId,
+      ...(input.changes === undefined ? {} : { changes: input.changes }),
+      ...(input.resolveSuggestion === true ? { resolveSuggestion: true } : {}),
+    });
+  },
+);
 export const setThreadAutoSettle = Effect.fn("EnvironmentCommands.setThreadAutoSettle")(function* (
   input: SetThreadAutoSettleInput,
 ) {

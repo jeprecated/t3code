@@ -398,6 +398,22 @@ resultant title, title-regeneration marker, and linked pull request. Reusing a
 receipt. Thread list and read results expose the linked pull request, and thread
 detail also exposes an in-flight title regeneration.
 
+### `t3_thread_categories` and `t3_thread_categorize`
+
+Categories are the user's `threadCategories` server setting; clients write the
+same list, with the same ids, to every connected environment, and these tools
+answer from the calling environment's copy. Agents cannot create, rename, or
+delete categories.
+
+`t3_thread_categories` lists them and, for `threadId` or the calling thread, the
+thread's effective categories by name, the ones its rules give it, and any
+pending suggestion. `t3_thread_categorize` adds and removes categories named by
+id or case-insensitive name through `thread.categories.update`; removing a
+rule-given category excludes it for that thread only. Unknown names fail with
+`invalid_request` and change nothing. The command keeps the thread's `updatedAt`,
+so tagging never postpones auto-settle. Reusing a `clientRequestId` replays the
+same command receipt.
+
 ### `t3_thread_send`
 
 Sends a message to any ordinary or delegated thread in the environment:

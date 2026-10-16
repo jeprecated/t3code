@@ -13,6 +13,7 @@ import {
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
+  setSidebarCategoryScope,
   setSidebarProjectScopeKey,
   setThreadChangedFilesExpanded,
   type UiState,
@@ -23,6 +24,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     sidebarProjectScopeKey: null,
+    sidebarCategoryScope: null,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -156,6 +158,27 @@ describe("uiStateStore pure functions", () => {
     expect(setSidebarProjectScopeKey(scoped, null).sidebarProjectScopeKey).toBeNull();
     expect(setSidebarProjectScopeKey(scoped, "").sidebarProjectScopeKey).toBeNull();
   });
+
+  it("keeps the project scope and the category scope mutually exclusive", () => {
+    const projectScoped = setSidebarProjectScopeKey(makeUiState(), "github.com/pingdotgg/t3code");
+    const focused = setSidebarCategoryScope(projectScoped, {
+      type: "category",
+      categoryId: "work",
+    });
+
+    expect(focused).toMatchObject({
+      sidebarProjectScopeKey: null,
+      sidebarCategoryScope: { type: "category", categoryId: "work" },
+    });
+    expect(setSidebarCategoryScope(focused, { type: "category", categoryId: "work" })).toBe(
+      focused,
+    );
+    expect(setSidebarProjectScopeKey(focused, null)).toBe(focused);
+    expect(setSidebarProjectScopeKey(focused, "github.com/me/nix")).toMatchObject({
+      sidebarProjectScopeKey: "github.com/me/nix",
+      sidebarCategoryScope: null,
+    });
+  });
 });
 
 describe("parsePersistedState", () => {
@@ -202,6 +225,7 @@ describe("parsePersistedState", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
+      sidebarCategoryScope: null,
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -324,6 +348,7 @@ describe("uiStateStore persistence", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
+      sidebarCategoryScope: null,
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -336,6 +361,19 @@ describe("uiStateStore persistence", () => {
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
     });
+  });
+
+  it("restores the sidebar category scope across reloads and drops malformed ones", () => {
+    persistState(makeUiState({ sidebarCategoryScope: { type: "uncategorized" } }));
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+
+    expect(parsePersistedState(persisted).sidebarCategoryScope).toEqual({ type: "uncategorized" });
+    expect(
+      parsePersistedState({ sidebarCategoryScope: { type: "category" } } as PersistedUiState)
+        .sidebarCategoryScope,
+    ).toBeNull();
   });
 
   it("restores the sidebar project scope across reloads", () => {
