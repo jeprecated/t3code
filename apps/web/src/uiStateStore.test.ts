@@ -12,6 +12,7 @@ import {
   reorderProjects,
   resolveProjectExpanded,
   setProjectExpanded,
+  setSidebarCategoryScope,
   type UiState,
 } from "./uiStateStore";
 
@@ -20,6 +21,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     sidebarProjectScopeKeys: [],
+    sidebarCategoryScope: null,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -92,6 +94,23 @@ describe("uiStateStore pure functions", () => {
 
     expect(next.projectOrder).toEqual([keyB, keyC, keyALocal, keyARemote]);
   });
+
+  it("keeps the project scope and the category scope mutually exclusive", () => {
+    const projectScoped = makeUiState({ sidebarProjectScopeKeys: ["github.com/pingdotgg/t3code"] });
+    const focused = setSidebarCategoryScope(projectScoped, {
+      type: "category",
+      categoryId: "work",
+    });
+
+    expect(focused).toMatchObject({
+      sidebarProjectScopeKeys: [],
+      sidebarCategoryScope: { type: "category", categoryId: "work" },
+    });
+    expect(setSidebarCategoryScope(focused, { type: "category", categoryId: "work" })).toBe(
+      focused,
+    );
+    expect(setSidebarCategoryScope(focused, null).sidebarCategoryScope).toBeNull();
+  });
 });
 
 describe("parsePersistedState", () => {
@@ -126,6 +145,7 @@ describe("parsePersistedState", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKeys: [],
+      sidebarCategoryScope: null,
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -231,6 +251,7 @@ describe("uiStateStore persistence", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKeys: [],
+      sidebarCategoryScope: null,
       sidebarProjectScopeKey: null,
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
@@ -272,5 +293,18 @@ describe("uiStateStore persistence", () => {
       parsePersistedState({ sidebarProjectScopeKey: "github.com/pingdotgg/t3code" })
         .sidebarProjectScopeKeys,
     ).toEqual(["github.com/pingdotgg/t3code"]);
+  });
+
+  it("restores the sidebar category scope across reloads and drops malformed ones", () => {
+    persistState(makeUiState({ sidebarCategoryScope: { type: "uncategorized" } }));
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+
+    expect(parsePersistedState(persisted).sidebarCategoryScope).toEqual({ type: "uncategorized" });
+    expect(
+      parsePersistedState({ sidebarCategoryScope: { type: "category" } } as PersistedUiState)
+        .sidebarCategoryScope,
+    ).toBeNull();
   });
 });

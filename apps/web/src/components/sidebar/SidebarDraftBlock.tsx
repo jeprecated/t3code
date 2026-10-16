@@ -9,6 +9,11 @@ import {
 } from "react";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { useShallow } from "zustand/react/shallow";
+import type {
+  EnvironmentId,
+  OrchestrationV2ThreadCategories,
+  ProjectId,
+} from "@t3tools/contracts";
 import { cn } from "~/lib/utils";
 import { resolveSidebarRowAccessibility } from "../Sidebar.logic";
 import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
@@ -139,10 +144,26 @@ interface SidebarDraftRowData {
   composer: ComposerThreadDraftState;
 }
 
+export interface SidebarScopeSubject {
+  /** A thread's own category changes; drafts only have their rule matches. */
+  readonly categories?: OrchestrationV2ThreadCategories | null | undefined;
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly branch: string | null;
+  readonly providerInstanceId: string | null;
+}
+
+export function draftScopeSubject(
+  session: DraftSessionState,
+  composer: ComposerThreadDraftState | undefined,
+): SidebarScopeSubject {
+  return { ...session, providerInstanceId: composer?.activeProvider ?? null };
+}
+
 export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   projectByKey: ReadonlyMap<string, EnvironmentProject>;
   projectDisplayNameByKey: ReadonlyMap<string, string>;
-  scopedProjectKeys: ReadonlySet<string> | null;
+  inScope: ((subject: SidebarScopeSubject) => boolean) | null;
   routeDraftId: string | null;
   onNavigateToDraft: (draftId: DraftId) => void;
   onDraftContextMenu: (draftId: DraftId, position: { x: number; y: number }) => void;
@@ -181,8 +202,8 @@ export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
         continue;
       }
       if (
-        props.scopedProjectKeys !== null &&
-        !props.scopedProjectKeys.has(`${session.environmentId}:${session.projectId}`)
+        props.inScope !== null &&
+        !props.inScope(draftScopeSubject(session, draftsByThreadKey[draftKey]))
       ) {
         continue;
       }

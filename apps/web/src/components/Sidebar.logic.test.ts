@@ -8,6 +8,7 @@ import { AsyncResult } from "effect/reactivity";
 import {
   shouldCreateNewThreadInCurrentProject,
   archiveSelectedThreadEntries,
+  countSidebarThreadsNeedingUserOutsideScope,
   deleteSelectedThreadEntries,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
@@ -587,6 +588,7 @@ describe("resolveThreadStatusPill", () => {
       }),
     ).toBeNull();
   });
+
 });
 
 describe("resolveProjectStatusIndicator", () => {
@@ -1566,6 +1568,8 @@ describe("pendingSidebarRouteReveal", () => {
 
 describe("resolveSidebarRouteReveal", () => {
   const scopedProjectKeys = new Set(["environment-test:project-scoped"]);
+  const inScope = (thread: { environmentId: string; projectId: string }) =>
+    scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`);
   const hidden = makeThreadFixture({ projectId: ProjectId.make("project-other") });
   const hiddenKey = "environment-test:thread-test";
   const findThread = (key: string) => (key === hiddenKey ? hidden : undefined);
@@ -1576,7 +1580,7 @@ describe("resolveSidebarRouteReveal", () => {
         reveal: { observedKey: "environment-test:other", pendingKey: null },
         routeKey: hiddenKey,
         isSearching: false,
-        scopedProjectKeys,
+        inScope,
         delegatedUnderParent: new Set(),
         findThread,
       }),
@@ -1590,7 +1594,7 @@ describe("resolveSidebarRouteReveal", () => {
         reveal: { observedKey: hiddenKey, pendingKey: null },
         routeKey: hiddenKey,
         isSearching: false,
-        scopedProjectKeys,
+        inScope,
         delegatedUnderParent: new Set(),
         findThread,
       }),
@@ -1606,7 +1610,7 @@ describe("resolveSidebarRouteReveal", () => {
         reveal,
         routeKey,
         isSearching: false,
-        scopedProjectKeys,
+        inScope,
         delegatedUnderParent: new Set(),
         findThread,
       });
@@ -1620,7 +1624,7 @@ describe("resolveSidebarRouteReveal", () => {
         reveal: { observedKey: hiddenKey, pendingKey: hiddenKey },
         routeKey: hiddenKey,
         isSearching: true,
-        scopedProjectKeys,
+        inScope,
         delegatedUnderParent: new Set(),
         findThread,
       }),
@@ -1742,5 +1746,31 @@ describe("shouldCreateNewThreadInCurrentProject", () => {
     expect(shouldCreateNewThreadInCurrentProject(false, 1, 3)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(false, 0, 0)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(true, 2, 2)).toBe(true);
+  });
+});
+
+describe("countSidebarThreadsNeedingUserOutsideScope", () => {
+  it("counts only hidden threads that are blocked on the user", () => {
+    const inScope = makeThreadFixture({ id: ThreadId.make("in"), hasPendingUserInput: true });
+    const hiddenInput = makeThreadFixture({
+      id: ThreadId.make("input"),
+      hasPendingUserInput: true,
+    });
+    const hiddenApproval = makeThreadFixture({
+      id: ThreadId.make("approval"),
+      hasPendingApprovals: true,
+    });
+    const hiddenIdle = makeThreadFixture({ id: ThreadId.make("idle") });
+    const hiddenArchived = makeThreadFixture({
+      id: ThreadId.make("archived"),
+      hasPendingUserInput: true,
+      archivedAt: "2026-01-02T00:00:00.000Z",
+    });
+    const threads = [inScope, hiddenInput, hiddenApproval, hiddenIdle, hiddenArchived];
+
+    expect(
+      countSidebarThreadsNeedingUserOutsideScope(threads, (thread) => thread.id === inScope.id),
+    ).toBe(2);
+    expect(countSidebarThreadsNeedingUserOutsideScope(threads, null)).toBe(0);
   });
 });

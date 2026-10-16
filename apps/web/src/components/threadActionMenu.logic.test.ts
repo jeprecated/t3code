@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildThreadActionMenuItems, type ThreadActionMenuState } from "./threadActionMenu.logic";
+import {
+  buildThreadActionMenuItems,
+  threadActionRequiresOperate,
+  type ThreadActionMenuState,
+} from "./threadActionMenu.logic";
 
 const baseState: ThreadActionMenuState = {
   canOperate: true,
@@ -13,6 +17,7 @@ const baseState: ThreadActionMenuState = {
   canSnoozeNow: true,
   isRegeneratingTitle: false,
   isRunning: false,
+  categories: [],
   supports: {
     settlement: true,
     autoSettleOptOut: true,
@@ -26,6 +31,28 @@ const baseState: ThreadActionMenuState = {
 };
 
 describe("buildThreadActionMenuItems", () => {
+  it("lists every category, checked where the thread belongs, and needs operate access", () => {
+    expect(buildThreadActionMenuItems(baseState).map((item) => item.id)).not.toContain(
+      "categories",
+    );
+    const categories = [
+      { id: "mobile", label: "Mobile", member: true },
+      { id: "gpt", label: "GPT Live", member: false },
+    ];
+    const menu = buildThreadActionMenuItems({ ...baseState, categories }).find(
+      (item) => item.id === "categories",
+    );
+    expect(menu?.children).toEqual([
+      { id: "category:mobile", label: "Mobile", checked: true },
+      { id: "category:gpt", label: "GPT Live", checked: false },
+    ]);
+    const denied = buildThreadActionMenuItems({ ...baseState, canOperate: false, categories }).find(
+      (item) => item.id === "categories",
+    );
+    expect(denied?.disabled).toBe(true);
+    expect(threadActionRequiresOperate("category:mobile")).toBe(true);
+  });
+
   it.each([false, true])(
     "disables both lifecycle directions without permission (reversed: %s)",
     (reversed) => {

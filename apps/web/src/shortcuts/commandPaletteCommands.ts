@@ -13,6 +13,7 @@ import { getThemeSnapshot, setAppearanceMode } from "../hooks/useTheme";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { type CommandHandler, type CommandScopeOptions, registerCommands } from "./dispatcher";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
+import { readThreadCategories, stepSidebarCategory } from "../threadCategories";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 
 function consume(event: KeyboardEvent): void {
@@ -55,6 +56,44 @@ export function installCommandPaletteCommands(
         if (!open || mode === "command") return false;
         consume(event);
         dispatchCommandPalette({ _tag: "BackToCommand" });
+      },
+    },
+  );
+
+  // Capture phase, like `sidebar.toggle`: the terminal consumes keys it
+  // receives, and a sidebar filter shortcut should work from anywhere.
+  const stepCategory =
+    (direction: 1 | -1): CommandHandler =>
+    (event) => {
+      consume(event);
+      if (event.repeat) return;
+      stepSidebarCategory(direction, readThreadCategories());
+    };
+  const disposeCategorySteps = registerCommands(
+    {
+      "sidebar.nextCategory": stepCategory(1),
+      "sidebar.previousCategory": stepCategory(-1),
+    },
+    {
+      ...options,
+      capture: true,
+      when: (event) =>
+        isCommandPaletteMounted() &&
+        !(event.target instanceof HTMLElement && event.target.closest("[data-keybinding-capture]")),
+      context: () => {
+        const threadRef = readRouteThreadRef();
+        return {
+          terminalOpen: threadRef
+            ? selectThreadTerminalUiState(
+                useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+                threadRef,
+              ).terminalOpen
+            : false,
+          previewOpen: threadRef
+            ? selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef) ===
+              "preview"
+            : false,
+        };
       },
     },
   );
@@ -120,6 +159,7 @@ export function installCommandPaletteCommands(
 
   return () => {
     disposeEscape();
+    disposeCategorySteps();
     disposeCommands();
   };
 }

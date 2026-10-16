@@ -72,6 +72,7 @@ import { formatRelativeTimeLabel, parseTimestampDate } from "../../timestampForm
 import type { SidebarThreadSummary } from "../../types";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
+import { CATEGORY_SWATCH_CLASS_BY_COLOR } from "../CategorySwatch";
 import { textDirection } from "~/textDirection";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import {
@@ -538,6 +539,7 @@ type SidebarThreadRowProps = {
   // "folder-multiline" adds the card's branch and PR line under it.
   variant: "card" | "slim" | "folder" | "folder-multiline";
   navigationParent?: string | undefined;
+  categoryColors: string;
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
   snoozeSupported: boolean;
@@ -626,6 +628,27 @@ function ThreadRenameInput(props: {
       onDoubleClick={(event) => event.stopPropagation()}
       className="min-w-0 flex-1 rounded-sm border border-input bg-card px-1 text-sm font-medium text-card-foreground outline-none focus:border-foreground"
     />
+  );
+}
+
+/** `colors` is space-separated so the memoized row compares it by value. */
+function CategoryStripes(props: { colors: string; variant: "card" | "slim" }) {
+  if (props.colors.length === 0) return null;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute left-px z-10 flex gap-px",
+        props.variant === "card" ? "inset-y-2.5" : "inset-y-2",
+      )}
+    >
+      {props.colors.split(" ").map((color) => (
+        <span
+          key={color}
+          className={cn("w-0.5 rounded-full", CATEGORY_SWATCH_CLASS_BY_COLOR.get(color))}
+        />
+      ))}
+    </span>
   );
 }
 
@@ -1234,6 +1257,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             {/* `contents` keeps one-line rows a single flex row. */}
             <div className={multiline ? "flex h-6 min-w-0 items-center gap-2.5" : "contents"}>
               {accessibleTitle}
+              <CategoryStripes colors={props.categoryColors} variant="slim" />
               {inFolder ? null : (
                 <span
                   className={cn(
@@ -1421,6 +1445,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           }
         >
           {accessibleTitle}
+          <CategoryStripes colors={props.categoryColors} variant="card" />
           <div
             className={cn(
               "relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)",
