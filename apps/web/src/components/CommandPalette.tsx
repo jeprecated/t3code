@@ -72,6 +72,7 @@ import {
   FolderPlusIcon,
   MessageSquareDashedIcon,
   LinkIcon,
+  ListFilterIcon,
   MessageSquareIcon,
   PaletteIcon,
   RotateCcwIcon,
@@ -81,6 +82,7 @@ import {
   PinOffIcon,
   PlugIcon,
   SquarePenIcon,
+  TagIcon,
   TextSearchIcon,
   UserPlusIcon,
   WorkflowIcon,
@@ -192,6 +194,17 @@ import {
   newProjectId,
 } from "../lib/utils";
 import { buildThreadRouteParams } from "../threadRoutes";
+import {
+  environmentSupportsThreadCategories,
+  resolveThreadCategoryMembership,
+  selectSidebarCategoryScope,
+  useThreadCategories,
+  useUpdateThreadCategories,
+} from "../threadCategories";
+import { useUiStateStore } from "../uiStateStore";
+import { CategorySwatch } from "./CategorySwatch";
+import { resolveSidebarCategoryScope } from "@t3tools/client-runtime/state/sidebar-categories";
+import { threadCategoryChange, threadCategoryLabel } from "@t3tools/shared/threadCategories";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
   applyWslEnvironmentConfiguration,
@@ -479,6 +492,13 @@ function OpenCommandPaletteDialog(props: {
     setHighlightedItemValue(null);
   }
   const clientSettings = useClientSettings(selectCommandPaletteClientSettings);
+  const sidebarProjectScoped = useUiStateStore((store) => store.sidebarProjectScopeKeys.length > 0);
+  const threadCategories = useThreadCategories();
+  const updateThreadCategories = useUpdateThreadCategories();
+  const sidebarCategoryScope = resolveSidebarCategoryScope(
+    useUiStateStore((store) => store.sidebarCategoryScope),
+    threadCategories,
+  );
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
@@ -1681,6 +1701,143 @@ function OpenCommandPaletteDialog(props: {
   actionItems.push(changeThemeItem);
   actionItems.push(changeAppearanceItem);
 
+  let sidebarCategoryItem: CommandPaletteSubmenuItem | null = null;
+  if (threadCategories.length > 0) {
+    const scopeTrailing = (current: boolean) =>
+      current ? (
+        <span className="text-xs text-muted-foreground/70">
+          <T>Current</T>
+        </span>
+      ) : undefined;
+    sidebarCategoryItem = {
+      kind: "submenu",
+      value: "action:sidebar-category",
+      searchTerms: ["category", "categories", "sidebar", "filter", "focus", "group", "threads"],
+      title: gt("Filter sidebar by category…"),
+      icon: <ListFilterIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <ListFilterIcon className={ADDON_ICON_CLASS} />,
+      shortcutCommand: "sidebar.nextCategory",
+      groups: [
+        {
+          value: "sidebar-category",
+          label: gt("Filter sidebar by category"),
+          items: [
+            {
+              kind: "action",
+              value: "sidebar-category:all",
+              title: gt("All projects"),
+              searchTerms: ["all", "everything"],
+              icon: <ListFilterIcon className={ITEM_ICON_CLASS} />,
+              titleTrailingContent: scopeTrailing(
+                sidebarCategoryScope === null && !sidebarProjectScoped,
+              ),
+              run: async () => selectSidebarCategoryScope(null),
+            },
+            ...threadCategories.map((category): CommandPaletteActionItem => ({
+              kind: "action",
+              value: `sidebar-category:${category.id}`,
+              title: threadCategoryLabel(category),
+              searchTerms: [category.name, "category"],
+              icon: <CategorySwatch color={category.color} className="size-3" />,
+              titleTrailingContent: scopeTrailing(
+                sidebarCategoryScope?.type === "category" &&
+                  sidebarCategoryScope.categoryId === category.id,
+              ),
+              run: async () =>
+                selectSidebarCategoryScope({ type: "category", categoryId: category.id }),
+            })),
+            {
+              kind: "action",
+              value: "sidebar-category:uncategorized",
+              title: gt("Uncategorized"),
+              searchTerms: ["uncategorized", "other", "rest"],
+              icon: <CategorySwatch color={null} className="size-3 text-icon-muted" />,
+              titleTrailingContent: scopeTrailing(sidebarCategoryScope?.type === "uncategorized"),
+              run: async () => selectSidebarCategoryScope({ type: "uncategorized" }),
+            },
+          ],
+        },
+      ],
+    };
+    actionItems.push(sidebarCategoryItem);
+  }
+
+  let threadCategoriesItem: CommandPaletteSubmenuItem | null = null;
+  if (
+    activeThread &&
+    threadCategories.length > 0 &&
+    environmentSupportsThreadCategories(activeThreadServerConfig)
+  ) {
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    const membership = resolveThreadCategoryMembership({
+      categories: threadCategories,
+      subject: {
+        environmentId: activeThread.environmentId,
+        providerInstanceId: activeThread.providerInstanceId,
+        branch: activeThread.branch,
+        project:
+          projectByKey.get(`${activeThread.environmentId}:${activeThread.projectId}`) ?? null,
+      },
+      state: activeThread.categories,
+    });
+    const canOperate = readEnvironmentScope(
+      activeThread.environmentId,
+      AuthOrchestrationOperateScope,
+    );
+    threadCategoriesItem = {
+      kind: "submenu",
+      value: "action:thread-categories",
+      searchTerms: ["categories", "category", "focus", "group", "tag", "thread"],
+      title: gt("Thread categories…"),
+      ...(membership.categoryIds.length > 0
+        ? {
+            description: threadCategories
+              .filter((category) => membership.categoryIds.includes(category.id))
+              .map(threadCategoryLabel)
+              .join(" · "),
+          }
+        : {}),
+      icon: <TagIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <TagIcon className={ADDON_ICON_CLASS} />,
+      disabled: !canOperate,
+      groups: [
+        {
+          value: "thread-categories",
+          label: gt("Thread categories"),
+          items: threadCategories.map((category): CommandPaletteActionItem => {
+            const member = membership.categoryIds.includes(category.id);
+            return {
+              kind: "action",
+              value: `thread-categories:${category.id}`,
+              title: threadCategoryLabel(category),
+              searchTerms: [category.name, "category"],
+              icon: <CategorySwatch color={category.color} className="size-3" />,
+              titleTrailingContent: member ? (
+                <span className="text-xs text-muted-foreground/70">
+                  <T>In this thread</T>
+                </span>
+              ) : undefined,
+              // Stays open so several categories can be toggled in one pass; the
+              // submenu re-reads the thread, so each row's state updates in place.
+              keepOpen: true,
+              run: () =>
+                updateThreadCategories(threadRef, {
+                  changes: [
+                    threadCategoryChange({
+                      ruleCategoryIds: membership.ruleCategoryIds,
+                      categoryId: category.id,
+                      member: !member,
+                    }),
+                  ],
+                }),
+            };
+          }),
+        },
+      ],
+    };
+    actionItems.push(threadCategoriesItem);
+  }
+
   actionItems.push(themeEditorItem);
 
   if (environments.some((environment) => environment.serverConfig !== null)) {
@@ -1920,7 +2077,11 @@ function OpenCommandPaletteDialog(props: {
               ? changeThemeItem.groups
               : currentView?.groups[0]?.value === "appearance"
                 ? changeAppearanceItem.groups
-                : (currentView?.groups ?? rootGroups);
+                : currentView?.groups[0]?.value === "sidebar-category" && sidebarCategoryItem
+                  ? sidebarCategoryItem.groups
+                  : currentView?.groups[0]?.value === "thread-categories" && threadCategoriesItem
+                    ? threadCategoriesItem.groups
+                    : (currentView?.groups ?? rootGroups);
 
   const isLinkedThreadSearch =
     linkedThreadSearch?.linkedThreads !== undefined && deferredQuery === linkedThreadSearch.query;

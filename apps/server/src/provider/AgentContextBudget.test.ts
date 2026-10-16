@@ -27,6 +27,7 @@ import { ProviderAdapterRegistryV2 } from "../orchestration-v2/ProviderAdapterRe
 import { ThreadIssueService } from "../orchestration-v2/ThreadIssueService.ts";
 import { ThreadLaunchService } from "../orchestration-v2/ThreadLaunchService.ts";
 import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
+import { ThreadCategoryService } from "../orchestration-v2/ThreadCategoryService.ts";
 import { ThreadSearch } from "../orchestration-v2/ThreadSearch.ts";
 import { PeerForwarding } from "../peer/PeerForwarding.ts";
 import { PeerLinkRequests } from "../peer/PeerLinkRequests.ts";
@@ -99,6 +100,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(ThreadLaunchService)({}),
   Layer.mock(ThreadManagementService)({}),
   Layer.mock(ThreadSearch)({}),
+  Layer.mock(ThreadCategoryService)({}),
   Layer.mock(VcsStatusBroadcaster)({}),
 ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 

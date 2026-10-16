@@ -236,6 +236,11 @@ function selectOpenCodeRuntimeTextGeneration(
         v1: v1.generateTranscriptionPostProcessing(input),
         v2: v2.generateTranscriptionPostProcessing(input),
       }),
+    generateThreadCategories: (input) =>
+      byOpenCodeRuntime(resolve, {
+        v1: v1.generateThreadCategories(input),
+        v2: v2.generateThreadCategories(input),
+      }),
   };
 }
 
