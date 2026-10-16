@@ -449,3 +449,43 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
 
   return { prompt, outputSchema };
 }
+
+export interface ThreadCategoriesPromptInput {
+  conversation: string;
+  categories: ReadonlyArray<{ readonly name: string; readonly description?: string | undefined }>;
+  currentCategoryNames: ReadonlyArray<string>;
+}
+
+export function buildThreadCategoriesPrompt(input: ThreadCategoriesPromptInput) {
+  const prompt = [
+    "Choose which of the user's categories fit this T3 Code thread.",
+    'Return JSON with key "categories": an array of category names copied exactly from the list. Return an empty array when none clearly fit.',
+    "",
+    "Rules:",
+    "- A category fits when the thread's subject belongs to it, not when it is merely mentioned in passing.",
+    "- Several categories may fit at once; include every one that clearly does.",
+    "- Judge by what the user is asking about, not by the tools or agent instructions they mention.",
+    "- A category's description, when given, is the user's own account of what belongs in it.",
+    "- If the thread is still too vague to place, return an empty array.",
+    "",
+    "Categories:",
+    ...input.categories.map((category) => {
+      const description = category.description?.trim();
+      return description ? `- ${category.name}: ${description}` : `- ${category.name}`;
+    }),
+    ...(input.currentCategoryNames.length > 0
+      ? [
+          "",
+          "Already in (context only; do not return these):",
+          ...input.currentCategoryNames.map((name) => `- ${name}`),
+        ]
+      : []),
+    "",
+    "Thread contents:",
+    limitTitleMessage(input.conversation, 8_000),
+  ].join("\n");
+  const outputSchema = Schema.Struct({
+    categories: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  });
+  return { prompt, outputSchema };
+}

@@ -190,6 +190,46 @@ and copying a thread reference. A copied reference uses the thread's pull reques
 link when available, otherwise its thread ID. See [keybindings](./keybindings.md)
 for custom configuration.
 
+### Group threads into categories
+
+On web and desktop, a category names a set of threads you want to see together,
+such as one client's repositories or everything about your mobile apps. Create
+categories in **Settings → General → Thread categories**. They are saved on every
+connected environment, so agents there can see them too; an environment that was
+offline picks up the list on your next edit.
+
+A category's rules match on repository, environment, provider, branch, or project
+path. Repository, branch, and path fields take comma-separated patterns where `*`
+matches anything, for example `github.com/acme/*`. A thread joins a category when
+every field of any one rule matches. Repositories match by remote, so one rule
+covers the same repository on every connected environment.
+
+A thread can also join or leave a category on its own, whatever the rules say. Open
+**Categories** from the thread's menu in the sidebar or chat header, or **Thread
+categories…** in the command palette. Unchecking a category the rules give a thread
+removes it for that thread only; checking it again restores the rule. Changing a
+thread's categories never changes its project, checkout, or provider. Agents can
+list categories and tag threads with the `t3_thread_categories` and
+`t3_thread_categorize` tools.
+
+After a thread's first substantive message, T3 Code asks the environment's text
+generation model which categories fit and shows **Suggested categories** above the
+composer. **Apply** adds them, **Edit** lets you pick, and dismissing hides them.
+Suggestions only see category names and descriptions, so give a category whose name
+says little a short description, such as "Skool, content creation". A dismissed or
+removed category is not suggested for that thread again. As a thread grows, T3 Code
+occasionally checks again in case it changed direction.
+
+Pick a category from the sidebar's filter menu to show only its threads; search and
+thread shortcuts then stay within it. **Uncategorized** shows threads in no category.
+Each thread is marked on its left edge with the colors of its categories, except the
+one you are filtering by. When the filter hides a thread that needs your input or
+approval, the top of the list says so; click it to show all threads.
+
+To step through All, each category, and Uncategorized from the keyboard, assign
+`sidebar.nextCategory` and `sidebar.previousCategory` in **Settings → Keybindings**.
+The command palette also lists **Filter sidebar by category…**.
+
 ## Inspect agent work
 
 **Limited** means the provider stopped on a usage or rate limit. The conversation

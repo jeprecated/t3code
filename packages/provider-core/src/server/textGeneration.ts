@@ -68,6 +68,23 @@ export interface ThreadTitleGenerationResult {
   needsRefinement?: boolean | undefined;
 }
 
+export interface ThreadCategoriesGenerationInput {
+  cwd: string;
+  /** Thread excerpt, as formatted for title regeneration. */
+  conversation: string;
+  categories: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly description?: string | undefined;
+  }>;
+  currentCategoryNames: ReadonlyArray<string>;
+  modelSelection: ModelSelection;
+}
+
+export interface ThreadCategoriesGenerationResult {
+  categoryIds: ReadonlyArray<string>;
+}
+
 export interface ReviewGuideStackLayer {
   readonly number: number;
   readonly title: string | null;
@@ -113,4 +130,8 @@ export interface ProviderTextGeneration {
   readonly generateReviewGuide: (
     input: ReviewGuideGenerationInput,
   ) => Effect.Effect<ReviewGuideGenerationResult, TextGenerationError>;
+
+  readonly generateThreadCategories: (
+    input: ThreadCategoriesGenerationInput,
+  ) => Effect.Effect<ThreadCategoriesGenerationResult, TextGenerationError>;
 }

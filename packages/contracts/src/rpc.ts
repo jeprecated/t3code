@@ -2,6 +2,9 @@ import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
+  OrchestrationV2SuggestThreadCategoriesError,
+  OrchestrationV2SuggestThreadCategoriesInput,
+  OrchestrationV2SuggestThreadCategoriesResult,
 } from "./orchestrationV2.ts";
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
 import {
@@ -1630,6 +1633,18 @@ const WsOrchestrationV2SearchThreadStreamRpc = Rpc.make(
   },
 );
 
+const WsOrchestrationV2SuggestThreadCategoriesRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.suggestThreadCategories,
+  {
+    payload: OrchestrationV2SuggestThreadCategoriesInput,
+    success: OrchestrationV2SuggestThreadCategoriesResult,
+    error: Schema.Union([
+      OrchestrationV2SuggestThreadCategoriesError,
+      EnvironmentAuthorizationError,
+    ]),
+  },
+);
+
 const WsOrchestrationV2SearchThreadsRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.searchThreads, {
   payload: OrchestrationSearchThreadsInput,
   success: OrchestrationSearchThreadsResult,
@@ -2039,6 +2054,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2GetTurnDiffRpc,
   WsOrchestrationV2GetFullThreadDiffRpc,
   WsOrchestrationV2SearchThreadsRpc,
+  WsOrchestrationV2SuggestThreadCategoriesRpc,
   WsOrchestrationV2SearchThreadRpc,
   WsOrchestrationV2SearchThreadStreamRpc,
   WsOrchestrationV2GetArchivedShellSnapshotRpc,
