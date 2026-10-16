@@ -13,6 +13,7 @@ import {
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
+  setSidebarFocusScope,
   setSidebarProjectScopeKey,
   setThreadChangedFilesExpanded,
   type UiState,
@@ -23,6 +24,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     sidebarProjectScopeKey: null,
+    sidebarFocusScope: null,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -156,6 +158,22 @@ describe("uiStateStore pure functions", () => {
     expect(setSidebarProjectScopeKey(scoped, null).sidebarProjectScopeKey).toBeNull();
     expect(setSidebarProjectScopeKey(scoped, "").sidebarProjectScopeKey).toBeNull();
   });
+
+  it("keeps the project scope and the focus scope mutually exclusive", () => {
+    const projectScoped = setSidebarProjectScopeKey(makeUiState(), "github.com/pingdotgg/t3code");
+    const focused = setSidebarFocusScope(projectScoped, { type: "group", groupId: "work" });
+
+    expect(focused).toMatchObject({
+      sidebarProjectScopeKey: null,
+      sidebarFocusScope: { type: "group", groupId: "work" },
+    });
+    expect(setSidebarFocusScope(focused, { type: "group", groupId: "work" })).toBe(focused);
+    expect(setSidebarProjectScopeKey(focused, null)).toBe(focused);
+    expect(setSidebarProjectScopeKey(focused, "github.com/me/nix")).toMatchObject({
+      sidebarProjectScopeKey: "github.com/me/nix",
+      sidebarFocusScope: null,
+    });
+  });
 });
 
 describe("parsePersistedState", () => {
@@ -202,6 +220,7 @@ describe("parsePersistedState", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
+      sidebarFocusScope: null,
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -324,6 +343,7 @@ describe("uiStateStore persistence", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
+      sidebarFocusScope: null,
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -336,6 +356,19 @@ describe("uiStateStore persistence", () => {
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
     });
+  });
+
+  it("restores the sidebar focus scope across reloads and drops malformed ones", () => {
+    persistState(makeUiState({ sidebarFocusScope: { type: "ungrouped" } }));
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+
+    expect(parsePersistedState(persisted).sidebarFocusScope).toEqual({ type: "ungrouped" });
+    expect(
+      parsePersistedState({ sidebarFocusScope: { type: "group" } } as PersistedUiState)
+        .sidebarFocusScope,
+    ).toBeNull();
   });
 
   it("restores the sidebar project scope across reloads", () => {

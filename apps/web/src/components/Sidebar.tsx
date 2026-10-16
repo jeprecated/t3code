@@ -1,4 +1,9 @@
-import { type EnvironmentId, type ScopedProjectRef, type ServerConfig } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  type ProjectId,
+  type ScopedProjectRef,
+  type ServerConfig,
+} from "@t3tools/contracts";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
 import { ThreadTerminalStatusButton } from "./ThreadStatusIndicators";
@@ -174,6 +179,15 @@ import {
 import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
 import type { SidebarThreadSummary } from "../types";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import {
+  compileSidebarFocusGroups,
+  resolveSidebarFocusScope,
+  sidebarFocusScopeIncludes,
+  type SidebarFocusScope,
+} from "@t3tools/client-runtime/state/sidebar-focus-groups";
+import type { ProjectIconColor } from "@t3tools/contracts";
+import { FOCUS_SWATCH_CLASS_BY_COLOR, FocusGroupSwatch } from "./FocusGroupSwatch";
+import { selectSidebarFocusScope, sidebarFocusGroupLabel } from "../sidebarFocus";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
@@ -186,6 +200,7 @@ import {
 import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
+  countSidebarThreadsNeedingUserOutsideScope,
   filterSidebarV2VisibleThreads,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
@@ -313,7 +328,7 @@ type SidebarOptimisticDrop = {
 
 interface SidebarThreadPartitionInput {
   readonly threads: readonly EnvironmentThreadShell[];
-  readonly scopedProjectKeys: ReadonlySet<string> | null;
+  readonly inScope: ((thread: EnvironmentThreadShell) => boolean) | null;
   readonly serverConfigs: ReadonlyMap<EnvironmentId, ServerConfig>;
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly workingShelfEnabled: boolean;
@@ -374,14 +389,13 @@ function routeThreadOnly(
 // the component body, later hook calls made the compiler treat these maps as
 // possibly mutated and recompute them, and every dnd-kit input with them.
 function useSidebarThreads(input: {
-  readonly projectScopeKey: string | null;
-  readonly scopedProjectKeys: ReadonlySet<string> | null;
+  readonly scopeKey: string;
+  readonly inScope: ((thread: EnvironmentThreadShell) => boolean) | null;
   readonly serverConfigs: ReadonlyMap<EnvironmentId, ServerConfig>;
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly routeThreadKey: string | null;
 }) {
-  const { projectScopeKey, scopedProjectKeys, serverConfigs, optimisticDrop, routeThreadKey } =
-    input;
+  const { scopeKey, inScope, serverConfigs, optimisticDrop, routeThreadKey } = input;
   const threads = useThreadShells();
   const workingShelfEnabled = useClientSettings((s) => s.sidebarWorkingShelfEnabled);
   const nowMinute = useNowMinute();
@@ -408,20 +422,20 @@ function useSidebarThreads(input: {
     false,
     Schema.Boolean,
   );
-  // The settled tail restarts whenever the project scope changes.
+  // The settled tail restarts whenever the project or focus scope changes.
   const [settledTail, setSettledTail] = useState({
-    scopeKey: projectScopeKey,
+    scopeKey,
     count: SETTLED_TAIL_INITIAL_COUNT,
   });
-  if (settledTail.scopeKey !== projectScopeKey) {
-    setSettledTail({ scopeKey: projectScopeKey, count: SETTLED_TAIL_INITIAL_COUNT });
+  if (settledTail.scopeKey !== scopeKey) {
+    setSettledTail({ scopeKey, count: SETTLED_TAIL_INITIAL_COUNT });
   }
   const settledVisibleCount =
-    settledTail.scopeKey === projectScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
+    settledTail.scopeKey === scopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
 
   const partition = partitionSidebarThreads({
     threads,
-    scopedProjectKeys,
+    inScope,
     serverConfigs,
     optimisticDrop,
     workingShelfEnabled,
@@ -513,9 +527,9 @@ function useSidebarThreads(input: {
 }
 
 function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
-  const { threads, scopedProjectKeys, serverConfigs, optimisticDrop, workingShelfEnabled } = input;
+  const { threads, inScope, serverConfigs, optimisticDrop, workingShelfEnabled } = input;
   const preciseNow = new Date().toISOString();
-  const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys);
+  const visible = filterSidebarV2VisibleThreads(threads, inScope);
   inboxReturns.observe(workingShelfEnabled ? threads : null);
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
@@ -684,6 +698,7 @@ function useSidebarLookups() {
   const environments = useEnvironmentIdentities();
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
   const projectGroups = useSidebarProjectGroups();
+  const focusGroups = useClientSettings((s) => s.sidebarFocusGroups);
   const environmentLabelById = new Map(
     environments.map((environment) => [environment.environmentId, environment.label] as const),
   );
@@ -708,10 +723,33 @@ function useSidebarLookups() {
   const projectGroupByScopeKey = new Map(
     projectGroups.map((project) => [project.projectKey, project] as const),
   );
-  const projectScopeItems = [
+  const projectScopeItems: SidebarScopeItem[] = [
     { value: "all", label: "All projects" },
+    ...focusGroups.map((group) => ({
+      value: `focus-group:${group.id}`,
+      label: sidebarFocusGroupLabel(group),
+      focusScope: { type: "group" as const, groupId: group.id },
+      color: group.color,
+    })),
+    ...(focusGroups.length > 0
+      ? [
+          {
+            value: "focus-ungrouped",
+            label: "Everything else",
+            focusScope: { type: "ungrouped" as const },
+          },
+        ]
+      : []),
     ...projectGroups.map((project) => ({ value: project.projectKey, label: project.displayName })),
   ];
+  const matchFocusGroups = compileSidebarFocusGroups(focusGroups);
+  const focusGroupIdsOf = (subject: SidebarScopeSubject) =>
+    matchFocusGroups({
+      environmentId: subject.environmentId,
+      providerInstanceId: subject.providerInstanceId,
+      branch: subject.branch,
+      project: projectByKey.get(`${subject.environmentId}:${subject.projectId}`) ?? null,
+    });
   return {
     projects,
     serverConfigs,
@@ -722,6 +760,8 @@ function useSidebarLookups() {
     projectDisplayNameByKey,
     projectGroupByScopeKey,
     projectScopeItems,
+    focusGroups,
+    focusGroupIdsOf,
   };
 }
 
@@ -1326,6 +1366,50 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   );
 });
 
+const MAX_FOCUS_STRIPES = 3;
+
+/** `colors` is space-separated so the memoized row compares it by value. */
+function FocusGroupStripes(props: { colors: string; variant: "card" | "slim" }) {
+  if (props.colors.length === 0) return null;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute left-px z-10 flex gap-px",
+        props.variant === "card" ? "inset-y-2.5" : "inset-y-2",
+      )}
+    >
+      {props.colors.split(" ").map((color) => (
+        <span
+          key={color}
+          className={cn("w-0.5 rounded-full", FOCUS_SWATCH_CLASS_BY_COLOR.get(color))}
+        />
+      ))}
+    </span>
+  );
+}
+
+interface SidebarScopeItem {
+  readonly value: string;
+  readonly label: string;
+  readonly focusScope?: SidebarFocusScope;
+  readonly color?: ProjectIconColor;
+}
+
+interface SidebarScopeSubject {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly branch: string | null;
+  readonly providerInstanceId: string | null;
+}
+
+function draftScopeSubject(
+  session: DraftSessionState,
+  composer: ComposerThreadDraftState | undefined,
+): SidebarScopeSubject {
+  return { ...session, providerInstanceId: composer?.activeProvider ?? null };
+}
+
 interface SidebarDraftRowData {
   draftId: DraftId;
   session: DraftSessionState;
@@ -1335,7 +1419,7 @@ interface SidebarDraftRowData {
 const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   projectByKey: ReadonlyMap<string, EnvironmentProject>;
   projectDisplayNameByKey: ReadonlyMap<string, string>;
-  scopedProjectKeys: ReadonlySet<string> | null;
+  inScope: ((subject: SidebarScopeSubject) => boolean) | null;
   routeDraftId: string | null;
   onNavigateToDraft: (draftId: DraftId) => void;
   onDraftContextMenu: (draftId: DraftId, position: { x: number; y: number }) => void;
@@ -1366,8 +1450,8 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
         continue;
       }
       if (
-        props.scopedProjectKeys !== null &&
-        !props.scopedProjectKeys.has(`${session.environmentId}:${session.projectId}`)
+        props.inScope !== null &&
+        !props.inScope(draftScopeSubject(session, draftsByThreadKey[draftKey]))
       ) {
         continue;
       }
@@ -1452,6 +1536,7 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
+  focusGroupColors: string;
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
   snoozeSupported: boolean;
@@ -2014,6 +2099,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             }
           >
             {accessibleTitle}
+            <FocusGroupStripes colors={props.focusGroupColors} variant="slim" />
             <span
               className={cn(
                 "flex shrink-0 items-center transition-opacity",
@@ -2169,6 +2255,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           }
         >
           {accessibleTitle}
+          <FocusGroupStripes colors={props.focusGroupColors} variant="card" />
           <div className="relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)">
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               {draftIndicator}
@@ -2592,6 +2679,8 @@ export default function Sidebar() {
     projectDisplayNameByKey,
     projectGroupByScopeKey,
     projectScopeItems,
+    focusGroups,
+    focusGroupIdsOf,
   } = useSidebarLookups();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -2690,6 +2779,7 @@ export default function Sidebar() {
   const environmentMachineById = useEnvironmentMachines();
   const projectGroupsRef = useRef(projectGroups);
   const persistedProjectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
+  const persistedFocusScope = useUiStateStore((store) => store.sidebarFocusScope);
   const setPersistedProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
     reduceSidebarProjectScopeMenuState,
@@ -2754,6 +2844,17 @@ export default function Sidebar() {
     key: persistedProjectScopeKey,
     settings: projectGroupingSettings,
   });
+  // Unknown groups resolve to "everything" without being cleared from storage,
+  // since desktop client settings hydrate after the first render.
+  const focusScope = resolveSidebarFocusScope(persistedFocusScope, focusGroups);
+  const focusedGroup =
+    focusScope?.type === "group"
+      ? (focusGroups.find((group) => group.id === focusScope.groupId) ?? null)
+      : null;
+  const selectFocusScope = (scope: SidebarFocusScope | null) => {
+    clearSelection();
+    selectSidebarFocusScope(scope);
+  };
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
   const scratchMachineLabelFor = (
     thread: Pick<SidebarThreadSummary, "environmentId" | "projectId">,
@@ -2768,8 +2869,14 @@ export default function Sidebar() {
     }
     return environmentLabelById.get(thread.environmentId) ?? null;
   };
+  const selectedProjectScopeValue =
+    focusScope?.type === "group"
+      ? `focus-group:${focusScope.groupId}`
+      : focusScope?.type === "ungrouped"
+        ? "focus-ungrouped"
+        : (projectScopeKey ?? "all");
   const selectedProjectScopeItem =
-    projectScopeItems.find((item) => item.value === (projectScopeKey ?? "all")) ??
+    projectScopeItems.find((item) => item.value === selectedProjectScopeValue) ??
     projectScopeItems[0]!;
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
     items: projectScopeItems,
@@ -2789,6 +2896,14 @@ export default function Sidebar() {
             (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
           ),
         );
+  const threadInScope =
+    focusScope !== null
+      ? (subject: SidebarScopeSubject) =>
+          sidebarFocusScopeIncludes(focusScope, focusGroupIdsOf(subject))
+      : scopedProjectKeys !== null
+        ? (subject: SidebarScopeSubject) =>
+            scopedProjectKeys.has(`${subject.environmentId}:${subject.projectId}`)
+        : null;
   useEffect(() => {
     const nextKey = resolveSidebarProjectScopeKey({
       groups: projectGroups,
@@ -2820,8 +2935,8 @@ export default function Sidebar() {
         continue;
       }
       if (
-        scopedProjectKeys !== null &&
-        !scopedProjectKeys.has(`${session.environmentId}:${session.projectId}`)
+        threadInScope !== null &&
+        !threadInScope(draftScopeSubject(session, store.draftsByThreadKey[draftKey]))
       ) {
         continue;
       }
@@ -2895,14 +3010,49 @@ export default function Sidebar() {
     pinnedKeysById,
     activeKeysById,
   } = useSidebarThreads({
-    projectScopeKey,
-    scopedProjectKeys,
+    scopeKey: selectedProjectScopeValue,
+    inScope: threadInScope,
     serverConfigs,
     optimisticDrop,
     routeThreadKey,
   });
 
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
+  // The focused group's own stripe is redundant, so only the other groups a
+  // thread belongs to are marked.
+  const focusGroupColorsByThreadKey = (() => {
+    const colorsByThreadKey = new Map<string, string>();
+    if (focusGroups.length === 0) return colorsByThreadKey;
+    const colorByGroupId = new Map(focusGroups.map((group) => [group.id, group.color]));
+    for (const thread of threads) {
+      if (thread.archivedAt !== null) continue;
+      // Groups sharing a color would only draw identical adjacent bars, and
+      // more than three bars would run into the row's content inset.
+      const colors = [
+        ...new Set(
+          focusGroupIdsOf(thread)
+            .filter((groupId) => groupId !== focusedGroup?.id)
+            .map((groupId) => colorByGroupId.get(groupId)),
+        ),
+      ]
+        .slice(0, MAX_FOCUS_STRIPES)
+        .join(" ");
+      if (colors.length > 0) colorsByThreadKey.set(threadShellKey(thread), colors);
+    }
+    return colorsByThreadKey;
+  })();
+  const hiddenThreadsNeedingUserCount =
+    focusScope === null ? 0 : countSidebarThreadsNeedingUserOutsideScope(threads, threadInScope);
+  // A branch or project change can move a selected thread out of the scope;
+  // bulk actions must not keep acting on rows the user can no longer see.
+  useEffect(() => {
+    if (threadInScope === null) return;
+    const { selectedThreadKeys } = useThreadSelectionStore.getState();
+    if (selectedThreadKeys.size === 0) return;
+    const visibleKeys = new Set(searchableThreads.map(threadShellKey));
+    const hiddenKeys = [...selectedThreadKeys].filter((key) => !visibleKeys.has(key));
+    if (hiddenKeys.length > 0) removeFromSelection(hiddenKeys);
+  }, [removeFromSelection, searchableThreads, threadInScope]);
   const threadSearchMatchByKey = new Map(
     threadSearch.matches.map((match) => [threadSearchMatchKey(match), match] as const),
   );
@@ -4457,21 +4607,29 @@ export default function Sidebar() {
                       return;
                     }
                     if (!item) return;
-                    setProjectScopeKey(item.value === "all" ? null : item.value);
+                    if (item.focusScope || item.value === "all") {
+                      selectFocusScope(item.focusScope ?? null);
+                    } else {
+                      setProjectScopeKey(item.value);
+                    }
                   }}
                 >
                   <ComboboxTrigger
                     render={
                       <SidebarHeaderIconButton
                         label={
-                          scopedProjectGroup
-                            ? `Filter threads by project: ${scopedProjectGroup.displayName}`
-                            : "Filter threads by project"
+                          focusScope
+                            ? `Filter threads: ${selectedProjectScopeItem.label}`
+                            : scopedProjectGroup
+                              ? `Filter threads by project: ${scopedProjectGroup.displayName}`
+                              : "Filter threads by project"
                         }
                       />
                     }
                   >
-                    {scopedProjectGroup ? (
+                    {focusScope ? (
+                      <FocusGroupSwatch color={focusedGroup?.color ?? null} className="size-3" />
+                    ) : scopedProjectGroup ? (
                       <span className="flex shrink-0">
                         <ProjectFavicon project={scopedProjectGroup} className="size-4" />
                       </span>
@@ -4525,6 +4683,10 @@ export default function Sidebar() {
                           >
                             {project ? (
                               <ProjectFavicon project={project} className="size-4 shrink-0" />
+                            ) : item.focusScope ? (
+                              <span className="flex size-4 shrink-0 items-center justify-center">
+                                <FocusGroupSwatch color={item.color ?? null} className="size-3" />
+                              </span>
                             ) : (
                               <FolderIcon className="size-4 shrink-0" />
                             )}
@@ -4577,10 +4739,47 @@ export default function Sidebar() {
               activeSearchResultIndex={activeSearchResultIndex}
               onClearSearch={clearThreadSearch}
             />
+            {focusScope || scopedProjectGroup ? (
+              <div className="mt-1 flex h-7 items-center gap-2 rounded-md bg-sidebar-row-hover pr-1 pl-2.5 text-xs font-medium text-sidebar-foreground">
+                {focusScope ? (
+                  <FocusGroupSwatch color={focusedGroup?.color ?? null} className="size-3" />
+                ) : scopedProjectGroup ? (
+                  <ProjectFavicon project={scopedProjectGroup} className="size-3.5 shrink-0" />
+                ) : null}
+                <span className="min-w-0 flex-1 truncate">
+                  {focusScope ? selectedProjectScopeItem.label : scopedProjectGroup?.displayName}
+                </span>
+                <Button
+                  type="button"
+                  size="icon-micro"
+                  variant="ghost-muted"
+                  aria-label="Show all threads"
+                  title="Show all threads"
+                  onClick={() => selectFocusScope(null)}
+                >
+                  <XIcon className="size-3" />
+                </Button>
+              </div>
+            ) : null}
           </SidebarGroup>
         }
       >
         <SidebarGroup className="flex-1" role="presentation">
+          {hiddenThreadsNeedingUserCount > 0 && !isSearchingThreads ? (
+            <button
+              type="button"
+              onClick={() => selectFocusScope(null)}
+              className="mb-1 flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-xs text-warning hover:bg-sidebar-row-hover"
+            >
+              <CircleAlertIcon aria-hidden className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {hiddenThreadsNeedingUserCount === 1
+                  ? "1 hidden thread needs you"
+                  : `${hiddenThreadsNeedingUserCount} hidden threads need you`}
+              </span>
+              <span className="shrink-0 text-sidebar-muted-foreground">Show all</span>
+            </button>
+          ) : null}
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider
@@ -4697,6 +4896,7 @@ export default function Sidebar() {
                             key={`${threadKey}:${rowVariant}`}
                             thread={thread}
                             variant={rowVariant}
+                            focusGroupColors={focusGroupColorsByThreadKey.get(threadKey) ?? ""}
                             variantAction={
                               section === "snoozed"
                                 ? "unsnooze"
@@ -4814,7 +5014,7 @@ export default function Sidebar() {
                           key="draft-sessions"
                           projectByKey={projectByKey}
                           projectDisplayNameByKey={projectDisplayNameByKey}
-                          scopedProjectKeys={scopedProjectKeys}
+                          inScope={threadInScope}
                           routeDraftId={routeDraftIdForRows}
                           onNavigateToDraft={navigateToDraft}
                           onDraftContextMenu={handleDraftContextMenu}
@@ -4984,6 +5184,12 @@ export default function Sidebar() {
                     Add project
                   </button>
                 </>
+              ) : focusScope ? (
+                focusedGroup ? (
+                  `No threads in ${selectedProjectScopeItem.label} yet`
+                ) : (
+                  "Every thread is in a focus group"
+                )
               ) : scopedProjectGroup ? (
                 `No threads in ${scopedProjectGroup.displayName} yet`
               ) : (

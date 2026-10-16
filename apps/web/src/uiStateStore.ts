@@ -1,5 +1,6 @@
 import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@t3tools/contracts";
+import type { SidebarFocusScope } from "@t3tools/client-runtime/state/sidebar-focus-groups";
 import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "./lib/projectPaths";
 
@@ -27,6 +28,7 @@ export interface PersistedUiState {
   projectOrderCwds?: string[];
   defaultAdvertisedEndpointKey?: string | null;
   sidebarProjectScopeKey?: string | null;
+  sidebarFocusScope?: SidebarFocusScope | null;
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
@@ -36,6 +38,8 @@ export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
   sidebarProjectScopeKey: string | null;
+  // At most one of the project scope and the focus scope is set.
+  sidebarFocusScope: SidebarFocusScope | null;
 }
 
 export interface UiThreadState {
@@ -58,6 +62,7 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   sidebarProjectScopeKey: null,
+  sidebarFocusScope: null,
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
@@ -96,6 +101,17 @@ function sanitizeBooleanRecord(value: unknown): Record<string, boolean> {
 
 function sanitizeOptionalKey(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function sanitizeFocusScope(value: unknown): SidebarFocusScope | null {
+  if (!value || typeof value !== "object" || !("type" in value)) return null;
+  if (value.type === "ungrouped") return { type: "ungrouped" };
+  return value.type === "group" &&
+    "groupId" in value &&
+    typeof value.groupId === "string" &&
+    value.groupId.length > 0
+    ? { type: "group", groupId: value.groupId }
+    : null;
 }
 
 function sanitizeTimestampRecord(value: unknown): Record<string, string> {
@@ -151,6 +167,9 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
         : {},
     defaultAdvertisedEndpointKey: sanitizeOptionalKey(parsed.defaultAdvertisedEndpointKey),
     sidebarProjectScopeKey: sanitizeOptionalKey(parsed.sidebarProjectScopeKey),
+    sidebarFocusScope: sanitizeOptionalKey(parsed.sidebarProjectScopeKey)
+      ? null
+      : sanitizeFocusScope(parsed.sidebarFocusScope),
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
@@ -225,6 +244,7 @@ export function persistState(state: UiState): void {
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         sidebarProjectScopeKey: state.sidebarProjectScopeKey,
+        sidebarFocusScope: state.sidebarFocusScope,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
@@ -325,12 +345,35 @@ export function setDefaultAdvertisedEndpointKey(state: UiState, key: string | nu
 
 export function setSidebarProjectScopeKey(state: UiState, projectKey: string | null): UiState {
   const nextKey = sanitizeOptionalKey(projectKey);
-  if (state.sidebarProjectScopeKey === nextKey) {
+  const nextFocusScope = nextKey === null ? state.sidebarFocusScope : null;
+  if (state.sidebarProjectScopeKey === nextKey && state.sidebarFocusScope === nextFocusScope) {
     return state;
   }
   return {
     ...state,
     sidebarProjectScopeKey: nextKey,
+    sidebarFocusScope: nextFocusScope,
+  };
+}
+
+export function setSidebarFocusScope(state: UiState, scope: SidebarFocusScope | null): UiState {
+  const nextScope = sanitizeFocusScope(scope);
+  const nextProjectKey = nextScope === null ? state.sidebarProjectScopeKey : null;
+  const current = state.sidebarFocusScope;
+  const sameScope =
+    current === nextScope ||
+    (current !== null &&
+      nextScope !== null &&
+      current.type === nextScope.type &&
+      (current.type === "ungrouped" ||
+        (nextScope.type === "group" && current.groupId === nextScope.groupId)));
+  if (sameScope && state.sidebarProjectScopeKey === nextProjectKey) {
+    return state;
+  }
+  return {
+    ...state,
+    sidebarProjectScopeKey: nextProjectKey,
+    sidebarFocusScope: nextScope,
   };
 }
 
@@ -423,6 +466,7 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKey: (projectKey: string | null) => void;
+  setSidebarFocusScope: (scope: SidebarFocusScope | null) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
@@ -444,6 +488,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setSidebarProjectScopeKey: (projectKey) =>
     set((state) => setSidebarProjectScopeKey(state, projectKey)),
+  setSidebarFocusScope: (scope) => set((state) => setSidebarFocusScope(state, scope)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),

@@ -57,6 +57,7 @@ import * as Schema from "effect/Schema";
 import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../../branding";
 import { CliCommandSettingsRow } from "./CliCommandSettingsRow";
 import { MobileAppSettingsRow } from "./MobileAppSettingsRow";
+import { SidebarFocusGroupsSetting } from "./SidebarFocusGroupsSetting";
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
@@ -2205,6 +2206,7 @@ export function GeneralSettingsPanel() {
             </Select>
           }
         />
+        <SidebarFocusGroupsSetting />
 
         <SettingsRow
           serverScoped

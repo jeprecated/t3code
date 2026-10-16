@@ -305,6 +305,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["sort projects sidebar manual created recent"],
   },
   {
+    id: "sidebar-focus-groups",
+    title: "Sidebar focus groups",
+    to: "/settings/general",
+    searchTerms: ["filter sidebar threads repositories client work color stripe rules"],
+  },
+  {
     id: "snooze-limited-threads",
     title: "Snooze limited threads",
     to: "/settings/general",

@@ -516,18 +516,28 @@ export function isSidebarSubagentThread(thread: Pick<SidebarThreadSummary, "line
 }
 
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & {
-    environmentId: string;
-    projectId: string;
-  },
->(threads: readonly T[], scopedProjectKeys: ReadonlySet<string> | null): T[] {
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage">,
+>(threads: readonly T[], inScope: ((thread: T) => boolean) | null): T[] {
   return threads.filter(
     (thread) =>
       thread.archivedAt === null &&
       !isSidebarSubagentThread(thread) &&
-      (scopedProjectKeys === null ||
-        scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+      (inScope === null || inScope(thread)),
   );
+}
+
+/** Threads a scope hides that are blocked on the user, so a focus never buries them. */
+export function countSidebarThreadsNeedingUserOutsideScope<
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & SidebarThreadStatusInput,
+>(threads: readonly T[], inScope: ((thread: T) => boolean) | null): number {
+  if (inScope === null) return 0;
+  let count = 0;
+  for (const thread of threads) {
+    if (thread.archivedAt !== null || isSidebarSubagentThread(thread) || inScope(thread)) continue;
+    const status = resolveSidebarThreadStatus(thread);
+    if (status === "approval" || status === "input") count += 1;
+  }
+  return count;
 }
 
 export function getSidebarForkParentThreadId(

@@ -69,6 +69,7 @@ import {
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
+  ListFilterIcon,
   MonitorIcon,
   MoonIcon,
   PaletteIcon,
@@ -145,6 +146,7 @@ import {
   resolveProjectPathForDispatch,
 } from "../lib/projectPaths";
 import { onOpenCommandPalette } from "../commandPaletteBus";
+import { isEditableFocused } from "../lib/editableFocus";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
@@ -238,6 +240,9 @@ import { ComposerHandleContext, useComposerHandleContext } from "../composerHand
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import { selectSidebarFocusScope, sidebarFocusGroupLabel, stepSidebarFocus } from "../sidebarFocus";
+import { FocusGroupSwatch } from "./FocusGroupSwatch";
+import { resolveSidebarFocusScope } from "@t3tools/client-runtime/state/sidebar-focus-groups";
 import {
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
@@ -492,6 +497,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   const openNewThreadIn = () => dispatch({ _tag: "OpenNewThreadIn" });
   const clearOpenIntent = () => dispatch({ _tag: "ClearOpenIntent" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const sidebarFocusGroups = useClientSettings((settings) => settings.sidebarFocusGroups);
   const { theme, themeHalves, resolvedTheme, appearanceMode, setAppearanceMode } = useTheme();
   const composerHandleRef = useRef<ChatComposerHandle | null>(null);
   const routeTarget = useParams({
@@ -521,6 +527,37 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     window.addEventListener("keydown", onEscapeKeyDown, true);
     return () => window.removeEventListener("keydown", onEscapeKeyDown, true);
   }, [state.mode, state.open, toggleMode]);
+
+  // Capture phase, like `sidebar.toggle`: the terminal consumes keys it
+  // receives, and a sidebar filter shortcut should work from anywhere.
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest("[data-keybinding-capture]")
+      ) {
+        return;
+      }
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          terminalFocus: isTerminalFocused(),
+          terminalOpen,
+          previewFocus: isPreviewFocused(),
+          previewOpen,
+          editableFocus: isEditableFocused(event.target),
+          modelPickerOpen: composerHandleRef.current?.isModelPickerOpen() ?? false,
+        },
+      });
+      if (command !== "sidebar.nextFocusGroup" && command !== "sidebar.previousFocusGroup") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat) return;
+      stepSidebarFocus(command === "sidebar.nextFocusGroup" ? 1 : -1, sidebarFocusGroups);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [keybindings, previewOpen, sidebarFocusGroups, terminalOpen]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -716,6 +753,11 @@ function OpenCommandPaletteDialog(props: {
     setHighlightedItemValue(null);
   }
   const clientSettings = useClientSettings();
+  const sidebarProjectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
+  const sidebarFocusScope = resolveSidebarFocusScope(
+    useUiStateStore((store) => store.sidebarFocusScope),
+    clientSettings.sidebarFocusGroups,
+  );
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
@@ -1952,6 +1994,61 @@ function OpenCommandPaletteDialog(props: {
   };
   actionItems.push(changeAppearanceItem);
 
+  let sidebarFocusItem: CommandPaletteSubmenuItem | null = null;
+  if (clientSettings.sidebarFocusGroups.length > 0) {
+    const scopeTrailing = (current: boolean) =>
+      current ? <span className="text-xs text-muted-foreground/70">Current</span> : undefined;
+    sidebarFocusItem = {
+      kind: "submenu",
+      value: "action:sidebar-focus",
+      searchTerms: ["focus", "sidebar", "filter", "group", "threads"],
+      title: "Focus sidebar on…",
+      icon: <ListFilterIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <ListFilterIcon className={ADDON_ICON_CLASS} />,
+      shortcutCommand: "sidebar.nextFocusGroup",
+      groups: [
+        {
+          value: "sidebar-focus",
+          label: "Focus sidebar on",
+          items: [
+            {
+              kind: "action",
+              value: "sidebar-focus:all",
+              title: "All projects",
+              searchTerms: ["all", "everything"],
+              icon: <ListFilterIcon className={ITEM_ICON_CLASS} />,
+              titleTrailingContent: scopeTrailing(
+                sidebarFocusScope === null && sidebarProjectScopeKey === null,
+              ),
+              run: async () => selectSidebarFocusScope(null),
+            },
+            ...clientSettings.sidebarFocusGroups.map((group): CommandPaletteActionItem => ({
+              kind: "action",
+              value: `sidebar-focus:group:${group.id}`,
+              title: sidebarFocusGroupLabel(group),
+              searchTerms: [group.name, "group"],
+              icon: <FocusGroupSwatch color={group.color} className="size-3" />,
+              titleTrailingContent: scopeTrailing(
+                sidebarFocusScope?.type === "group" && sidebarFocusScope.groupId === group.id,
+              ),
+              run: async () => selectSidebarFocusScope({ type: "group", groupId: group.id }),
+            })),
+            {
+              kind: "action",
+              value: "sidebar-focus:ungrouped",
+              title: "Everything else",
+              searchTerms: ["ungrouped", "other", "rest"],
+              icon: <FocusGroupSwatch color={null} className="size-3 text-icon-muted" />,
+              titleTrailingContent: scopeTrailing(sidebarFocusScope?.type === "ungrouped"),
+              run: async () => selectSidebarFocusScope({ type: "ungrouped" }),
+            },
+          ],
+        },
+      ],
+    };
+    actionItems.push(sidebarFocusItem);
+  }
+
   // The parent pushes an intent into this mounted dialog; applying it clears the
   // parent's intent and may navigate, so it runs after commit but before paint.
   const projectThreadItemCount = projectThreadItems.length;
@@ -2135,7 +2232,9 @@ function OpenCommandPaletteDialog(props: {
         ? changeThemeItem.groups
         : currentView?.groups[0]?.value === "appearance"
           ? changeAppearanceItem.groups
-          : (currentView?.groups ?? rootGroups);
+          : currentView?.groups[0]?.value === "sidebar-focus" && sidebarFocusItem
+            ? sidebarFocusItem.groups
+            : (currentView?.groups ?? rootGroups);
 
   const filteredGroups = filterCommandPaletteGroups({
     activeGroups,

@@ -190,6 +190,28 @@ and copying a thread reference. A copied reference uses the thread's pull reques
 link when available, otherwise its thread ID. See [keybindings](./keybindings.md)
 for custom configuration.
 
+### Focus the sidebar on a group of threads
+
+On web and desktop, a focus group names a set of threads you want to see together,
+such as one client's repositories. Create groups in **Settings → General → Sidebar
+focus groups**. Groups are stored per device.
+
+A group's rules match on repository, environment, provider, branch, or project path.
+Repository, branch, and path fields take comma-separated patterns where `*` matches
+anything, for example `github.com/acme/*`. A thread joins a group when every field
+of any one rule matches. Repositories match by remote, so one rule covers the same
+repository on every connected environment.
+
+Pick a group from the sidebar's filter menu to show only its threads; search and
+thread shortcuts then stay within it. **Everything else** shows threads in no group.
+Each thread is marked on its left edge with the colors of the groups it belongs to,
+except the group you are focused on. When the focus hides a thread that needs your
+input or approval, the top of the list says so; click it to show all threads.
+
+To step through All, each group, and Everything else from the keyboard, assign
+`sidebar.nextFocusGroup` and `sidebar.previousFocusGroup` in **Settings →
+Keybindings**. The command palette also lists **Focus sidebar on…**.
+
 ## Inspect agent work
 
 **Limited** means the provider stopped on a usage or rate limit. The conversation
