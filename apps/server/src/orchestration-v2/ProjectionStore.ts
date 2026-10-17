@@ -1575,6 +1575,7 @@ export function threadShellFromProjection(
     lastVisitedAt: projection.thread.lastVisitedAt,
     titleRegeneration: projection.thread.titleRegeneration ?? null,
     limitRecovery: projection.thread.limitRecovery ?? null,
+    categories: projection.thread.categories ?? null,
     deletedAt: projection.thread.deletedAt,
   };
 }
@@ -1819,6 +1820,7 @@ function shellFromState(input: {
     lastVisitedAt: input.state.thread.lastVisitedAt,
     titleRegeneration: input.state.thread.titleRegeneration ?? null,
     limitRecovery: input.state.thread.limitRecovery ?? null,
+    categories: input.state.thread.categories ?? null,
     deletedAt: input.state.thread.deletedAt,
   };
 }

@@ -70,9 +70,9 @@ export const SidebarProjectGroupingMode = Schema.Literals([
 export type SidebarProjectGroupingMode = typeof SidebarProjectGroupingMode.Type;
 const DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE: SidebarProjectGroupingMode = "repository";
 
-// Fields stay plain strings so a half-edited group can never fail decoding,
-// which would reset every client setting. The matcher ignores blank entries.
-export const SidebarFocusGroupRule = Schema.Struct({
+// Fields stay plain strings so a half-edited category can never fail decoding,
+// which would reset every server setting. The matcher ignores blank entries.
+export const ThreadCategoryRule = Schema.Struct({
   repositories: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   environments: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   providerInstances: Schema.Array(Schema.String).pipe(
@@ -81,15 +81,17 @@ export const SidebarFocusGroupRule = Schema.Struct({
   branches: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   workspacePaths: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
-export type SidebarFocusGroupRule = typeof SidebarFocusGroupRule.Type;
+export type ThreadCategoryRule = typeof ThreadCategoryRule.Type;
 
-export const SidebarFocusGroup = Schema.Struct({
+export const ThreadCategory = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
+  /** What belongs in the category, in the user's words, so suggestions can recognize it. */
+  description: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   color: ProjectIconColor,
-  rules: Schema.Array(SidebarFocusGroupRule).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  rules: Schema.Array(ThreadCategoryRule).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
-export type SidebarFocusGroup = typeof SidebarFocusGroup.Type;
+export type ThreadCategory = typeof ThreadCategory.Type;
 export const MIN_SIDEBAR_THREAD_PREVIEW_COUNT = 1;
 export const MAX_SIDEBAR_THREAD_PREVIEW_COUNT = 15;
 export const SidebarThreadPreviewCount = Schema.Int.check(
@@ -454,9 +456,6 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
-  ),
-  sidebarFocusGroups: Schema.Array(SidebarFocusGroup).pipe(
-    Schema.withDecodingDefault(Effect.succeed([])),
   ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
@@ -1180,6 +1179,13 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /**
+   * Clients write the same list to every connected environment, so a category
+   * keeps one id everywhere; each environment answers agents from its own copy.
+   */
+  threadCategories: Schema.Array(ThreadCategory).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -1455,6 +1461,7 @@ export const ServerSettingsPatch = Schema.Struct({
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
+  threadCategories: Schema.optionalKey(Schema.Array(ThreadCategory)),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
   branchNamePrefix: Schema.optionalKey(TrimmedString),
@@ -1605,7 +1612,6 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
-  sidebarFocusGroups: Schema.optionalKey(Schema.Array(SidebarFocusGroup)),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   snapShotEnabled: Schema.optionalKey(Schema.Boolean),
   snapShotIncludeAccessibility: Schema.optionalKey(Schema.Boolean),

@@ -77,6 +77,7 @@ import {
   SettingsIcon,
   SquarePenIcon,
   SunIcon,
+  TagIcon,
   TextSearchIcon,
 } from "lucide-react";
 import { requestThreadFindOpen } from "./chat/threadFindActionBus";
@@ -240,9 +241,17 @@ import { ComposerHandleContext, useComposerHandleContext } from "../composerHand
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
-import { selectSidebarFocusScope, sidebarFocusGroupLabel, stepSidebarFocus } from "../sidebarFocus";
-import { FocusGroupSwatch } from "./FocusGroupSwatch";
-import { resolveSidebarFocusScope } from "@t3tools/client-runtime/state/sidebar-focus-groups";
+import {
+  environmentSupportsThreadCategories,
+  resolveThreadCategoryMembership,
+  selectSidebarCategoryScope,
+  stepSidebarCategory,
+  useThreadCategories,
+  useUpdateThreadCategories,
+} from "../threadCategories";
+import { CategorySwatch } from "./CategorySwatch";
+import { resolveSidebarCategoryScope } from "@t3tools/client-runtime/state/sidebar-categories";
+import { threadCategoryChange, threadCategoryLabel } from "@t3tools/shared/threadCategories";
 import {
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
@@ -497,7 +506,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   const openNewThreadIn = () => dispatch({ _tag: "OpenNewThreadIn" });
   const clearOpenIntent = () => dispatch({ _tag: "ClearOpenIntent" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const sidebarFocusGroups = useClientSettings((settings) => settings.sidebarFocusGroups);
+  const threadCategories = useThreadCategories();
   const { theme, themeHalves, resolvedTheme, appearanceMode, setAppearanceMode } = useTheme();
   const composerHandleRef = useRef<ChatComposerHandle | null>(null);
   const routeTarget = useParams({
@@ -549,15 +558,15 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           modelPickerOpen: composerHandleRef.current?.isModelPickerOpen() ?? false,
         },
       });
-      if (command !== "sidebar.nextFocusGroup" && command !== "sidebar.previousFocusGroup") return;
+      if (command !== "sidebar.nextCategory" && command !== "sidebar.previousCategory") return;
       event.preventDefault();
       event.stopPropagation();
       if (event.repeat) return;
-      stepSidebarFocus(command === "sidebar.nextFocusGroup" ? 1 : -1, sidebarFocusGroups);
+      stepSidebarCategory(command === "sidebar.nextCategory" ? 1 : -1, threadCategories);
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [keybindings, previewOpen, sidebarFocusGroups, terminalOpen]);
+  }, [keybindings, previewOpen, threadCategories, terminalOpen]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -754,9 +763,11 @@ function OpenCommandPaletteDialog(props: {
   }
   const clientSettings = useClientSettings();
   const sidebarProjectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
-  const sidebarFocusScope = resolveSidebarFocusScope(
-    useUiStateStore((store) => store.sidebarFocusScope),
-    clientSettings.sidebarFocusGroups,
+  const threadCategories = useThreadCategories();
+  const updateThreadCategories = useUpdateThreadCategories();
+  const sidebarCategoryScope = resolveSidebarCategoryScope(
+    useUiStateStore((store) => store.sidebarCategoryScope),
+    threadCategories,
   );
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
@@ -1994,59 +2005,135 @@ function OpenCommandPaletteDialog(props: {
   };
   actionItems.push(changeAppearanceItem);
 
-  let sidebarFocusItem: CommandPaletteSubmenuItem | null = null;
-  if (clientSettings.sidebarFocusGroups.length > 0) {
+  let sidebarCategoryItem: CommandPaletteSubmenuItem | null = null;
+  if (threadCategories.length > 0) {
     const scopeTrailing = (current: boolean) =>
       current ? <span className="text-xs text-muted-foreground/70">Current</span> : undefined;
-    sidebarFocusItem = {
+    sidebarCategoryItem = {
       kind: "submenu",
-      value: "action:sidebar-focus",
-      searchTerms: ["focus", "sidebar", "filter", "group", "threads"],
-      title: "Focus sidebar on…",
+      value: "action:sidebar-category",
+      searchTerms: ["category", "categories", "sidebar", "filter", "focus", "group", "threads"],
+      title: "Filter sidebar by category…",
       icon: <ListFilterIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <ListFilterIcon className={ADDON_ICON_CLASS} />,
-      shortcutCommand: "sidebar.nextFocusGroup",
+      shortcutCommand: "sidebar.nextCategory",
       groups: [
         {
-          value: "sidebar-focus",
-          label: "Focus sidebar on",
+          value: "sidebar-category",
+          label: "Filter sidebar by category",
           items: [
             {
               kind: "action",
-              value: "sidebar-focus:all",
+              value: "sidebar-category:all",
               title: "All projects",
               searchTerms: ["all", "everything"],
               icon: <ListFilterIcon className={ITEM_ICON_CLASS} />,
               titleTrailingContent: scopeTrailing(
-                sidebarFocusScope === null && sidebarProjectScopeKey === null,
+                sidebarCategoryScope === null && sidebarProjectScopeKey === null,
               ),
-              run: async () => selectSidebarFocusScope(null),
+              run: async () => selectSidebarCategoryScope(null),
             },
-            ...clientSettings.sidebarFocusGroups.map((group): CommandPaletteActionItem => ({
+            ...threadCategories.map((category): CommandPaletteActionItem => ({
               kind: "action",
-              value: `sidebar-focus:group:${group.id}`,
-              title: sidebarFocusGroupLabel(group),
-              searchTerms: [group.name, "group"],
-              icon: <FocusGroupSwatch color={group.color} className="size-3" />,
+              value: `sidebar-category:${category.id}`,
+              title: threadCategoryLabel(category),
+              searchTerms: [category.name, "category"],
+              icon: <CategorySwatch color={category.color} className="size-3" />,
               titleTrailingContent: scopeTrailing(
-                sidebarFocusScope?.type === "group" && sidebarFocusScope.groupId === group.id,
+                sidebarCategoryScope?.type === "category" &&
+                  sidebarCategoryScope.categoryId === category.id,
               ),
-              run: async () => selectSidebarFocusScope({ type: "group", groupId: group.id }),
+              run: async () =>
+                selectSidebarCategoryScope({ type: "category", categoryId: category.id }),
             })),
             {
               kind: "action",
-              value: "sidebar-focus:ungrouped",
-              title: "Everything else",
-              searchTerms: ["ungrouped", "other", "rest"],
-              icon: <FocusGroupSwatch color={null} className="size-3 text-icon-muted" />,
-              titleTrailingContent: scopeTrailing(sidebarFocusScope?.type === "ungrouped"),
-              run: async () => selectSidebarFocusScope({ type: "ungrouped" }),
+              value: "sidebar-category:uncategorized",
+              title: "Uncategorized",
+              searchTerms: ["uncategorized", "other", "rest"],
+              icon: <CategorySwatch color={null} className="size-3 text-icon-muted" />,
+              titleTrailingContent: scopeTrailing(sidebarCategoryScope?.type === "uncategorized"),
+              run: async () => selectSidebarCategoryScope({ type: "uncategorized" }),
             },
           ],
         },
       ],
     };
-    actionItems.push(sidebarFocusItem);
+    actionItems.push(sidebarCategoryItem);
+  }
+
+  let threadCategoriesItem: CommandPaletteSubmenuItem | null = null;
+  if (
+    activeThread &&
+    threadCategories.length > 0 &&
+    environmentSupportsThreadCategories(activeThreadServerConfig)
+  ) {
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    const membership = resolveThreadCategoryMembership({
+      categories: threadCategories,
+      subject: {
+        environmentId: activeThread.environmentId,
+        providerInstanceId: activeThread.providerInstanceId,
+        branch: activeThread.branch,
+        project:
+          projectByKey.get(`${activeThread.environmentId}:${activeThread.projectId}`) ?? null,
+      },
+      state: activeThread.categories,
+    });
+    const canOperate = readEnvironmentScope(
+      activeThread.environmentId,
+      AuthOrchestrationOperateScope,
+    );
+    threadCategoriesItem = {
+      kind: "submenu",
+      value: "action:thread-categories",
+      searchTerms: ["categories", "category", "focus", "group", "tag", "thread"],
+      title: "Thread categories…",
+      ...(membership.categoryIds.length > 0
+        ? {
+            description: threadCategories
+              .filter((category) => membership.categoryIds.includes(category.id))
+              .map(threadCategoryLabel)
+              .join(" · "),
+          }
+        : {}),
+      icon: <TagIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <TagIcon className={ADDON_ICON_CLASS} />,
+      disabled: !canOperate,
+      groups: [
+        {
+          value: "thread-categories",
+          label: "Thread categories",
+          items: threadCategories.map((category): CommandPaletteActionItem => {
+            const member = membership.categoryIds.includes(category.id);
+            return {
+              kind: "action",
+              value: `thread-categories:${category.id}`,
+              title: threadCategoryLabel(category),
+              searchTerms: [category.name, "category"],
+              icon: <CategorySwatch color={category.color} className="size-3" />,
+              titleTrailingContent: member ? (
+                <span className="text-xs text-muted-foreground/70">In this thread</span>
+              ) : undefined,
+              // Stays open so several categories can be toggled in one pass; the
+              // submenu re-reads the thread, so each row's state updates in place.
+              keepOpen: true,
+              run: () =>
+                updateThreadCategories(threadRef, {
+                  changes: [
+                    threadCategoryChange({
+                      ruleCategoryIds: membership.ruleCategoryIds,
+                      categoryId: category.id,
+                      member: !member,
+                    }),
+                  ],
+                }),
+            };
+          }),
+        },
+      ],
+    };
+    actionItems.push(threadCategoriesItem);
   }
 
   // The parent pushes an intent into this mounted dialog; applying it clears the
@@ -2232,9 +2319,11 @@ function OpenCommandPaletteDialog(props: {
         ? changeThemeItem.groups
         : currentView?.groups[0]?.value === "appearance"
           ? changeAppearanceItem.groups
-          : currentView?.groups[0]?.value === "sidebar-focus" && sidebarFocusItem
-            ? sidebarFocusItem.groups
-            : (currentView?.groups ?? rootGroups);
+          : currentView?.groups[0]?.value === "sidebar-category" && sidebarCategoryItem
+            ? sidebarCategoryItem.groups
+            : currentView?.groups[0]?.value === "thread-categories" && threadCategoriesItem
+              ? threadCategoriesItem.groups
+              : (currentView?.groups ?? rootGroups);
 
   const filteredGroups = filterCommandPaletteGroups({
     activeGroups,

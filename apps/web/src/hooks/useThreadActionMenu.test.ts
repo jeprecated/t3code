@@ -88,6 +88,10 @@ vi.mock("../logicalProject", () => ({
   derivePhysicalProjectKey: () => "project",
   selectProjectGroupingSettings: () => ({}),
 }));
+vi.mock("../threadCategories", () => ({
+  readThreadCategoryMembership: () => null,
+  useUpdateThreadCategories: () => vi.fn(),
+}));
 vi.mock("../sidebarProjectGrouping", () => ({
   buildPhysicalToLogicalProjectKeyMap: () => new Map(),
 }));

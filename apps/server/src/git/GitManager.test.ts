@@ -346,6 +346,7 @@ function createTextGeneration(
         title: "Update workflow",
       }),
     generateReviewGuide: () => Effect.succeed({ stops: [] }),
+    generateThreadCategories: () => Effect.succeed({ categoryIds: [] }),
     ...overrides,
   };
 
@@ -395,6 +396,7 @@ function createTextGeneration(
         ),
       ),
     generateReviewGuide: (input) => implementation.generateReviewGuide(input),
+    generateThreadCategories: (input) => implementation.generateThreadCategories(input),
   };
 }
 

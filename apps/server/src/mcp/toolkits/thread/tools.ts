@@ -23,6 +23,7 @@ import * as Crypto from "effect/Crypto";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
+import * as ThreadCategoryService from "../../../orchestration-v2/ThreadCategoryService.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -60,6 +61,62 @@ const ThreadOrganizeTool = Tool.make("t3_thread_organize", {
 })
   .annotate(Tool.Title, "Organize a thread")
   .annotate(Tool.Destructive, true);
+
+const ThreadCategoryMembershipResult = Schema.Struct({
+  threadId: ThreadId,
+  categories: Schema.Array(Schema.String).annotate({
+    description: "The thread's categories by name: rule matches plus its own changes.",
+  }),
+  fromRules: Schema.Array(Schema.String).annotate({
+    description: "Categories the environment's rules give the thread, before its own changes.",
+  }),
+  suggested: Schema.Array(Schema.String),
+});
+const categoryReferences = Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(200))).check(
+  Schema.isMaxLength(50),
+);
+const categoryTool = {
+  failure: OrchestratorMcpFailure,
+  failureMode: "return" as const,
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadManagementService.ThreadManagementService,
+    ThreadCategoryService.ThreadCategoryService,
+    Crypto.Crypto,
+  ],
+};
+
+const ThreadCategoriesTool = Tool.make("t3_thread_categories", {
+  ...categoryTool,
+  description:
+    "List the categories the user defined for this environment, which group threads in the sidebar, and a thread's membership. Omit threadId for this thread; outside a T3 thread without threadId only the categories are returned. Only the user creates or edits categories.",
+  parameters: Schema.Struct({ threadId: Schema.optional(ThreadId) }),
+  success: Schema.Struct({
+    categories: Schema.Array(
+      Schema.Struct({ id: Schema.String, name: Schema.String, description: Schema.String }),
+    ),
+    thread: Schema.optional(ThreadCategoryMembershipResult),
+  }),
+})
+  .annotate(Tool.Title, "List thread categories")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+
+const ThreadCategorizeTool = Tool.make("t3_thread_categorize", {
+  ...categoryTool,
+  description:
+    "Add a thread to or remove it from categories, named by name (case-insensitive) or id from t3_thread_categories. Omit threadId for this thread. Removing a category the rules give the thread removes it for that thread only. The thread's project, checkout and provider are unchanged. clientRequestId makes retries idempotent.",
+  parameters: Schema.Struct({
+    threadId: Schema.optional(ThreadId),
+    add: Schema.optional(categoryReferences),
+    remove: Schema.optional(categoryReferences),
+    clientRequestId: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(256))),
+  }),
+  success: ThreadCategoryMembershipResult,
+})
+  .annotate(Tool.Title, "Categorize a thread")
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.Destructive, false);
 
 const queueTarget = { threadId: Schema.optional(ThreadId), queuedRunId: RunId };
 const commandTool = {
@@ -283,6 +340,8 @@ export const ThreadToolkit = Toolkit.make(
   PendingRequestReadTool,
   PendingRequestRespondTool,
   ThreadOrganizeTool,
+  ThreadCategoriesTool,
+  ThreadCategorizeTool,
   QueueListTool,
   QueueReadTool,
   QueueEditTool,

@@ -1,21 +1,28 @@
-import { compileSidebarFocusGroups } from "@t3tools/client-runtime/state/sidebar-focus-groups";
-import type { SidebarFocusGroup, SidebarFocusGroupRule } from "@t3tools/contracts";
+import {
+  compileThreadCategoryRules,
+  resolveThreadCategoryIds,
+  threadCategoryLabel,
+} from "@t3tools/shared/threadCategories";
+import type {
+  OrchestrationV2ThreadCategories,
+  ThreadCategory,
+  ThreadCategoryRule,
+} from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { EllipsisIcon, PlusIcon, XIcon } from "lucide-react";
 
-import {
-  getClientSettings,
-  useClientSettings,
-  useClientSettingsHydrated,
-  useUpdateClientSettings,
-} from "../../hooks/useSettings";
+import { useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { cn, randomUUID } from "~/lib/utils";
 import { PROJECT_ICON_COLORS } from "../../projectIconColors";
-import { sidebarFocusGroupLabel } from "../../sidebarFocus";
+import {
+  environmentSupportsThreadCategories,
+  readThreadCategories,
+  useThreadCategories,
+} from "../../threadCategories";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useEnvironmentIdentities } from "../../state/environments";
 import { environmentServerConfigsAtom } from "../../state/server";
-import { FocusGroupSwatch } from "../FocusGroupSwatch";
+import { CategorySwatch } from "../CategorySwatch";
 import { Button } from "../ui/button";
 import { DraftInput } from "../ui/draft-input";
 import {
@@ -31,7 +38,7 @@ import {
 import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
-const EMPTY_RULE: SidebarFocusGroupRule = {
+const EMPTY_RULE: ThreadCategoryRule = {
   repositories: [],
   environments: [],
   providerInstances: [],
@@ -60,8 +67,8 @@ function parseList(text: string): string[] {
     .filter((entry) => entry.length > 0);
 }
 
-function nextColor(groups: readonly SidebarFocusGroup[]): SidebarFocusGroup["color"] {
-  const used = new Set(groups.map((group) => group.color));
+function nextColor(categories: readonly ThreadCategory[]): ThreadCategory["color"] {
+  const used = new Set(categories.map((category) => category.color));
   const palette = PROJECT_ICON_COLORS.filter((color) => color.value !== "gray");
   return (palette.find((color) => !used.has(color.value)) ?? palette[0]!).value;
 }
@@ -125,14 +132,14 @@ function ChoiceMenu(props: {
   );
 }
 
-export function SidebarFocusGroupsSetting() {
-  const groups = useClientSettings((settings) => settings.sidebarFocusGroups);
-  const hydrated = useClientSettingsHydrated();
-  const updateClientSettings = useUpdateClientSettings();
+export function ThreadCategoriesSetting() {
+  const categories = useThreadCategories();
+  const updateSettings = useUpdatePrimarySettings();
   const environments = useEnvironmentIdentities();
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
   const projects = useProjects();
   const threads = useThreadShells();
+  const editable = [...serverConfigs.values()].some(environmentSupportsThreadCategories);
 
   const environmentChoices = environments.map((environment): Choice => ({
     value: environment.environmentId,
@@ -150,12 +157,12 @@ export function SidebarFocusGroupsSetting() {
     return [...choices].map(([value, label]): Choice => ({ value, label }));
   })();
 
-  const matchFocusGroups = compileSidebarFocusGroups(groups);
+  const matchCategories = compileThreadCategoryRules(categories);
   const projectByKey = new Map(
     projects.map((project) => [`${project.environmentId}:${project.id}`, project]),
   );
-  // Thread shells change on every status or title update; only the fields the
-  // rules read should trigger a recount while this page is open.
+  // Thread shells change on every status or title update; only the fields
+  // membership reads should trigger a recount while this page is open.
   const subjectsKey = JSON.stringify(
     threads
       .filter(
@@ -167,43 +174,53 @@ export function SidebarFocusGroupsSetting() {
         thread.projectId,
         thread.providerInstanceId,
         thread.branch,
+        thread.categories ?? null,
       ]),
   );
-  const matchCountByGroupId = (() => {
+  const threadCountByCategoryId = (() => {
     const counts = new Map<string, number>();
     const subjects = JSON.parse(subjectsKey) as ReadonlyArray<
-      readonly [string, string, string, string | null]
+      readonly [string, string, string, string | null, OrchestrationV2ThreadCategories | null]
     >;
-    for (const [environmentId, projectId, providerInstanceId, branch] of subjects) {
-      const groupIds = matchFocusGroups({
-        environmentId,
-        providerInstanceId,
-        branch,
-        project: projectByKey.get(`${environmentId}:${projectId}`) ?? null,
-      });
-      for (const groupId of groupIds) counts.set(groupId, (counts.get(groupId) ?? 0) + 1);
+    for (const [environmentId, projectId, providerInstanceId, branch, state] of subjects) {
+      const categoryIds = resolveThreadCategoryIds(
+        categories,
+        matchCategories({
+          environmentId,
+          providerInstanceId,
+          branch,
+          project: projectByKey.get(`${environmentId}:${projectId}`) ?? null,
+        }),
+        state,
+      );
+      for (const id of categoryIds) counts.set(id, (counts.get(id) ?? 0) + 1);
     }
     return counts;
   })();
 
-  // Edits read the live settings rather than the rendered list, so two quick
-  // edits before a re-render cannot overwrite each other.
-  const writeGroups = (update: (current: readonly SidebarFocusGroup[]) => SidebarFocusGroup[]) => {
-    if (!hydrated) return;
-    updateClientSettings({ sidebarFocusGroups: update(getClientSettings().sidebarFocusGroups) });
+  // Edits start from the latest list the servers reported rather than the
+  // rendered one, and write it to every connected environment.
+  const writeCategories = (update: (current: readonly ThreadCategory[]) => ThreadCategory[]) => {
+    if (!editable) return;
+    updateSettings({ threadCategories: update(readThreadCategories()) });
   };
-  const updateGroup = (groupId: string, update: (group: SidebarFocusGroup) => SidebarFocusGroup) =>
-    writeGroups((current) =>
-      current.map((group) => (group.id === groupId ? update(group) : group)),
+  const updateCategory = (
+    categoryId: string,
+    update: (category: ThreadCategory) => ThreadCategory,
+  ) =>
+    writeCategories((current) =>
+      current.map((category) => (category.id === categoryId ? update(category) : category)),
     );
-  const updateRule = (groupId: string, ruleIndex: number, patch: Partial<SidebarFocusGroupRule>) =>
-    updateGroup(groupId, (group) => ({
-      ...group,
-      rules: group.rules.map((rule, index) => (index === ruleIndex ? { ...rule, ...patch } : rule)),
+  const updateRule = (categoryId: string, ruleIndex: number, patch: Partial<ThreadCategoryRule>) =>
+    updateCategory(categoryId, (category) => ({
+      ...category,
+      rules: category.rules.map((rule, index) =>
+        index === ruleIndex ? { ...rule, ...patch } : rule,
+      ),
     }));
-  const moveGroup = (groupId: string, offset: -1 | 1) =>
-    writeGroups((current) => {
-      const index = current.findIndex((group) => group.id === groupId);
+  const moveCategory = (categoryId: string, offset: -1 | 1) =>
+    writeCategories((current) => {
+      const index = current.findIndex((category) => category.id === categoryId);
       const target = index + offset;
       if (index === -1 || target < 0 || target >= current.length) return [...current];
       const next = [...current];
@@ -213,19 +230,24 @@ export function SidebarFocusGroupsSetting() {
 
   return (
     <SettingsRow
-      {...searchableSetting("sidebar-focus-groups")}
-      description="Name sets of threads by repository, environment, provider, branch, or path. Pick one in the sidebar filter to show only its threads; every thread is marked with the colors of the groups it belongs to."
+      {...searchableSetting("thread-categories")}
+      description={
+        editable
+          ? "Group threads by repository, environment, provider, branch, or path. Pick a category in the sidebar filter to show only its threads; every thread is marked with the colors of its categories. A thread's Categories menu, or an agent, adds it to or takes it out of a category on its own, and new threads suggest the categories that fit. Categories are saved on every connected environment."
+          : "Group threads into categories. Connect to a server that supports thread categories to create them."
+      }
       control={
         <Button
           size="sm"
           variant="outline"
-          disabled={!hydrated}
+          disabled={!editable}
           onClick={() =>
-            writeGroups((current) => [
+            writeCategories((current) => [
               ...current,
               {
                 id: randomUUID(),
-                name: "New group",
+                name: "New category",
+                description: "",
                 color: nextColor(current),
                 rules: [EMPTY_RULE],
               },
@@ -233,16 +255,16 @@ export function SidebarFocusGroupsSetting() {
           }
         >
           <PlusIcon />
-          Add group
+          Add category
         </Button>
       }
     >
-      {groups.length > 0 ? (
+      {categories.length > 0 ? (
         <div className="mt-2 mb-2 flex flex-col gap-3">
-          {groups.map((group, groupIndex) => {
-            const matchCount = matchCountByGroupId.get(group.id) ?? 0;
+          {categories.map((category, categoryIndex) => {
+            const matchCount = threadCountByCategoryId.get(category.id) ?? 0;
             return (
-              <div key={group.id} className="rounded-lg border border-border/60">
+              <div key={category.id} className="rounded-lg border border-border/60">
                 <div className="flex items-center gap-2 px-3 py-2">
                   <Menu>
                     <MenuTrigger
@@ -250,23 +272,23 @@ export function SidebarFocusGroupsSetting() {
                         <Button
                           size="icon-xs"
                           variant="ghost"
-                          disabled={!hydrated}
-                          aria-label={`Color for ${sidebarFocusGroupLabel(group)}`}
+                          disabled={!editable}
+                          aria-label={`Color for ${threadCategoryLabel(category)}`}
                         />
                       }
                     >
-                      <FocusGroupSwatch color={group.color} className="size-3.5" />
+                      <CategorySwatch color={category.color} className="size-3.5" />
                     </MenuTrigger>
                     <MenuPopup align="start">
                       <MenuRadioGroup
-                        value={group.color}
-                        onValueChange={(color: SidebarFocusGroup["color"]) =>
-                          updateGroup(group.id, (current) => ({ ...current, color }))
+                        value={category.color}
+                        onValueChange={(color: ThreadCategory["color"]) =>
+                          updateCategory(category.id, (current) => ({ ...current, color }))
                         }
                       >
                         {PROJECT_ICON_COLORS.map((color) => (
                           <MenuRadioItem key={color.value} value={color.value}>
-                            <FocusGroupSwatch color={color.value} className="size-3" />
+                            <CategorySwatch color={color.value} className="size-3" />
                             {color.label}
                           </MenuRadioItem>
                         ))}
@@ -277,10 +299,12 @@ export function SidebarFocusGroupsSetting() {
                     nativeInput
                     size="sm"
                     className="w-full max-w-56"
-                    aria-label="Group name"
-                    disabled={!hydrated}
-                    value={group.name}
-                    onCommit={(name) => updateGroup(group.id, (current) => ({ ...current, name }))}
+                    aria-label="Category name"
+                    disabled={!editable}
+                    value={category.name}
+                    onCommit={(name) =>
+                      updateCategory(category.id, (current) => ({ ...current, name }))
+                    }
                   />
                   <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
                     {matchCount === 1 ? "1 thread" : `${matchCount} threads`}
@@ -291,20 +315,23 @@ export function SidebarFocusGroupsSetting() {
                         <Button
                           size="icon-xs"
                           variant="ghost-muted"
-                          disabled={!hydrated}
-                          aria-label={`Actions for ${sidebarFocusGroupLabel(group)}`}
+                          disabled={!editable}
+                          aria-label={`Actions for ${threadCategoryLabel(category)}`}
                         />
                       }
                     >
                       <EllipsisIcon />
                     </MenuTrigger>
                     <MenuPopup align="end">
-                      <MenuItem disabled={groupIndex === 0} onClick={() => moveGroup(group.id, -1)}>
+                      <MenuItem
+                        disabled={categoryIndex === 0}
+                        onClick={() => moveCategory(category.id, -1)}
+                      >
                         Move up
                       </MenuItem>
                       <MenuItem
-                        disabled={groupIndex === groups.length - 1}
-                        onClick={() => moveGroup(group.id, 1)}
+                        disabled={categoryIndex === categories.length - 1}
+                        onClick={() => moveCategory(category.id, 1)}
                       >
                         Move down
                       </MenuItem>
@@ -312,17 +339,30 @@ export function SidebarFocusGroupsSetting() {
                       <MenuItem
                         variant="destructive"
                         onClick={() =>
-                          writeGroups((current) =>
-                            current.filter((candidate) => candidate.id !== group.id),
+                          writeCategories((current) =>
+                            current.filter((candidate) => candidate.id !== category.id),
                           )
                         }
                       >
-                        Delete group
+                        Delete category
                       </MenuItem>
                     </MenuPopup>
                   </Menu>
                 </div>
-                {group.rules.map((rule, ruleIndex) => (
+                <div className="px-3 pb-2">
+                  <DraftInput
+                    nativeInput
+                    size="sm"
+                    aria-label={`What belongs in ${threadCategoryLabel(category)}`}
+                    placeholder="What belongs here, for suggestions (e.g. Skool, content creation)"
+                    disabled={!editable}
+                    value={category.description}
+                    onCommit={(description) =>
+                      updateCategory(category.id, (current) => ({ ...current, description }))
+                    }
+                  />
+                </div>
+                {category.rules.map((rule, ruleIndex) => (
                   // Rules have no identity of their own; their position is their key.
                   // oxlint-disable-next-line react/no-array-index-key
                   <div key={ruleIndex} className="border-t border-border/60 px-3 py-2">
@@ -333,10 +373,10 @@ export function SidebarFocusGroupsSetting() {
                       <Button
                         size="icon-xs"
                         variant="ghost-muted"
-                        disabled={!hydrated}
+                        disabled={!editable}
                         aria-label="Remove rule"
                         onClick={() =>
-                          updateGroup(group.id, (current) => ({
+                          updateCategory(category.id, (current) => ({
                             ...current,
                             rules: current.rules.filter((_, index) => index !== ruleIndex),
                           }))
@@ -352,11 +392,11 @@ export function SidebarFocusGroupsSetting() {
                           <DraftInput
                             nativeInput
                             size="sm"
-                            disabled={!hydrated}
+                            disabled={!editable}
                             placeholder={placeholder}
                             value={rule[field].join(", ")}
                             onCommit={(text) =>
-                              updateRule(group.id, ruleIndex, { [field]: parseList(text) })
+                              updateRule(category.id, ruleIndex, { [field]: parseList(text) })
                             }
                           />
                         </label>
@@ -376,9 +416,9 @@ export function SidebarFocusGroupsSetting() {
                             anyLabel={anyLabel}
                             choices={choices}
                             selected={rule[field]}
-                            disabled={!hydrated}
+                            disabled={!editable}
                             onChange={(selected) =>
-                              updateRule(group.id, ruleIndex, { [field]: selected })
+                              updateRule(category.id, ruleIndex, { [field]: selected })
                             }
                           />
                         </div>
@@ -389,22 +429,22 @@ export function SidebarFocusGroupsSetting() {
                 <div
                   className={cn(
                     "px-3 py-1.5",
-                    group.rules.length > 0 && "border-t border-border/60",
+                    category.rules.length > 0 && "border-t border-border/60",
                   )}
                 >
                   <Button
                     size="xs"
                     variant="ghost"
-                    disabled={!hydrated}
+                    disabled={!editable}
                     onClick={() =>
-                      updateGroup(group.id, (current) => ({
+                      updateCategory(category.id, (current) => ({
                         ...current,
                         rules: [...current.rules, EMPTY_RULE],
                       }))
                     }
                   >
                     <PlusIcon />
-                    {group.rules.length === 0 ? "Add rule" : "Add another rule"}
+                    {category.rules.length === 0 ? "Add rule" : "Add another rule"}
                   </Button>
                 </div>
               </div>

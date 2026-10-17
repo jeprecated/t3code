@@ -180,14 +180,24 @@ import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat"
 import type { SidebarThreadSummary } from "../types";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import {
-  compileSidebarFocusGroups,
-  resolveSidebarFocusScope,
-  sidebarFocusScopeIncludes,
-  type SidebarFocusScope,
-} from "@t3tools/client-runtime/state/sidebar-focus-groups";
-import type { ProjectIconColor } from "@t3tools/contracts";
-import { FOCUS_SWATCH_CLASS_BY_COLOR, FocusGroupSwatch } from "./FocusGroupSwatch";
-import { selectSidebarFocusScope, sidebarFocusGroupLabel } from "../sidebarFocus";
+  resolveSidebarCategoryScope,
+  sidebarCategoryScopeIncludes,
+  type SidebarCategoryScope,
+} from "@t3tools/client-runtime/state/sidebar-categories";
+import {
+  compileThreadCategoryRules,
+  resolveThreadCategoryIds,
+  threadCategoryChange,
+  threadCategoryLabel,
+} from "@t3tools/shared/threadCategories";
+import type { OrchestrationV2ThreadCategories, ProjectIconColor } from "@t3tools/contracts";
+import { CATEGORY_SWATCH_CLASS_BY_COLOR, CategorySwatch } from "./CategorySwatch";
+import {
+  readThreadCategoryMembership,
+  selectSidebarCategoryScope,
+  useThreadCategories,
+  useUpdateThreadCategories,
+} from "../threadCategories";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
@@ -422,7 +432,7 @@ function useSidebarThreads(input: {
     false,
     Schema.Boolean,
   );
-  // The settled tail restarts whenever the project or focus scope changes.
+  // The settled tail restarts whenever the project or category scope changes.
   const [settledTail, setSettledTail] = useState({
     scopeKey,
     count: SETTLED_TAIL_INITIAL_COUNT,
@@ -698,7 +708,7 @@ function useSidebarLookups() {
   const environments = useEnvironmentIdentities();
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
   const projectGroups = useSidebarProjectGroups();
-  const focusGroups = useClientSettings((s) => s.sidebarFocusGroups);
+  const threadCategories = useThreadCategories();
   const environmentLabelById = new Map(
     environments.map((environment) => [environment.environmentId, environment.label] as const),
   );
@@ -725,31 +735,37 @@ function useSidebarLookups() {
   );
   const projectScopeItems: SidebarScopeItem[] = [
     { value: "all", label: "All projects" },
-    ...focusGroups.map((group) => ({
-      value: `focus-group:${group.id}`,
-      label: sidebarFocusGroupLabel(group),
-      focusScope: { type: "group" as const, groupId: group.id },
-      color: group.color,
+    ...threadCategories.map((category) => ({
+      value: `category:${category.id}`,
+      label: threadCategoryLabel(category),
+      categoryScope: { type: "category" as const, categoryId: category.id },
+      color: category.color,
     })),
-    ...(focusGroups.length > 0
+    ...(threadCategories.length > 0
       ? [
           {
-            value: "focus-ungrouped",
-            label: "Everything else",
-            focusScope: { type: "ungrouped" as const },
+            value: "uncategorized",
+            label: "Uncategorized",
+            categoryScope: { type: "uncategorized" as const },
           },
         ]
       : []),
     ...projectGroups.map((project) => ({ value: project.projectKey, label: project.displayName })),
   ];
-  const matchFocusGroups = compileSidebarFocusGroups(focusGroups);
-  const focusGroupIdsOf = (subject: SidebarScopeSubject) =>
-    matchFocusGroups({
-      environmentId: subject.environmentId,
-      providerInstanceId: subject.providerInstanceId,
-      branch: subject.branch,
-      project: projectByKey.get(`${subject.environmentId}:${subject.projectId}`) ?? null,
-    });
+  const matchCategoryRules = compileThreadCategoryRules(threadCategories);
+  // Filtering and stripes both read this, so a thread's own category changes
+  // apply everywhere its rule matches do.
+  const categoryIdsOf = (subject: SidebarScopeSubject) =>
+    resolveThreadCategoryIds(
+      threadCategories,
+      matchCategoryRules({
+        environmentId: subject.environmentId,
+        providerInstanceId: subject.providerInstanceId,
+        branch: subject.branch,
+        project: projectByKey.get(`${subject.environmentId}:${subject.projectId}`) ?? null,
+      }),
+      subject.categories,
+    );
   return {
     projects,
     serverConfigs,
@@ -760,8 +776,8 @@ function useSidebarLookups() {
     projectDisplayNameByKey,
     projectGroupByScopeKey,
     projectScopeItems,
-    focusGroups,
-    focusGroupIdsOf,
+    threadCategories,
+    categoryIdsOf,
   };
 }
 
@@ -1366,10 +1382,10 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   );
 });
 
-const MAX_FOCUS_STRIPES = 3;
+const MAX_CATEGORY_STRIPES = 3;
 
 /** `colors` is space-separated so the memoized row compares it by value. */
-function FocusGroupStripes(props: { colors: string; variant: "card" | "slim" }) {
+function CategoryStripes(props: { colors: string; variant: "card" | "slim" }) {
   if (props.colors.length === 0) return null;
   return (
     <span
@@ -1382,7 +1398,7 @@ function FocusGroupStripes(props: { colors: string; variant: "card" | "slim" }) 
       {props.colors.split(" ").map((color) => (
         <span
           key={color}
-          className={cn("w-0.5 rounded-full", FOCUS_SWATCH_CLASS_BY_COLOR.get(color))}
+          className={cn("w-0.5 rounded-full", CATEGORY_SWATCH_CLASS_BY_COLOR.get(color))}
         />
       ))}
     </span>
@@ -1392,11 +1408,13 @@ function FocusGroupStripes(props: { colors: string; variant: "card" | "slim" }) 
 interface SidebarScopeItem {
   readonly value: string;
   readonly label: string;
-  readonly focusScope?: SidebarFocusScope;
+  readonly categoryScope?: SidebarCategoryScope;
   readonly color?: ProjectIconColor;
 }
 
 interface SidebarScopeSubject {
+  /** A thread's own category changes; drafts only have their rule matches. */
+  readonly categories?: OrchestrationV2ThreadCategories | null | undefined;
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly branch: string | null;
@@ -1536,7 +1554,7 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
-  focusGroupColors: string;
+  categoryColors: string;
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
   snoozeSupported: boolean;
@@ -2099,7 +2117,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             }
           >
             {accessibleTitle}
-            <FocusGroupStripes colors={props.focusGroupColors} variant="slim" />
+            <CategoryStripes colors={props.categoryColors} variant="slim" />
             <span
               className={cn(
                 "flex shrink-0 items-center transition-opacity",
@@ -2255,7 +2273,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           }
         >
           {accessibleTitle}
-          <FocusGroupStripes colors={props.focusGroupColors} variant="card" />
+          <CategoryStripes colors={props.categoryColors} variant="card" />
           <div className="relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)">
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               {draftIndicator}
@@ -2679,9 +2697,10 @@ export default function Sidebar() {
     projectDisplayNameByKey,
     projectGroupByScopeKey,
     projectScopeItems,
-    focusGroups,
-    focusGroupIdsOf,
+    threadCategories,
+    categoryIdsOf,
   } = useSidebarLookups();
+  const updateThreadCategories = useUpdateThreadCategories();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -2779,7 +2798,7 @@ export default function Sidebar() {
   const environmentMachineById = useEnvironmentMachines();
   const projectGroupsRef = useRef(projectGroups);
   const persistedProjectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
-  const persistedFocusScope = useUiStateStore((store) => store.sidebarFocusScope);
+  const persistedCategoryScope = useUiStateStore((store) => store.sidebarCategoryScope);
   const setPersistedProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
     reduceSidebarProjectScopeMenuState,
@@ -2844,16 +2863,16 @@ export default function Sidebar() {
     key: persistedProjectScopeKey,
     settings: projectGroupingSettings,
   });
-  // Unknown groups resolve to "everything" without being cleared from storage,
-  // since desktop client settings hydrate after the first render.
-  const focusScope = resolveSidebarFocusScope(persistedFocusScope, focusGroups);
-  const focusedGroup =
-    focusScope?.type === "group"
-      ? (focusGroups.find((group) => group.id === focusScope.groupId) ?? null)
+  // Unknown categories resolve to "everything" without being cleared from
+  // storage, since server settings arrive after the first render.
+  const categoryScope = resolveSidebarCategoryScope(persistedCategoryScope, threadCategories);
+  const focusedCategory =
+    categoryScope?.type === "category"
+      ? (threadCategories.find((category) => category.id === categoryScope.categoryId) ?? null)
       : null;
-  const selectFocusScope = (scope: SidebarFocusScope | null) => {
+  const selectCategoryScope = (scope: SidebarCategoryScope | null) => {
     clearSelection();
-    selectSidebarFocusScope(scope);
+    selectSidebarCategoryScope(scope);
   };
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
   const scratchMachineLabelFor = (
@@ -2870,10 +2889,10 @@ export default function Sidebar() {
     return environmentLabelById.get(thread.environmentId) ?? null;
   };
   const selectedProjectScopeValue =
-    focusScope?.type === "group"
-      ? `focus-group:${focusScope.groupId}`
-      : focusScope?.type === "ungrouped"
-        ? "focus-ungrouped"
+    categoryScope?.type === "category"
+      ? `category:${categoryScope.categoryId}`
+      : categoryScope?.type === "uncategorized"
+        ? "uncategorized"
         : (projectScopeKey ?? "all");
   const selectedProjectScopeItem =
     projectScopeItems.find((item) => item.value === selectedProjectScopeValue) ??
@@ -2897,9 +2916,9 @@ export default function Sidebar() {
           ),
         );
   const threadInScope =
-    focusScope !== null
+    categoryScope !== null
       ? (subject: SidebarScopeSubject) =>
-          sidebarFocusScopeIncludes(focusScope, focusGroupIdsOf(subject))
+          sidebarCategoryScopeIncludes(categoryScope, categoryIdsOf(subject))
       : scopedProjectKeys !== null
         ? (subject: SidebarScopeSubject) =>
             scopedProjectKeys.has(`${subject.environmentId}:${subject.projectId}`)
@@ -3018,31 +3037,33 @@ export default function Sidebar() {
   });
 
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
-  // The focused group's own stripe is redundant, so only the other groups a
-  // thread belongs to are marked.
-  const focusGroupColorsByThreadKey = (() => {
+  // The focused category's own stripe is redundant, so only the other
+  // categories a thread belongs to are marked.
+  const categoryColorsByThreadKey = (() => {
     const colorsByThreadKey = new Map<string, string>();
-    if (focusGroups.length === 0) return colorsByThreadKey;
-    const colorByGroupId = new Map(focusGroups.map((group) => [group.id, group.color]));
+    if (threadCategories.length === 0) return colorsByThreadKey;
+    const colorByCategoryId = new Map(
+      threadCategories.map((category) => [category.id, category.color]),
+    );
     for (const thread of threads) {
       if (thread.archivedAt !== null) continue;
-      // Groups sharing a color would only draw identical adjacent bars, and
-      // more than three bars would run into the row's content inset.
+      // Categories sharing a color would only draw identical adjacent bars,
+      // and more than three bars would run into the row's content inset.
       const colors = [
         ...new Set(
-          focusGroupIdsOf(thread)
-            .filter((groupId) => groupId !== focusedGroup?.id)
-            .map((groupId) => colorByGroupId.get(groupId)),
+          categoryIdsOf(thread)
+            .filter((categoryId) => categoryId !== focusedCategory?.id)
+            .map((categoryId) => colorByCategoryId.get(categoryId)),
         ),
       ]
-        .slice(0, MAX_FOCUS_STRIPES)
+        .slice(0, MAX_CATEGORY_STRIPES)
         .join(" ");
       if (colors.length > 0) colorsByThreadKey.set(threadShellKey(thread), colors);
     }
     return colorsByThreadKey;
   })();
   const hiddenThreadsNeedingUserCount =
-    focusScope === null ? 0 : countSidebarThreadsNeedingUserOutsideScope(threads, threadInScope);
+    categoryScope === null ? 0 : countSidebarThreadsNeedingUserOutsideScope(threads, threadInScope);
   // A branch or project change can move a selected thread out of the scope;
   // bulk actions must not keep acting on rows the user can no longer see.
   useEffect(() => {
@@ -4261,6 +4282,7 @@ export default function Sidebar() {
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
+        const categoryMembership = readThreadCategoryMembership(threadRef);
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
@@ -4290,12 +4312,31 @@ export default function Sidebar() {
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
+              categories:
+                categoryMembership?.categories.map((category) => ({
+                  id: category.id,
+                  label: threadCategoryLabel(category),
+                  member: categoryMembership.categoryIds.includes(category.id),
+                })) ?? [],
             }),
             position,
           ),
         );
         if (clicked._tag === "Failure" || clicked.value === null) return;
         if (threadActionRequiresOperate(clicked.value) && !checkThreadOperations([thread])) return;
+        if (clicked.value.startsWith("category:") && categoryMembership) {
+          const categoryId = clicked.value.slice("category:".length);
+          void updateThreadCategories(threadRef, {
+            changes: [
+              threadCategoryChange({
+                ruleCategoryIds: categoryMembership.ruleCategoryIds,
+                categoryId,
+                member: !categoryMembership.categoryIds.includes(categoryId),
+              }),
+            ],
+          });
+          return;
+        }
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
             clicked.value === "snooze:custom"
@@ -4607,8 +4648,8 @@ export default function Sidebar() {
                       return;
                     }
                     if (!item) return;
-                    if (item.focusScope || item.value === "all") {
-                      selectFocusScope(item.focusScope ?? null);
+                    if (item.categoryScope || item.value === "all") {
+                      selectCategoryScope(item.categoryScope ?? null);
                     } else {
                       setProjectScopeKey(item.value);
                     }
@@ -4618,7 +4659,7 @@ export default function Sidebar() {
                     render={
                       <SidebarHeaderIconButton
                         label={
-                          focusScope
+                          categoryScope
                             ? `Filter threads: ${selectedProjectScopeItem.label}`
                             : scopedProjectGroup
                               ? `Filter threads by project: ${scopedProjectGroup.displayName}`
@@ -4627,8 +4668,8 @@ export default function Sidebar() {
                       />
                     }
                   >
-                    {focusScope ? (
-                      <FocusGroupSwatch color={focusedGroup?.color ?? null} className="size-3" />
+                    {categoryScope ? (
+                      <CategorySwatch color={focusedCategory?.color ?? null} className="size-3" />
                     ) : scopedProjectGroup ? (
                       <span className="flex shrink-0">
                         <ProjectFavicon project={scopedProjectGroup} className="size-4" />
@@ -4683,9 +4724,9 @@ export default function Sidebar() {
                           >
                             {project ? (
                               <ProjectFavicon project={project} className="size-4 shrink-0" />
-                            ) : item.focusScope ? (
+                            ) : item.categoryScope ? (
                               <span className="flex size-4 shrink-0 items-center justify-center">
-                                <FocusGroupSwatch color={item.color ?? null} className="size-3" />
+                                <CategorySwatch color={item.color ?? null} className="size-3" />
                               </span>
                             ) : (
                               <FolderIcon className="size-4 shrink-0" />
@@ -4739,15 +4780,15 @@ export default function Sidebar() {
               activeSearchResultIndex={activeSearchResultIndex}
               onClearSearch={clearThreadSearch}
             />
-            {focusScope || scopedProjectGroup ? (
+            {categoryScope || scopedProjectGroup ? (
               <div className="mt-1 flex h-7 items-center gap-2 rounded-md bg-sidebar-row-hover pr-1 pl-2.5 text-xs font-medium text-sidebar-foreground">
-                {focusScope ? (
-                  <FocusGroupSwatch color={focusedGroup?.color ?? null} className="size-3" />
+                {categoryScope ? (
+                  <CategorySwatch color={focusedCategory?.color ?? null} className="size-3" />
                 ) : scopedProjectGroup ? (
                   <ProjectFavicon project={scopedProjectGroup} className="size-3.5 shrink-0" />
                 ) : null}
                 <span className="min-w-0 flex-1 truncate">
-                  {focusScope ? selectedProjectScopeItem.label : scopedProjectGroup?.displayName}
+                  {categoryScope ? selectedProjectScopeItem.label : scopedProjectGroup?.displayName}
                 </span>
                 <Button
                   type="button"
@@ -4755,7 +4796,7 @@ export default function Sidebar() {
                   variant="ghost-muted"
                   aria-label="Show all threads"
                   title="Show all threads"
-                  onClick={() => selectFocusScope(null)}
+                  onClick={() => selectCategoryScope(null)}
                 >
                   <XIcon className="size-3" />
                 </Button>
@@ -4768,7 +4809,7 @@ export default function Sidebar() {
           {hiddenThreadsNeedingUserCount > 0 && !isSearchingThreads ? (
             <button
               type="button"
-              onClick={() => selectFocusScope(null)}
+              onClick={() => selectCategoryScope(null)}
               className="mb-1 flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-xs text-warning hover:bg-sidebar-row-hover"
             >
               <CircleAlertIcon aria-hidden className="size-3.5 shrink-0" />
@@ -4896,7 +4937,7 @@ export default function Sidebar() {
                             key={`${threadKey}:${rowVariant}`}
                             thread={thread}
                             variant={rowVariant}
-                            focusGroupColors={focusGroupColorsByThreadKey.get(threadKey) ?? ""}
+                            categoryColors={categoryColorsByThreadKey.get(threadKey) ?? ""}
                             variantAction={
                               section === "snoozed"
                                 ? "unsnooze"
@@ -5184,11 +5225,11 @@ export default function Sidebar() {
                     Add project
                   </button>
                 </>
-              ) : focusScope ? (
-                focusedGroup ? (
+              ) : categoryScope ? (
+                focusedCategory ? (
                   `No threads in ${selectedProjectScopeItem.label} yet`
                 ) : (
-                  "Every thread is in a focus group"
+                  "Every thread has a category"
                 )
               ) : scopedProjectGroup ? (
                 `No threads in ${scopedProjectGroup.displayName} yet`

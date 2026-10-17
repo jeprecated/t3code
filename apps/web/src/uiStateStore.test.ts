@@ -13,7 +13,7 @@ import {
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
-  setSidebarFocusScope,
+  setSidebarCategoryScope,
   setSidebarProjectScopeKey,
   setThreadChangedFilesExpanded,
   type UiState,
@@ -24,7 +24,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     sidebarProjectScopeKey: null,
-    sidebarFocusScope: null,
+    sidebarCategoryScope: null,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -159,19 +159,24 @@ describe("uiStateStore pure functions", () => {
     expect(setSidebarProjectScopeKey(scoped, "").sidebarProjectScopeKey).toBeNull();
   });
 
-  it("keeps the project scope and the focus scope mutually exclusive", () => {
+  it("keeps the project scope and the category scope mutually exclusive", () => {
     const projectScoped = setSidebarProjectScopeKey(makeUiState(), "github.com/pingdotgg/t3code");
-    const focused = setSidebarFocusScope(projectScoped, { type: "group", groupId: "work" });
+    const focused = setSidebarCategoryScope(projectScoped, {
+      type: "category",
+      categoryId: "work",
+    });
 
     expect(focused).toMatchObject({
       sidebarProjectScopeKey: null,
-      sidebarFocusScope: { type: "group", groupId: "work" },
+      sidebarCategoryScope: { type: "category", categoryId: "work" },
     });
-    expect(setSidebarFocusScope(focused, { type: "group", groupId: "work" })).toBe(focused);
+    expect(setSidebarCategoryScope(focused, { type: "category", categoryId: "work" })).toBe(
+      focused,
+    );
     expect(setSidebarProjectScopeKey(focused, null)).toBe(focused);
     expect(setSidebarProjectScopeKey(focused, "github.com/me/nix")).toMatchObject({
       sidebarProjectScopeKey: "github.com/me/nix",
-      sidebarFocusScope: null,
+      sidebarCategoryScope: null,
     });
   });
 });
@@ -220,7 +225,7 @@ describe("parsePersistedState", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
-      sidebarFocusScope: null,
+      sidebarCategoryScope: null,
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -343,7 +348,7 @@ describe("uiStateStore persistence", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
-      sidebarFocusScope: null,
+      sidebarCategoryScope: null,
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -358,16 +363,16 @@ describe("uiStateStore persistence", () => {
     });
   });
 
-  it("restores the sidebar focus scope across reloads and drops malformed ones", () => {
-    persistState(makeUiState({ sidebarFocusScope: { type: "ungrouped" } }));
+  it("restores the sidebar category scope across reloads and drops malformed ones", () => {
+    persistState(makeUiState({ sidebarCategoryScope: { type: "uncategorized" } }));
     const persisted = JSON.parse(
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
 
-    expect(parsePersistedState(persisted).sidebarFocusScope).toEqual({ type: "ungrouped" });
+    expect(parsePersistedState(persisted).sidebarCategoryScope).toEqual({ type: "uncategorized" });
     expect(
-      parsePersistedState({ sidebarFocusScope: { type: "group" } } as PersistedUiState)
-        .sidebarFocusScope,
+      parsePersistedState({ sidebarCategoryScope: { type: "category" } } as PersistedUiState)
+        .sidebarCategoryScope,
     ).toBeNull();
   });
 

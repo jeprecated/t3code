@@ -38,6 +38,7 @@ import {
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import { isUsageLimitsCommand } from "@t3tools/shared/usageLimits";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
+import { useThreadCategorySuggestionBanner } from "./chat/ThreadCategorySuggestion";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
 import { useChatShortcuts, type ChatShortcutHandler } from "./chat/useChatShortcuts";
@@ -5437,8 +5438,23 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const categorySuggestionBanner = useThreadCategorySuggestionBanner({
+    threadRef: activeThreadShell ? activeThreadRef : null,
+    subject: activeThreadShell
+      ? {
+          environmentId: activeThreadShell.environmentId,
+          providerInstanceId: activeThreadShell.providerInstanceId,
+          branch: activeThreadShell.branch,
+          project: activeProject,
+        }
+      : null,
+    state: activeThreadShell?.categories,
+    messages: serverProjection?.messages ?? null,
+  });
   const composerBannerItems = (() => {
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
+    const categorySuggestionItems =
+      categorySuggestionBanner === null ? [] : [categorySuggestionBanner];
     const backgroundWorkItems = [
       childInputBannerItem,
       goalBannerItem,
@@ -5454,6 +5470,7 @@ export default function ChatView(props: ChatViewProps) {
         ...projectCloneItems,
         ...systemComposerBannerItems,
         ...backgroundWorkItems,
+        ...categorySuggestionItems,
       ];
     }
     return [
@@ -5463,6 +5480,7 @@ export default function ChatView(props: ChatViewProps) {
       ...projectCloneItems,
       ...systemComposerBannerItems,
       ...backgroundWorkItems,
+      ...categorySuggestionItems,
       {
         id: `branch-mismatch:${activeBranchMismatchKey}`,
         variant: "info",
