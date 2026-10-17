@@ -1792,10 +1792,13 @@ const canBind = (port) =>
     });
   });
 
+  const hostPath = process.env.PATH ?? "";
   const runScript = (home: string, args: ReadonlyArray<string>) =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const child = yield* spawner.spawn(ChildProcess.make("sh", args, { env: { HOME: home } }));
+      const child = yield* spawner.spawn(
+        ChildProcess.make("sh", args, { env: { HOME: home, PATH: hostPath } }),
+      );
       const collect = (stream: Stream.Stream<Uint8Array, PlatformError.PlatformError>) =>
         stream.pipe(Stream.decodeText(), Stream.mkString);
       const [stdout, stderr, exitCode] = yield* Effect.all(
@@ -1858,7 +1861,7 @@ const canBind = (port) =>
           launchedPids.add(pid);
           return pid;
         });
-      return { connect, readManagedPid, readServerVersion };
+      return { root, home, stateDir, connect, readManagedPid, readServerVersion };
     });
 
   it.live.skipIf(windowsHost)(
@@ -1912,6 +1915,68 @@ const canBind = (port) =>
       assert.isFalse(isAlive(olderPid));
       assert.equal(yield* readServerVersion, "0.1.6");
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.live.skipIf(windowsHost)(
+    "on an attach-only host, refuses to start a server or install a runtime",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const { root, home, stateDir } = yield* prepareLaunch([]);
+        yield* fs.writeFileString(`${home}/.t3/${SshTunnel.REMOTE_ATTACH_ONLY_FILE}`, "");
+        const launch = `${root}/launch.sh`;
+        yield* fs.writeFileString(launch, SshTunnel.buildRemoteLaunchScript(ARCHIVE));
+
+        const result = yield* runScript(home, [launch, "test-state"]);
+        assert.equal(result.exitCode, 1);
+        assert.include(result.stderr, "only accepts connections to its own server");
+        assert.isFalse(yield* fs.exists(`${stateDir}/pid`));
+        assert.isFalse(yield* fs.exists(`${stateDir}/run-t3.sh`));
+        assert.isFalse(yield* fs.exists(`${home}/.t3/runtime`));
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.live.skipIf(windowsHost)("on an attach-only host, tunnels to the host's running server", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const { root, home, stateDir } = yield* prepareLaunch([]);
+      yield* fs.writeFileString(`${home}/.t3/${SshTunnel.REMOTE_ATTACH_ONLY_FILE}`, "");
+      // The launch only checks that the recorded PID is alive, so this test process stands in.
+      yield* fs.makeDirectory(`${home}/.t3/userdata`, { recursive: true });
+      yield* fs.writeFileString(
+        `${home}/.t3/userdata/server-runtime.json`,
+        JSON.stringify(
+          { version: 1, pid: process.pid, port: 45_678, origin: "http://127.0.0.1:45678" },
+          null,
+          2,
+        ),
+      );
+      const launch = `${root}/launch.sh`;
+      yield* fs.writeFileString(launch, SshTunnel.buildRemoteLaunchScript(ARCHIVE));
+
+      const result = yield* runScript(home, [launch, "test-state"]);
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.deepEqual(JSON.parse(result.stdout), { remotePort: 45_678, serverKind: "external" });
+      assert.isFalse(yield* fs.exists(`${stateDir}/pid`));
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.live.skipIf(windowsHost)(
+    "on an attach-only host, stopping leaves the host's servers running",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const { root, home, stateDir, connect } = yield* prepareLaunch(["0.1.5"]);
+        const pid = yield* connect("0.1.5");
+        yield* fs.writeFileString(`${home}/.t3/${SshTunnel.REMOTE_ATTACH_ONLY_FILE}`, "");
+        const stop = `${root}/stop.sh`;
+        yield* fs.writeFileString(stop, SshTunnel.buildRemoteStopScript("test-state", null));
+
+        const result = yield* runScript(home, [stop]);
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.isTrue(isAlive(pid));
+        assert.isFalse(yield* fs.exists(`${stateDir}/pid`));
+      }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
 
