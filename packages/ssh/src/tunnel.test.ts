@@ -1489,4 +1489,55 @@ server.listen(Number(flag("--port")), "127.0.0.1", () => {
       }).pipe(Effect.provide(NodeServices.layer)),
     60_000,
   );
+
+  it.effect.skipIf(windowsHost)(
+    "on an attach-only host, refuses to start a server or install a runner",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const { home, stateDir, runLaunchScript } = yield* prepareLaunch;
+        yield* fs.writeFileString(`${home}/.t3/${SshTunnel.REMOTE_ATTACH_ONLY_FILE}`, "");
+
+        const result = yield* runLaunchScript;
+        assert.equal(result.exitCode, 1);
+        assert.include(result.stderr, "only accepts connections to its own server");
+        assert.isFalse(yield* fs.exists(`${stateDir}/pid`));
+        assert.isFalse(yield* fs.exists(`${stateDir}/run-t3.sh`));
+      }).pipe(Effect.provide(NodeServices.layer)),
+    60_000,
+  );
+
+  it.effect.skipIf(windowsHost)(
+    "on an attach-only host, tunnels to the host's running server",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const { home, stateDir, runLaunch, startDefaultHomeServer } = yield* prepareLaunch;
+        yield* fs.writeFileString(`${home}/.t3/${SshTunnel.REMOTE_ATTACH_ONLY_FILE}`, "");
+        const hostPort = yield* startDefaultHomeServer([]);
+
+        assert.deepEqual(yield* runLaunch, { remotePort: hostPort, serverKind: "external" });
+        assert.isFalse(yield* fs.exists(`${stateDir}/pid`));
+      }).pipe(Effect.provide(NodeServices.layer)),
+    60_000,
+  );
+
+  it.effect.skipIf(windowsHost)(
+    "on an attach-only host, stopping leaves the host's servers running",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const { home, stateDir, launchManaged } = yield* prepareLaunch;
+        const { pid } = yield* launchManaged;
+        yield* fs.writeFileString(`${home}/.t3/${SshTunnel.REMOTE_ATTACH_ONLY_FILE}`, "");
+        const stop = `${stateDir}/../stop.sh`;
+        yield* fs.writeFileString(stop, SshTunnel.buildRemoteStopScript("test-state"));
+
+        const result = yield* runScript(home, [stop]);
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.isTrue(isAlive(pid));
+        assert.isFalse(yield* fs.exists(`${stateDir}/pid`));
+      }).pipe(Effect.provide(NodeServices.layer)),
+    60_000,
+  );
 });
