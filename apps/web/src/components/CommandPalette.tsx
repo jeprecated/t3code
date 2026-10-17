@@ -231,6 +231,7 @@ import { openGuestShareDialog } from "./chat/guestShareDialogState";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { settingsForThisPlatform, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
 import { primaryServerKeybindingsAtom } from "../state/server";
+import { ThreadSwitcher } from "./ThreadSwitcher";
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { Button } from "./ui/button";
@@ -286,13 +287,16 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   const openChildSearch = (mode: "files" | "content", context: CommandPaletteReturnContext) =>
     dispatchCommandPalette({ _tag: "OpenChildSearch", mode, context });
   const composerHandleRef = useRef<ChatComposerHandle | null>(null);
+  // Escape steps back from the file and content overlays to the palette; the
+  // thread switcher is a quick jump, so Escape closes it outright.
+  const escapeReturnsToCommand = state.mode === "files" || state.mode === "content";
 
   return (
     <ComposerHandleContext value={composerHandleRef}>
       <CommandDialog
         open={state.open}
         onOpenChange={(open, eventDetails) => {
-          if (!open && eventDetails.reason === "escape-key" && state.mode !== "command") {
+          if (!open && eventDetails.reason === "escape-key" && escapeReturnsToCommand) {
             eventDetails.cancel();
             dispatchCommandPalette({ _tag: "BackToCommand" });
             return;
@@ -336,7 +340,9 @@ function CommandPaletteDialog(props: {
           ? "File picker"
           : props.mode === "content"
             ? "Search project contents"
-            : "Command palette"
+            : props.mode === "threads"
+              ? "Switch thread"
+              : "Command palette"
       }
       className={cn("overflow-hidden", props.mode === "content" && "h-105")}
       data-command-palette="true"
@@ -360,6 +366,8 @@ function CommandPaletteDialog(props: {
         <ProjectFilePicker setOpen={props.setOpen} />
       ) : props.mode === "content" ? (
         <ProjectContentSearchDialog onOpenChange={props.setOpen} />
+      ) : props.mode === "threads" ? (
+        <ThreadSwitcher setOpen={props.setOpen} />
       ) : (
         <OpenCommandPaletteDialog
           key={props.session}
@@ -1459,6 +1467,19 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "filePicker.toggle",
     run: async () => {
       openChildSearch("files", { query, linkedThreadSearch });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:switch-thread",
+    searchTerms: ["switch thread", "go to thread", "jump to thread", "find thread"],
+    title: "Switch thread",
+    icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+    keepOpen: true,
+    shortcutCommand: "threadSwitcher.toggle",
+    run: async () => {
+      dispatchCommandPalette({ _tag: "ToggleMode", mode: "threads" });
     },
   });
 
