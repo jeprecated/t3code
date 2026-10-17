@@ -16,6 +16,7 @@ import {
   SelectPopup,
   SelectValue,
 } from "./ui/select";
+import { ShortcutTooltipLabel } from "./ShortcutTooltipLabel";
 
 interface BranchToolbarEnvironmentSelectorProps {
   autoEnvironmentLabel?: string | undefined;
@@ -107,7 +108,11 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
             <SelectValue />
           </ComposerContextLabel>
         </TooltipTrigger>
-        <TooltipPopup>{autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}</TooltipPopup>
+        <TooltipPopup>
+          <ShortcutTooltipLabel command="composer.host">
+            {autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}
+          </ShortcutTooltipLabel>
+        </TooltipPopup>
       </Tooltip>
       <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
         <SelectGroup>

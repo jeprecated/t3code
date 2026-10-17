@@ -103,7 +103,10 @@ import {
   copyPromptLink,
   promptLinkRepositoryOf,
 } from "./promptLinks/copyPromptLink";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, usePrimarySettings } from "../hooks/useSettings";
+import { useStartNewThreadPreset } from "../hooks/useStartNewThreadPreset";
+import { commandForNewThreadPreset } from "../newThreadPresets";
+import { requestSaveDraftAsNewThreadPreset } from "./chat/newThreadPresetActionBus";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
@@ -490,6 +493,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   const toggleMode = (mode: SearchOverlayMode) => dispatch({ _tag: "ToggleMode", mode });
   const openAddProject = () => dispatch({ _tag: "OpenAddProject" });
   const openNewThreadIn = () => dispatch({ _tag: "OpenNewThreadIn" });
+  const openNewThreadPreset = () => dispatch({ _tag: "OpenNewThreadPreset" });
   const clearOpenIntent = () => dispatch({ _tag: "ClearOpenIntent" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { theme, themeHalves, resolvedTheme, appearanceMode, setAppearanceMode } = useTheme();
@@ -604,6 +608,8 @@ export function CommandPalette({ children }: { children: ReactNode }) {
       onOpenCommandPalette((detail) => {
         if (detail.open === "new-thread-in") {
           openNewThreadIn();
+        } else if (detail.open === "new-thread-preset") {
+          openNewThreadPreset();
         } else if (detail.open === "add-project") {
           openAddProject();
         } else if (detail.query !== undefined) {
@@ -616,7 +622,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           setOpen(true);
         }
       }),
-    [openAddProject, openNewThreadIn, setOpen],
+    [openAddProject, openNewThreadIn, openNewThreadPreset, setOpen],
   );
 
   return (
@@ -720,6 +726,8 @@ function OpenCommandPaletteDialog(props: {
     reportFailure: false,
   });
   const { scratchEnvironmentId, scratchWorkspaceRootFor, startScratchThread } = useScratchProject();
+  const newThreadPresets = usePrimarySettings((settings) => settings.newThreadPresets);
+  const startNewThreadPreset = useStartNewThreadPreset();
   const lookupRepository = useAtomQueryRunner(sourceControlEnvironment.repository, {
     reportFailure: false,
   });
@@ -1223,6 +1231,22 @@ function OpenCommandPaletteDialog(props: {
     ];
   })();
 
+  const newThreadPresetItems = newThreadPresets.map((preset) => ({
+    kind: "action" as const,
+    value: `new-thread-preset:${preset.id}`,
+    searchTerms: ["preset", preset.name],
+    title: preset.name,
+    icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: commandForNewThreadPreset(preset.id),
+    run: () => startNewThreadPreset(preset),
+  }));
+  const newThreadInGroups = [
+    ...(newThreadPresetItems.length > 0
+      ? [{ value: "presets", label: "Presets", items: newThreadPresetItems }]
+      : []),
+    { value: "projects", label: "Projects", items: projectThreadItems },
+  ];
+
   const allThreadItems = buildThreadActionItems({
     threads,
     ...(activeThreadId ? { activeThreadId } : {}),
@@ -1627,7 +1651,49 @@ function OpenCommandPaletteDialog(props: {
       title: "New thread in...",
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
-      groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
+      groups: newThreadInGroups,
+    });
+  }
+
+  if (newThreadPresetItems.length > 0) {
+    actionItems.push({
+      kind: "submenu",
+      value: "action:new-thread-from-preset",
+      searchTerms: ["new thread", "preset", "pick", "choose"],
+      title: "New thread from preset...",
+      icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
+      shortcutCommand: "chat.newFromPreset",
+      groups: [{ value: "presets", label: "Presets", items: newThreadPresetItems }],
+    });
+  }
+
+  for (const preset of newThreadPresets) {
+    actionItems.push({
+      kind: "action",
+      value: `action:new-thread-preset:${preset.id}`,
+      searchTerms: ["new thread", "preset", preset.name],
+      title: (
+        <>
+          New thread from <span className="font-semibold">{preset.name}</span>
+        </>
+      ),
+      icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: commandForNewThreadPreset(preset.id),
+      run: () => startNewThreadPreset(preset),
+    });
+  }
+
+  if (paletteRouteTarget?.kind === "draft") {
+    actionItems.push({
+      kind: "action",
+      value: "action:save-draft-as-new-thread-preset",
+      searchTerms: ["preset", "save", "new thread", "draft", "template"],
+      title: "Save draft as new-thread preset…",
+      icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        requestSaveDraftAsNewThreadPreset();
+      },
     });
   }
 
@@ -1981,7 +2047,19 @@ function OpenCommandPaletteDialog(props: {
         setQuery("");
         pushPaletteView({
           addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
-          groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
+          groups: newThreadInGroups,
+        });
+        return;
+      case "new-thread-preset":
+        clearOpenIntent();
+        browseNavigation.invalidate();
+        setAddProjectCloneFlow(null);
+        setNewProjectFlow(null);
+        setViewStack([]);
+        setQuery("");
+        pushPaletteView({
+          addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
+          groups: [{ value: "presets", label: "Presets", items: newThreadPresetItems }],
         });
         return;
       case "change-theme":

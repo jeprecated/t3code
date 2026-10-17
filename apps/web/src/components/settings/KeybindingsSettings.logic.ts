@@ -12,6 +12,7 @@ import {
 } from "@t3tools/shared/keybindings";
 
 import { shortcutKeyFromEvent } from "../../keybindings";
+import { commandForNewThreadPreset, newThreadPresetIdFromCommand } from "../../newThreadPresets";
 import { isMacPlatform } from "../../lib/utils";
 import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
 
@@ -208,7 +209,7 @@ const KEYBINDING_GROUPS = [
     title: "Navigation",
     prefixes: ["sidebar", "rightPanel", "commandPalette", "filePicker", "projectSearch", "editor"],
   },
-  { id: "threads", title: "Threads", prefixes: ["thread", "chat", "pullRequest"] },
+  { id: "threads", title: "Threads", prefixes: ["thread", "chat", "preset", "pullRequest"] },
   { id: "composer", title: "Composer", prefixes: ["composer", "modelPicker"] },
   { id: "terminal", title: "Terminal", prefixes: ["terminal"] },
   { id: "preview", title: "Preview & diff", prefixes: ["preview", "diff"] },
@@ -343,8 +344,12 @@ export function buildWhenVariableOptions(): ReadonlyArray<WhenVariableOption> {
 
 export function buildKeybindingCommandOptions(
   keybindings: ResolvedKeybindingsConfig,
+  newThreadPresetIds: ReadonlyArray<string> = [],
 ): ReadonlyArray<KeybindingCommandOption> {
   const commands = new Set<KeybindingCommand>(STATIC_KEYBINDING_COMMANDS);
+  for (const presetId of newThreadPresetIds) {
+    commands.add(commandForNewThreadPreset(presetId));
+  }
   for (const binding of keybindings) {
     commands.add(binding.command);
   }
@@ -368,6 +373,8 @@ export function commandLabel(command: KeybindingCommand): string {
   if (raw.startsWith("script.") && raw.endsWith(".run")) {
     return `Run Script: ${titleCaseCommandSegment(raw.slice("script.".length, -".run".length))}`;
   }
+  const presetId = newThreadPresetIdFromCommand(raw);
+  if (presetId !== null) return `New Thread Preset: ${titleCaseCommandSegment(presetId)}`;
   return raw.split(".").map(titleCaseCommandSegment).join(": ");
 }
 

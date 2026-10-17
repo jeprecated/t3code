@@ -41,6 +41,7 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { InlineButton } from "../ui/button";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { ShortcutTooltipLabel } from "../ShortcutTooltipLabel";
 
 const ADD_PROJECT_VALUE = "add-project";
 
@@ -261,9 +262,11 @@ export function DraftHeroHeadline({
             {isScratchDraft ? "No project" : (activeProjectDisplayName ?? "Choose a project")}
           </span>
         </TooltipTrigger>
-        {activeProjectDisplayName && !isScratchDraft ? (
-          <TooltipPopup side="top">{activeProjectDisplayName}</TooltipPopup>
-        ) : null}
+        <TooltipPopup side="top">
+          <ShortcutTooltipLabel command="composer.project">
+            {isScratchDraft ? "Choose a project" : (activeProjectDisplayName ?? "Choose a project")}
+          </ShortcutTooltipLabel>
+        </TooltipPopup>
       </Tooltip>
       <ComboboxPopup align="center" className="w-72 overflow-hidden">
         <ComboboxSearchInput

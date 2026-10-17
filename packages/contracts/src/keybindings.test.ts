@@ -176,6 +176,17 @@ it.effect("accepts dynamic script run commands", () =>
   }),
 );
 
+it.effect("accepts new-thread preset commands and rejects malformed preset ids", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decode(KeybindingRule, { key: "mod+1", command: "preset.quick.new" });
+    assert.strictEqual(parsed.command, "preset.quick.new");
+    const invalid = yield* Effect.exit(
+      decode(KeybindingRule, { key: "mod+1", command: "preset.Quick.new" }),
+    );
+    assert.strictEqual(invalid._tag, "Failure");
+  }),
+);
+
 it.effect("parses keybindings array payload", () =>
   Effect.gen(function* () {
     const parsed = yield* decode(KeybindingsConfig, [

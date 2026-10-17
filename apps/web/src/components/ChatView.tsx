@@ -290,7 +290,12 @@ import {
   useClientSettings,
   useClientSettingsHydrated,
   useEnvironmentSettings,
+  usePrimarySettings,
+  useUpdatePrimarySettings,
 } from "../hooks/useSettings";
+import { commandForNewThreadPreset, saveNewThreadPreset } from "../newThreadPresets";
+import { requestNewThreadPresetName } from "./NewThreadPresetNameDialog";
+import { subscribeSaveDraftAsNewThreadPreset } from "./chat/newThreadPresetActionBus";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
@@ -5681,6 +5686,22 @@ export default function ChatView(props: ChatViewProps) {
       "composer.effort": openComposerControl("composer.effort"),
       "composer.mode": openComposerControl("composer.mode"),
       "composer.workspace": openComposerControl("composer.workspace"),
+      "composer.project": ({ event }) => {
+        // The draft heading owns the project menu; it is absent once a thread exists.
+        const trigger = draftId
+          ? document.querySelector<HTMLElement>("[data-draft-project-trigger]")
+          : null;
+        if (!trigger) return false;
+        if (event.repeat) return;
+        trigger.focus({ preventScroll: true });
+        trigger.click();
+      },
+      "composer.toggleStartFromOrigin": ({ event }) => {
+        if (!isLocalDraftThread || envMode !== "worktree") return false;
+        if (!event.repeat) {
+          setDraftThreadContext(composerDraftTarget, { startFromOrigin: !startFromOrigin });
+        }
+      },
       "composer.cycleHost": ({ event }) => {
         if (envLocked || !draftId || !hasMultipleEnvironments) return false;
         if (event.repeat) return;
@@ -7707,6 +7728,42 @@ export default function ChatView(props: ChatViewProps) {
       });
     }
   };
+
+  const newThreadPresets = usePrimarySettings((settings) => settings.newThreadPresets);
+  const updatePrimarySettings = useUpdatePrimarySettings();
+  const saveDraftAsNewThreadPreset = async () => {
+    const modelSelection = composerRef.current?.getSendContext().selectedModelSelection;
+    if (!isLocalDraftThread || !modelSelection) return;
+    const name = await requestNewThreadPresetName(newThreadPresets.map((preset) => preset.name));
+    if (name === null) return;
+    const presets = saveNewThreadPreset(newThreadPresets, {
+      name,
+      modelSelection,
+      ...(activeProjectIsScratch
+        ? { project: "none" as const }
+        : {
+            project: "current" as const,
+            envMode,
+            startFromOrigin: envMode === "worktree" && startFromOrigin,
+          }),
+    });
+    updatePrimarySettings({ newThreadPresets: presets });
+    const saved = presets.find((preset) => preset.name.toLowerCase() === name.toLowerCase());
+    toastManager.add({
+      type: "success",
+      title: `Saved preset “${name}”`,
+      ...(saved
+        ? {
+            description: `Bind ${commandForNewThreadPreset(saved.id)} in Settings → Keybindings to start it from the keyboard.`,
+          }
+        : {}),
+    });
+  };
+  const saveDraftAsNewThreadPresetStable = useStableCallback(saveDraftAsNewThreadPreset);
+  useEffect(
+    () => subscribeSaveDraftAsNewThreadPreset(() => void saveDraftAsNewThreadPresetStable()),
+    [saveDraftAsNewThreadPresetStable],
+  );
 
   const onExpandTimelineImage = (preview: ExpandedImagePreview) => {
     setExpandedImage(preview);

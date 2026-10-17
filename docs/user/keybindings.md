@@ -29,6 +29,10 @@ workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
 
+Two more composer commands have no default shortcut. **Composer: Project** opens a
+new thread's project menu. **Composer: Toggle Start from Origin** switches whether a
+new worktree starts from origin, without opening the branch picker.
+
 To change effort one step without opening the picker, bind
 **Composer: Increase Effort** and **Composer: Decrease Effort** in Keybindings.
 Both are unbound by default. Increase wraps from the highest level to the
@@ -99,6 +103,9 @@ Each rule requires a `key` shortcut and a `command` ID. An optional `when`
 expression restricts when it runs.
 
 Project scripts use `script.{id}.run`, such as `script.test.run`.
+[New thread presets](./thread-sidebar.md#start-from-a-preset) use
+`preset.{id}.new`, such as `preset.quick.new`. Settings → General lists each
+preset's command.
 
 ## Key syntax
 
