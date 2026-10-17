@@ -42,8 +42,26 @@ export function installCommandPaletteCommands(
     return target?.kind === "server" ? target.threadRef : null;
   };
 
+  const routeContext = () => {
+    const threadRef = readRouteThreadRef();
+    return {
+      terminalOpen: threadRef
+        ? selectThreadTerminalUiState(
+            useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+            threadRef,
+          ).terminalOpen
+        : false,
+      previewOpen: threadRef
+        ? selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef) ===
+          "preview"
+        : false,
+      usagePageOpen: router.state.location.pathname === "/usage",
+    };
+  };
+
   // A child search (files, contents) goes back to the palette on Escape before
-  // its own widgets or the dialog can treat the key as a close.
+  // its own widgets or the dialog can treat the key as a close. The thread
+  // switcher is a quick jump, so Escape closes it outright.
   const disposeEscape = registerCommands(
     {},
     {
@@ -52,10 +70,24 @@ export function installCommandPaletteCommands(
       onKeyDown: (event) => {
         if (event.isComposing || event.key !== "Escape") return false;
         const { open, mode } = useCommandPaletteStore.getState();
-        if (!open || mode === "command") return false;
+        if (!open || mode === "command" || mode === "threads") return false;
         consume(event);
         dispatchCommandPalette({ _tag: "BackToCommand" });
       },
+    },
+  );
+
+  // Capture phase, like `sidebar.toggle`: the terminal consumes keys it
+  // receives, and the thread switcher should open from anywhere.
+  const disposeThreadSwitcher = registerCommands(
+    { "threadSwitcher.toggle": toggleOverlay("threadSwitcher.toggle") },
+    {
+      ...options,
+      capture: true,
+      when: (event) =>
+        isCommandPaletteMounted() &&
+        !(event.target instanceof HTMLElement && event.target.closest("[data-keybinding-capture]")),
+      context: routeContext,
     },
   );
 
@@ -99,27 +131,13 @@ export function installCommandPaletteCommands(
     {
       ...options,
       when: isCommandPaletteMounted,
-      context: () => {
-        const threadRef = readRouteThreadRef();
-        return {
-          terminalOpen: threadRef
-            ? selectThreadTerminalUiState(
-                useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
-                threadRef,
-              ).terminalOpen
-            : false,
-          previewOpen: threadRef
-            ? selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef) ===
-              "preview"
-            : false,
-          usagePageOpen: router.state.location.pathname === "/usage",
-        };
-      },
+      context: routeContext,
     },
   );
 
   return () => {
     disposeEscape();
+    disposeThreadSwitcher();
     disposeCommands();
   };
 }
