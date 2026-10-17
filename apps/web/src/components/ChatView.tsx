@@ -88,9 +88,20 @@ import {
 } from "@t3tools/client-runtime/errors";
 import { readPastedComposerContext } from "./composerInlineTokenPaste";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
-import { effectiveSnoozed, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
+import {
+  canSnooze,
+  effectiveSnoozed,
+  resolveSnoozePresets,
+  threadWokeAt,
+  type SnoozePresetId,
+} from "@t3tools/client-runtime/state/thread-settled";
 import { childThreadInputsTitle } from "@t3tools/client-runtime/state/threads";
-import { useAcknowledgeThreadWoke, useThreadActions } from "../hooks/useThreadActions";
+import {
+  ThreadSnoozeBlockedError,
+  useAcknowledgeThreadWoke,
+  useThreadActions,
+} from "../hooks/useThreadActions";
+import { requestSnoozeTime, snoozePresetForCommand } from "./SnoozePrompt";
 import {
   deriveProviderSubagentStatus,
   deriveReportedModelSelection,
@@ -291,7 +302,12 @@ import {
   useClientSettings,
   useClientSettingsHydrated,
   useEnvironmentSettings,
+  usePrimarySettings,
+  useUpdatePrimarySettings,
 } from "../hooks/useSettings";
+import { commandForNewThreadPreset, saveNewThreadPreset } from "../newThreadPresets";
+import { requestNewThreadPresetName } from "./NewThreadPresetNameDialog";
+import { subscribeSaveDraftAsNewThreadPreset } from "./chat/newThreadPresetActionBus";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
@@ -350,7 +366,11 @@ import { type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useEnvironmentDisconnectDelay } from "../hooks/useEnvironmentDisconnectDelay";
-import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
+import {
+  selectThreadTerminalUiState,
+  type TerminalPlacement,
+  useTerminalUiStateStore,
+} from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { useEnvironmentQuery } from "../state/query";
 import { useEnvironmentScope } from "~/state/session";
@@ -1041,7 +1061,7 @@ export default function ChatView(props: ChatViewProps) {
   const canReadTerminal = useEnvironmentScope(environmentId, AuthTerminalReadScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
   const handleNewThread = useNewThreadHandler();
-  const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
+  const { settleThread, pinThread, confirmAndUnpinThread, snoozeThread } = useThreadActions();
   const routeThreadRef = scopeThreadRef(environmentId, threadId);
   const routeThreadKey = scopedThreadKey(routeThreadRef);
   const currentRouteThreadKeyRef = useRef<string | null>(routeThreadKey);
@@ -1404,6 +1424,10 @@ export default function ChatView(props: ChatViewProps) {
     ),
   );
   const storeSetTerminalOpen = useTerminalUiStateStore((s) => s.setTerminalOpen);
+  const terminalPlacement = useTerminalUiStateStore((s) => s.terminalPlacement);
+  const storeSetTerminalPlacement = useTerminalUiStateStore((s) => s.setTerminalPlacement);
+  const storeToggleTerminalPlacement = useTerminalUiStateStore((s) => s.toggleTerminalPlacement);
+  const storeCycleTerminalLayout = useTerminalUiStateStore((s) => s.cycleTerminalLayout);
   const storeEnsureTerminal = useTerminalUiStateStore((state) => state.ensureTerminal);
   const storeSplitTerminal = useTerminalUiStateStore((s) => s.splitTerminal);
   const storeSplitTerminalVertical = useTerminalUiStateStore((s) => s.splitTerminalVertical);
@@ -3485,6 +3509,31 @@ export default function ChatView(props: ChatViewProps) {
     setTerminalOpen(nextOpen);
   };
   const toggleTerminalVisibilityStable = useStableCallback(toggleTerminalVisibility);
+  const terminalDocked = terminalUiState.terminalOpen && terminalPlacement === "drawer";
+  const canShowTerminal = activeProject !== null && (canReadTerminal || canOperateTerminal);
+  // Shows the terminal in the given placement, or hides it when it is already
+  // showing there. `terminal.toggle` instead shows and hides it wherever it was.
+  const toggleTerminalIn = (placement: TerminalPlacement) => {
+    if (terminalUiState.terminalOpen && terminalPlacement === placement) {
+      setTerminalOpen(false);
+      return;
+    }
+    // Placement is shared by every thread, so leave it alone when this
+    // thread cannot show a terminal.
+    if (!terminalUiState.terminalOpen && !canShowTerminal) return;
+    storeSetTerminalPlacement(placement);
+    if (terminalUiState.terminalOpen) {
+      setTerminalFocusRequestId((value) => value + 1);
+      return;
+    }
+    toggleTerminalVisibility();
+  };
+  const toggleFloatingTerminalStable = useStableCallback(() => toggleTerminalIn("floating"));
+  const toggleDockedTerminalStable = useStableCallback(() => toggleTerminalIn("drawer"));
+  const swapTerminalPlacementStable = useStableCallback(() => {
+    storeToggleTerminalPlacement();
+    setTerminalFocusRequestId((value) => value + 1);
+  });
   const splitTerminal = (direction: "horizontal" | "vertical" = "horizontal") => {
     if (!activeThreadRef || hasReachedSplitLimit) return;
     const launched = terminalActions.launchTerminal({
@@ -4988,6 +5037,44 @@ export default function ChatView(props: ChatViewProps) {
     setUnsnoozingThreadKey((current) => (current === threadKey ? null : current));
   };
   const handleUnsnoozeActiveThreadStable = useStableCallback(handleUnsnoozeActiveThread);
+  // Keyboard snooze: wakes a snoozed thread; otherwise snoozes to the preset,
+  // or, with no preset, to the time chosen in the snooze prompt.
+  const snoozeActiveThreadFromShortcut = async (presetId: SnoozePresetId | null) => {
+    if (!activeThreadRef || !activeThreadShell || !supportsSnooze) return;
+    if (activeThreadSnoozed) {
+      if (presetId === null) await handleUnsnoozeActiveThread();
+      return;
+    }
+    const reportFailure = (error: unknown) =>
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to snooze thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    // Reject before opening the prompt rather than after a time is chosen.
+    if (!canSnooze(activeThreadShell, { now: new Date().toISOString() })) {
+      reportFailure(
+        new ThreadSnoozeBlockedError({
+          environmentId: activeThreadRef.environmentId,
+          threadId: activeThreadRef.threadId,
+        }),
+      );
+      return;
+    }
+    const threadRef = activeThreadRef;
+    const snoozedUntil =
+      presetId === null
+        ? (await requestSnoozeTime())?.snoozedUntil
+        : resolveSnoozePresets(new Date()).find((preset) => preset.id === presetId)?.snoozedUntil;
+    if (!snoozedUntil) return;
+    const result = await snoozeThread(threadRef, snoozedUntil);
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      reportFailure(squashAtomCommandFailure(result));
+    }
+  };
+  const snoozeActiveThreadFromShortcutStable = useStableCallback(snoozeActiveThreadFromShortcut);
   const [isRestoringThreadBranch, setIsRestoringThreadBranch] = useState(false);
   const [branchRestoreConfirmOpen, setBranchRestoreConfirmOpen] = useState(false);
   const [revealedBranchMismatchKey, setRevealedBranchMismatchKey] = useState<string | null>(null);
@@ -5564,6 +5651,7 @@ export default function ChatView(props: ChatViewProps) {
   const getShortcutContext = (eventTarget: EventTarget | null = document.activeElement) => ({
     terminalFocus: getTerminalFocusOwner() !== null,
     terminalOpen: Boolean(terminalUiState.terminalOpen),
+    terminalFloating: Boolean(terminalUiState.terminalOpen) && terminalPlacement === "floating",
     previewFocus: isPreviewFocused(),
     previewOpen: previewPanelOpen,
     editableFocus: isEditableFocused(eventTarget),
@@ -5607,6 +5695,12 @@ export default function ChatView(props: ChatViewProps) {
     (({ event }) => {
       if (!event.repeat) composerRef.current?.openControl(command);
     }) satisfies ChatShortcutHandler;
+  const snoozeShortcut = (presetId: SnoozePresetId | null) =>
+    (({ event }) => {
+      if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
+      if (event.repeat || !isServerThread) return;
+      void snoozeActiveThreadFromShortcutStable(presetId);
+    }) satisfies ChatShortcutHandler;
   useChatShortcuts({
     enabled: activeThreadId !== null,
     keybindings,
@@ -5641,6 +5735,7 @@ export default function ChatView(props: ChatViewProps) {
           toastPinFailure(activeThreadPinned ? "Failed to unpin thread" : "Failed to pin thread"),
         );
       },
+      "thread.snooze": snoozeShortcut(null),
       "terminal.toggle": () => {
         if (!terminalUiState.terminalOpen && !canReadTerminal && !canOperateTerminal) return false;
         toggleTerminalVisibilityStable();
@@ -5648,6 +5743,19 @@ export default function ChatView(props: ChatViewProps) {
       "chat.find": () => {
         if (!isServerThread || serverConfig?.threadFind !== true) return false;
         openThreadFindStable();
+      },
+      "terminal.toggleFloating": ({ event }) => {
+        if (!terminalUiState.terminalOpen && !canShowTerminal) return false;
+        if (!event.repeat) toggleFloatingTerminalStable();
+      },
+      "terminal.cycleFloatingLayout": ({ event }) => {
+        // Only a visible terminal has a layout to change.
+        if (!terminalUiState.terminalOpen) return false;
+        if (!event.repeat) storeCycleTerminalLayout();
+      },
+      "terminal.toggleDocked": ({ event }) => {
+        if (!terminalUiState.terminalOpen) return false;
+        if (!event.repeat) swapTerminalPlacementStable();
       },
       "rightPanel.toggle": () => toggleRightPanelStable(),
       "rightPanel.toggleMaximized": ({ event }) => {
@@ -5699,6 +5807,22 @@ export default function ChatView(props: ChatViewProps) {
       "composer.effort": openComposerControl("composer.effort"),
       "composer.mode": openComposerControl("composer.mode"),
       "composer.workspace": openComposerControl("composer.workspace"),
+      "composer.project": ({ event }) => {
+        // The draft heading owns the project menu; it is absent once a thread exists.
+        const trigger = draftId
+          ? document.querySelector<HTMLElement>("[data-draft-project-trigger]")
+          : null;
+        if (!trigger) return false;
+        if (event.repeat) return;
+        trigger.focus({ preventScroll: true });
+        trigger.click();
+      },
+      "composer.toggleStartFromOrigin": ({ event }) => {
+        if (!isLocalDraftThread || envMode !== "worktree") return false;
+        if (!event.repeat) {
+          setDraftThreadContext(composerDraftTarget, { startFromOrigin: !startFromOrigin });
+        }
+      },
       "composer.cycleHost": ({ event }) => {
         if (envLocked || !draftId || !hasMultipleEnvironments) return false;
         if (event.repeat) return;
@@ -5727,6 +5851,8 @@ export default function ChatView(props: ChatViewProps) {
       },
     },
     fallback: (command) => {
+      const snoozePresetId = snoozePresetForCommand(command);
+      if (snoozePresetId !== null) return snoozeShortcut(snoozePresetId);
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject || !canOperateTerminal) return undefined;
       const script = activeProjectScripts.find((entry) => entry.id === scriptId);
@@ -7726,6 +7852,42 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
 
+  const newThreadPresets = usePrimarySettings((settings) => settings.newThreadPresets);
+  const updatePrimarySettings = useUpdatePrimarySettings();
+  const saveDraftAsNewThreadPreset = async () => {
+    const modelSelection = composerRef.current?.getSendContext().selectedModelSelection;
+    if (!isLocalDraftThread || !modelSelection) return;
+    const name = await requestNewThreadPresetName(newThreadPresets.map((preset) => preset.name));
+    if (name === null) return;
+    const presets = saveNewThreadPreset(newThreadPresets, {
+      name,
+      modelSelection,
+      ...(activeProjectIsScratch
+        ? { project: "none" as const }
+        : {
+            project: "current" as const,
+            envMode,
+            startFromOrigin: envMode === "worktree" && startFromOrigin,
+          }),
+    });
+    updatePrimarySettings({ newThreadPresets: presets });
+    const saved = presets.find((preset) => preset.name.toLowerCase() === name.toLowerCase());
+    toastManager.add({
+      type: "success",
+      title: `Saved preset “${name}”`,
+      ...(saved
+        ? {
+            description: `Bind ${commandForNewThreadPreset(saved.id)} in Settings → Keybindings to start it from the keyboard.`,
+          }
+        : {}),
+    });
+  };
+  const saveDraftAsNewThreadPresetStable = useStableCallback(saveDraftAsNewThreadPreset);
+  useEffect(
+    () => subscribeSaveDraftAsNewThreadPreset(() => void saveDraftAsNewThreadPresetStable()),
+    [saveDraftAsNewThreadPresetStable],
+  );
+
   const onExpandTimelineImage = (preview: ExpandedImagePreview) => {
     setExpandedImage(preview);
   };
@@ -7900,8 +8062,13 @@ export default function ChatView(props: ChatViewProps) {
   };
   const panelToggleControlProps = {
     terminalAvailable: activeProject !== null,
-    terminalOpen: terminalUiState.terminalOpen,
-    terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
+    // The button always docks. `terminal.toggle` does the same only while the
+    // terminal's place is the dock, so the shortcut is advertised only then.
+    terminalOpen: terminalDocked,
+    terminalShortcutLabel:
+      terminalPlacement === "drawer"
+        ? shortcutLabelForCommand(keybindings, "terminal.toggle")
+        : null,
     threadPanelOpen,
     threadPanelPresentation,
     threadPanelPopoverHandle,
@@ -7909,7 +8076,7 @@ export default function ChatView(props: ChatViewProps) {
     rightPanelAvailable: activeProject !== null,
     rightPanelOpen,
     rightPanelShortcutLabel: shortcutLabelForCommand(keybindings, "rightPanel.toggle"),
-    onToggleTerminal: toggleTerminalVisibilityStable,
+    onToggleTerminal: toggleDockedTerminalStable,
     onToggleThreadPanel: toggleThreadPanelStable,
     onToggleRightPanel: toggleRightPanelStable,
   } satisfies PanelLayoutControlsProps;

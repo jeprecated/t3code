@@ -34,6 +34,17 @@ export const MODEL_PICKER_JUMP_KEYBINDING_COMMANDS = [
 export type ModelPickerJumpKeybindingCommand =
   (typeof MODEL_PICKER_JUMP_KEYBINDING_COMMANDS)[number];
 
+/** Snooze the current thread straight to one preset, skipping the snooze prompt. */
+export const THREAD_SNOOZE_PRESET_KEYBINDING_COMMANDS = [
+  "thread.snooze.hour",
+  "thread.snooze.threeHours",
+  "thread.snooze.evening",
+  "thread.snooze.tomorrow",
+  "thread.snooze.nextWeek",
+] as const;
+export type ThreadSnoozePresetKeybindingCommand =
+  (typeof THREAD_SNOOZE_PRESET_KEYBINDING_COMMANDS)[number];
+
 const THREAD_KEYBINDING_COMMANDS = [
   "thread.stop",
   "thread.steerQueuedMessage",
@@ -44,6 +55,8 @@ const THREAD_KEYBINDING_COMMANDS = [
   "thread.settle",
   "thread.pin",
   "thread.undo",
+  "thread.snooze",
+  ...THREAD_SNOOZE_PRESET_KEYBINDING_COMMANDS,
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
 ] as const;
 export type ThreadKeybindingCommand = (typeof THREAD_KEYBINDING_COMMANDS)[number];
@@ -63,6 +76,9 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "navigation.back",
   "navigation.forward",
   "terminal.toggle",
+  "terminal.toggleFloating",
+  "terminal.cycleFloatingLayout",
+  "terminal.toggleDocked",
   "terminal.split",
   "terminal.splitVertical",
   "terminal.new",
@@ -84,6 +100,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "commandPalette.toggle",
   "filePicker.toggle",
   "projectSearch.toggle",
+  "threadSwitcher.toggle",
   "usage.open",
   "theme.select",
   "appearance.cycle",
@@ -98,12 +115,15 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "composer.increaseEffort",
   "composer.decreaseEffort",
   "composer.mode",
+  "composer.project",
   "composer.workspace",
   "composer.previousWorktree",
   "composer.branch",
+  "composer.toggleStartFromOrigin",
   "chat.new",
   "chat.newLocal",
   "chat.newWithoutProject",
+  "chat.newFromPreset",
   "chat.find",
   "editor.openFavorite",
   "usage.cost",
@@ -126,9 +146,21 @@ export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
   Schema.Literal(".run"),
 ]);
 
+export const NewThreadPresetId = Schema.NonEmptyString.check(
+  Schema.isMaxLength(MAX_SCRIPT_ID_LENGTH),
+  Schema.isPattern(/^[a-z0-9][a-z0-9-]*$/),
+);
+
+export const NEW_THREAD_PRESET_COMMAND_PATTERN = Schema.TemplateLiteral([
+  Schema.Literal("preset."),
+  NewThreadPresetId,
+  Schema.Literal(".new"),
+]);
+
 export const KeybindingCommand = Schema.Union([
   Schema.Literals(STATIC_KEYBINDING_COMMANDS),
   SCRIPT_RUN_COMMAND_PATTERN,
+  NEW_THREAD_PRESET_COMMAND_PATTERN,
 ]);
 export type KeybindingCommand = typeof KeybindingCommand.Type;
 

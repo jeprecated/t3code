@@ -167,7 +167,9 @@ credentials, and agent work stay on the remote machine.
 The remote host must be Linux or an Apple Silicon Mac with `curl` or `wget`,
 `tar`, `sha256sum` or `shasum`, and [provider setup](./install.md#providers).
 The first launch downloads T3 Code's server to `~/.t3/runtime` on the host, so
-it takes longer than later ones.
+it takes longer than later ones. A host that has `t3` on the `PATH` of a
+non-interactive shell uses that copy instead, even when it is a different
+version from your app.
 Provider CLIs must be on the `PATH` of a non-interactive login shell there;
 check with:
 
@@ -187,6 +189,22 @@ again on its next connect.
 
 For Antigravity's Google callback on a remote host, see
 [remote sign-in](./providers-antigravity.md#sign-in-from-a-remote-device).
+
+### Keep a host's server under its own control
+
+When the host is a machine you also use directly, a remote desktop app can
+otherwise start its own server there while the host's app is closed, possibly
+an older version. To stop that, create `~/.t3/ssh-attach-only` on the host:
+
+```bash
+touch ~/.t3/ssh-attach-only
+```
+
+SSH connections then only use the server the host's own T3 Code is running.
+While it is closed, they fail with a message to start T3 Code there, and they
+never install, start, replace, or stop a server on that host. Pairing uses the
+host's own `t3`. Remote apps need a version with this check; older ones ignore
+the file.
 
 ## Browser on a remote environment
 

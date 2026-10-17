@@ -29,8 +29,10 @@ import {
   type ChatWidth,
   type DiffLayout,
   type EnvironmentIdentificationMode,
+  type FloatingTerminalBorderColor,
   MAX_APPEARANCE_CONTRAST,
   MAX_CODE_FONT_SIZE,
+  MAX_FLOATING_TERMINAL_BORDER_WIDTH,
   MAX_GLASS_OPACITY,
   MAX_INTERFACE_FONT_SIZE,
   MAX_PANEL_ANIMATION_DURATION_MS,
@@ -39,6 +41,7 @@ import {
   MAX_TERMINAL_FONT_SIZE,
   MIN_CODE_FONT_SIZE,
   MIN_APPEARANCE_CONTRAST,
+  MIN_FLOATING_TERMINAL_BORDER_WIDTH,
   MIN_GLASS_OPACITY,
   MIN_INTERFACE_FONT_SIZE,
   MIN_PANEL_ANIMATION_DURATION_MS,
@@ -89,6 +92,7 @@ import {
 import { useScopedModelDisabledReason } from "./useScopedModelAvailability";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
+import { NewThreadPresetsSettings } from "./NewThreadPresetsSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import {
@@ -201,6 +205,17 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
+const FLOATING_TERMINAL_BORDER_WIDTHS = Array.from(
+  { length: MAX_FLOATING_TERMINAL_BORDER_WIDTH - MIN_FLOATING_TERMINAL_BORDER_WIDTH + 1 },
+  (_, index) => MIN_FLOATING_TERMINAL_BORDER_WIDTH + index,
+);
+
+const FLOATING_TERMINAL_BORDER_COLOR_LABELS: Record<FloatingTerminalBorderColor, string> = {
+  subtle: "Subtle",
+  accent: "Accent",
+  text: "Text",
+};
 
 const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = {
   comfortable: "Comfortable",
@@ -542,6 +557,11 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["Diff colors"]
       : []),
     ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
+    ...(settings.floatingTerminalBorderWidth !==
+      DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderWidth ||
+    settings.floatingTerminalBorderColor !== DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderColor
+      ? ["Floating terminal border"]
+      : []),
     ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
       ? ["Panel animations"]
       : []),
@@ -733,6 +753,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
+      floatingTerminalBorderWidth: DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderWidth,
+      floatingTerminalBorderColor: DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderColor,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
@@ -1366,6 +1388,82 @@ export function AppearanceSettingsPanel() {
                   <SelectItem value="comfortable">Comfortable (default)</SelectItem>
                   <SelectItem value="wide">Wide</SelectItem>
                   <SelectItem value="full">Full</SelectItem>
+                </SelectPopup>
+              </Select>
+            </div>
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("floating-terminal-border")}
+          description="Set the frame around the terminal when it floats over the workspace."
+          resetAction={
+            settings.floatingTerminalBorderWidth !==
+              DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderWidth ||
+            settings.floatingTerminalBorderColor !==
+              DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderColor ? (
+              <SettingResetButton
+                label="floating terminal border"
+                onClick={() =>
+                  updateSettings({
+                    floatingTerminalBorderWidth:
+                      DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderWidth,
+                    floatingTerminalBorderColor:
+                      DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderColor,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="flex w-full items-center gap-2 sm:w-64">
+              <Select
+                value={String(settings.floatingTerminalBorderWidth)}
+                onValueChange={(value) => {
+                  const floatingTerminalBorderWidth = Number(value);
+                  if (
+                    Number.isInteger(floatingTerminalBorderWidth) &&
+                    floatingTerminalBorderWidth >= MIN_FLOATING_TERMINAL_BORDER_WIDTH &&
+                    floatingTerminalBorderWidth <= MAX_FLOATING_TERMINAL_BORDER_WIDTH
+                  ) {
+                    updateSettings({ floatingTerminalBorderWidth });
+                  }
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-full min-w-0"
+                  aria-label="Floating terminal border width"
+                >
+                  <SelectValue>{settings.floatingTerminalBorderWidth} px</SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {FLOATING_TERMINAL_BORDER_WIDTHS.map((width) => (
+                    <SelectItem key={width} value={String(width)}>
+                      {width === 0 ? "No border" : `${width} px`}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <Select
+                value={settings.floatingTerminalBorderColor}
+                onValueChange={(value) => {
+                  if (value === "subtle" || value === "accent" || value === "text")
+                    updateSettings({ floatingTerminalBorderColor: value });
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-full min-w-0"
+                  aria-label="Floating terminal border color"
+                >
+                  <SelectValue>
+                    {FLOATING_TERMINAL_BORDER_COLOR_LABELS[settings.floatingTerminalBorderColor]}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem value="subtle">Subtle</SelectItem>
+                  <SelectItem value="accent">Accent (default)</SelectItem>
+                  <SelectItem value="text">Text</SelectItem>
                 </SelectPopup>
               </Select>
             </div>
@@ -2130,6 +2228,7 @@ export function GeneralSettingsPanel() {
   return (
     <SettingsPageContainer>
       <ProjectDefaultsSettings category="general" />
+      <NewThreadPresetsSettings />
       <SettingsSection id="organization" title="Organization">
         <SettingsRow
           {...searchableSetting("project-grouping")}

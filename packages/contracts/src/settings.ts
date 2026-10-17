@@ -10,6 +10,7 @@ import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import {
+  ForwardCompatibleArray,
   ForwardCompatibleNullable,
   ForwardCompatibleOptional,
   OmittedWhenNull,
@@ -20,7 +21,7 @@ import {
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
-import { KeybindingShortcut } from "./keybindings.ts";
+import { KeybindingShortcut, NewThreadPresetId } from "./keybindings.ts";
 import {
   CustomModelSetting,
   DEFAULT_TEXT_GENERATION_MODEL,
@@ -122,6 +123,22 @@ export const GlassOpacity = Schema.Int.check(
 );
 export type GlassOpacity = typeof GlassOpacity.Type;
 const DEFAULT_GLASS_OPACITY: GlassOpacity = 80;
+
+export const MIN_FLOATING_TERMINAL_BORDER_WIDTH = 0;
+export const MAX_FLOATING_TERMINAL_BORDER_WIDTH = 6;
+/** Frame thickness of the floating terminal, in CSS pixels. */
+export const FloatingTerminalBorderWidth = Schema.Int.check(
+  Schema.isBetween({
+    minimum: MIN_FLOATING_TERMINAL_BORDER_WIDTH,
+    maximum: MAX_FLOATING_TERMINAL_BORDER_WIDTH,
+  }),
+);
+export type FloatingTerminalBorderWidth = typeof FloatingTerminalBorderWidth.Type;
+const DEFAULT_FLOATING_TERMINAL_BORDER_WIDTH: FloatingTerminalBorderWidth = 2;
+
+/** Theme color the floating terminal's frame takes, so it follows light and dark themes. */
+export const FloatingTerminalBorderColor = Schema.Literals(["subtle", "accent", "text"]);
+export type FloatingTerminalBorderColor = typeof FloatingTerminalBorderColor.Type;
 
 export const MIN_APPEARANCE_CONTRAST = 50;
 export const MAX_APPEARANCE_CONTRAST = 200;
@@ -385,6 +402,12 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
+  ),
+  floatingTerminalBorderWidth: FloatingTerminalBorderWidth.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_FLOATING_TERMINAL_BORDER_WIDTH)),
+  ),
+  floatingTerminalBorderColor: FloatingTerminalBorderColor.pipe(
+    Schema.withDecodingDefault(Effect.succeed("accent" as const)),
   ),
   fontSizeInterface: InterfaceFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_INTERFACE_FONT_SIZE)),
@@ -907,6 +930,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "defaultRuntimeMode",
   "defaultThreadEnvMode",
   "newWorktreesStartFromOrigin",
+  "jujutsuWorkspaces",
   "worktreeSubmodules",
   "defaultAutoPull",
   "defaultProjectScripts",
@@ -950,6 +974,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
+  jujutsuWorkspaces: Schema.optionalKey(Schema.Boolean),
   worktreeSubmodules: ForwardCompatibleOptional(WorktreeSubmodules),
   defaultAutoPull: Schema.optionalKey(Schema.Boolean),
   defaultProjectScripts: Schema.optionalKey(Schema.Array(ProjectScript)),
@@ -1059,6 +1084,21 @@ export const StorageCleanupSettings = Schema.Struct({
   logsAfterDays: StorageRetentionDays.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
+
+/**
+ * A named starting point for new threads. The machine is deliberately absent:
+ * a preset starts on whichever machine the user is on. An absent workspace or
+ * origin field defers to the project's new-thread defaults.
+ */
+export const NewThreadPreset = Schema.Struct({
+  id: NewThreadPresetId,
+  name: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+  project: Schema.Literals(["current", "none"]),
+  envMode: Schema.optionalKey(ThreadEnvMode),
+  startFromOrigin: Schema.optionalKey(Schema.Boolean),
+});
+export type NewThreadPreset = typeof NewThreadPreset.Type;
 
 export const ServerSettings = Schema.Struct({
   // Null means no client has migrated this preference yet; an empty value is
@@ -1170,6 +1210,14 @@ export const ServerSettings = Schema.Struct({
   newWorktreesStartFromOrigin: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
+  newThreadPresets: ForwardCompatibleArray(NewThreadPreset).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  /**
+   * Creates new worktrees with `jj workspace add --colocate`, so they show up
+   * in jj as well as git. Needs a colocated jj repository and jj 0.46+.
+   */
+  jujutsuWorkspaces: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
    * Null defers to the repository's t3.json, then to recursive. A value
    * picked on a newer server decodes as null here rather than failing the
@@ -1459,6 +1507,8 @@ export const ServerSettingsPatch = Schema.Struct({
   environmentIcon: Schema.optionalKey(Schema.NullOr(EnvironmentMachineKind)),
   defaultThreadEnvMode: Schema.optionalKey(Schema.NullOr(ThreadEnvMode)),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
+  jujutsuWorkspaces: Schema.optionalKey(Schema.Boolean),
+  newThreadPresets: Schema.optionalKey(Schema.Array(NewThreadPreset)),
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   threadCategories: Schema.optionalKey(Schema.Array(ThreadCategory)),
@@ -1578,6 +1628,8 @@ export const ClientSettingsPatch = Schema.Struct({
   diffLayout: Schema.optionalKey(DiffLayout),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
+  floatingTerminalBorderWidth: Schema.optionalKey(FloatingTerminalBorderWidth),
+  floatingTerminalBorderColor: Schema.optionalKey(FloatingTerminalBorderColor),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),

@@ -233,6 +233,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["red green blue orange additions deletions changes counts palette colorblind"],
   },
   {
+    id: "floating-terminal-border",
+    title: "Floating terminal border",
+    to: "/settings/appearance",
+    searchTerms: ["popover outline frame edge width thickness color colour"],
+  },
+  {
     id: "chat-width",
     title: "Chat width",
     to: "/settings/appearance",
@@ -771,6 +777,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/source-control",
     scope: "project-defaults",
     searchTerms: ["auto pull default branch current checkout fast forward upstream"],
+  },
+  {
+    id: "jujutsu-workspaces",
+    title: "Jujutsu workspaces",
+    to: "/settings/source-control",
+    scope: "project-defaults",
+    searchTerms: ["jj jujutsu workspace colocate colocated worktree vcs"],
   },
   {
     id: "remove-agent-credits-on-merge",

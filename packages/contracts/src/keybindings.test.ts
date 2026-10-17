@@ -132,6 +132,19 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedThreadSettle.command, "thread.settle");
 
+    const parsedThreadSnooze = yield* decode(KeybindingRule, {
+      key: "mod+alt+shift+z",
+      command: "thread.snooze",
+      when: "!terminalFocus",
+    });
+    assert.strictEqual(parsedThreadSnooze.command, "thread.snooze");
+
+    const parsedThreadSnoozePreset = yield* decode(KeybindingRule, {
+      key: "mod+alt+t",
+      command: "thread.snooze.tomorrow",
+    });
+    assert.strictEqual(parsedThreadSnoozePreset.command, "thread.snooze.tomorrow");
+
     const parsedThreadCopyReference = yield* decode(KeybindingRule, {
       key: "mod+shift+c",
       command: "thread.copyReference",
@@ -173,6 +186,17 @@ it.effect("accepts dynamic script run commands", () =>
       command: "script.setup.run",
     });
     assert.strictEqual(parsed.command, "script.setup.run");
+  }),
+);
+
+it.effect("accepts new-thread preset commands and rejects malformed preset ids", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decode(KeybindingRule, { key: "mod+1", command: "preset.quick.new" });
+    assert.strictEqual(parsed.command, "preset.quick.new");
+    const invalid = yield* Effect.exit(
+      decode(KeybindingRule, { key: "mod+1", command: "preset.Quick.new" }),
+    );
+    assert.strictEqual(invalid._tag, "Failure");
   }),
 );
 

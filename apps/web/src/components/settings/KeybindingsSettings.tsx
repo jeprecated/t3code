@@ -1307,9 +1307,10 @@ export function KeybindingsSettingsPanel() {
   const whenVariables = buildWhenVariableOptions();
   const serverKeybindings = primaryEnvironment?.serverConfig?.keybindings;
   // Each derivation merges the defaults itself so the command options key on the
-  // server keybindings alone and do not rebuild on every search keystroke.
+  // server keybindings and presets alone and do not rebuild on every search keystroke.
   const commandOptions = buildKeybindingCommandOptions(
     mergeWithDefaultKeybindings(serverKeybindings ?? []),
+    (primaryEnvironment?.serverConfig?.settings.newThreadPresets ?? []).map((preset) => preset.id),
   );
   const rows = buildKeybindingRows(mergeWithDefaultKeybindings(serverKeybindings ?? []), query);
   const groups = groupKeybindingRows(rows);
