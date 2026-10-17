@@ -45,6 +45,7 @@ const HTML_RENDER_SHORTCUT_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
   "commandPalette.toggle",
   "filePicker.toggle",
   "projectSearch.toggle",
+  "threadSwitcher.toggle",
   "chat.find",
   "sidebar.toggle",
   "rightPanel.toggle",
