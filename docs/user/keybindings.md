@@ -44,6 +44,16 @@ on macOS and Ctrl on Windows and Linux, including GNOME, KDE Plasma, Niri, and
 Hyprland. If a custom desktop shortcut takes the same keys, choose another binding
 in Settings.
 
+## Switch threads
+
+**Thread Switcher: Toggle** opens a quick search over your threads. It has no
+default shortcut. Bind it in Settings → Keybindings, or choose **Switch thread**
+in the command palette. Type part of a thread's name, project, or branch.
+Closer matches rank first. Between equally close matches, the thread's name beats
+its project, which beats its branch or worktree. Enter opens the top result, and
+the thread you are on is always listed last. Only active threads
+appear at first. Press Tab to include settled and snoozed threads.
+
 ## Copy pull request references
 
 With a PR open in the right panel or on the Pull Requests page, use `mod+shift+c`
