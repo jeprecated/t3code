@@ -26,6 +26,7 @@ import {
 import {
   canSnooze,
   effectiveSnoozed,
+  resolveSnoozePreset,
   snoozeWakeLabel,
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
@@ -34,7 +35,8 @@ import {
   useAcknowledgeThreadWoke,
   useThreadActions,
 } from "../../hooks/useThreadActions";
-import { requestSnoozeTime } from "../SnoozePrompt";
+import { requestSnoozeTime, snoozePresetForCommand } from "../SnoozePrompt";
+import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
 import { settleAndAdvance } from "../../settleAndAdvance";
 import type { ChatShortcutCommands } from "./useChatShortcuts";
 import { resolveThreadLastVisitedAt } from "../Sidebar.logic";
@@ -299,12 +301,12 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     setUnsnoozingThreadKey((current) => (current === threadKey ? null : current));
   };
   const handleUnsnoozeActiveThreadStable = useStableCallback(handleUnsnoozeActiveThread);
-  // Keyboard snooze: wakes a snoozed thread; otherwise snoozes to the time
-  // chosen in the snooze picker.
-  const snoozeActiveThreadFromShortcut = async () => {
+  // Keyboard snooze: wakes a snoozed thread; otherwise snoozes to the preset,
+  // or, with no preset, to the time chosen in the snooze prompt.
+  const snoozeActiveThreadFromShortcut = async (preset: SnoozePresetSetting | null) => {
     if (!activeThreadRef || !activeThreadShell || !serverConfigLoaded) return;
     if (activeThreadSnoozed) {
-      await handleUnsnoozeActiveThread();
+      if (preset === null) await handleUnsnoozeActiveThread();
       return;
     }
     const reportFailure = (error: unknown) =>
@@ -326,9 +328,12 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       return;
     }
     const threadRef = activeThreadRef;
-    const choice = await requestSnoozeTime(threadRef.environmentId);
-    if (!choice) return;
-    const result = await snoozeThread(threadRef, choice.snoozedUntil);
+    const snoozedUntil =
+      preset === null
+        ? (await requestSnoozeTime(threadRef.environmentId))?.snoozedUntil
+        : resolveSnoozePreset(preset, new Date())?.snoozedUntil;
+    if (!snoozedUntil) return;
+    const result = await snoozeThread(threadRef, snoozedUntil);
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       reportFailure(squashAtomCommandFailure(result));
     }
@@ -653,6 +658,13 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         }),
       );
     };
+  const snoozeShortcut =
+    (preset: SnoozePresetSetting | null): NonNullable<ChatShortcutCommands["thread.snooze"]> =>
+    ({ event }) => {
+      if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
+      if (event.repeat || !activeThreadShell) return;
+      void snoozeActiveThreadFromShortcutStable(preset);
+    };
   const shortcuts = {
     "thread.settle": () => {
       if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
@@ -682,11 +694,12 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         ),
       );
     },
-    "thread.snooze": ({ event }) => {
-      if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
-      if (event.repeat || !activeThreadShell) return;
-      void snoozeActiveThreadFromShortcutStable();
-    },
+    "thread.snooze": snoozeShortcut(null),
+    "thread.snooze.hour": snoozeShortcut(snoozePresetForCommand("thread.snooze.hour")),
+    "thread.snooze.threeHours": snoozeShortcut(snoozePresetForCommand("thread.snooze.threeHours")),
+    "thread.snooze.evening": snoozeShortcut(snoozePresetForCommand("thread.snooze.evening")),
+    "thread.snooze.tomorrow": snoozeShortcut(snoozePresetForCommand("thread.snooze.tomorrow")),
+    "thread.snooze.nextWeek": snoozeShortcut(snoozePresetForCommand("thread.snooze.nextWeek")),
   } satisfies ChatShortcutCommands;
   return {
     shortcuts,

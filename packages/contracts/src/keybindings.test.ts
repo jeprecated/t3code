@@ -51,7 +51,7 @@ it.effect("drops malformed resolved rule entries", () =>
   }),
 );
 
-it.effect("accepts the snooze command", () =>
+it.effect("accepts the snooze commands", () =>
   Effect.gen(function* () {
     const parsedThreadSnooze = yield* decode(KeybindingRule, {
       key: "mod+alt+shift+z",
@@ -59,5 +59,11 @@ it.effect("accepts the snooze command", () =>
       when: "!terminalFocus",
     });
     assert.strictEqual(parsedThreadSnooze.command, "thread.snooze");
+
+    const parsedThreadSnoozePreset = yield* decode(KeybindingRule, {
+      key: "mod+alt+t",
+      command: "thread.snooze.tomorrow",
+    });
+    assert.strictEqual(parsedThreadSnoozePreset.command, "thread.snooze.tomorrow");
   }),
 );

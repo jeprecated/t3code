@@ -302,7 +302,9 @@ describe("KeybindingsSettings.logic", () => {
     expect(rows.map((row) => row.conflicts)).toEqual([[], []]);
   });
 
-  it("labels the snooze command", () => {
+  it("labels the snooze commands", () => {
     expect(commandLabel("thread.snooze")).toBe("Thread: Snooze or Wake");
+    expect(commandLabel("thread.snooze.threeHours")).toBe("Thread: Snooze 3 Hours");
+    expect(commandLabel("thread.snooze.nextWeek")).toBe("Thread: Snooze Until Next Week");
   });
 });
