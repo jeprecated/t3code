@@ -49,6 +49,7 @@ import { parseCliArgs } from "@t3tools/shared/cliArgs";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { applyClaudePromptEffortPrefix } from "@t3tools/shared/model";
+import { capPendingBackgroundCommand } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import {
   CLAUDE_RESUME_COMPACTION_NEVER_ANSWER,
   formatClaudeResumeCompactionQuestion,
@@ -2045,14 +2046,15 @@ function claudePendingBackgroundTask(input: {
   readonly description: string | undefined;
   // Undeclared SDK field: the subagent whose own background work this is.
   readonly parentTaskId: unknown;
+  readonly command?: string | undefined;
 }): OrchestrationV2PendingBackgroundTask {
-  return {
+  const kind = input.startedByMonitor
+    ? "monitor"
+    : ((input.taskType === null
+        ? undefined
+        : CLAUDE_OPAQUE_BACKGROUND_TASK_KINDS.get(input.taskType)) ?? "background_task");
+  const named = {
     taskId: input.taskId,
-    kind: input.startedByMonitor
-      ? "monitor"
-      : ((input.taskType === null
-          ? undefined
-          : CLAUDE_OPAQUE_BACKGROUND_TASK_KINDS.get(input.taskType)) ?? "background_task"),
     ...(input.description !== undefined && input.description.trim().length > 0
       ? { description: input.description }
       : {}),
@@ -2060,6 +2062,16 @@ function claudePendingBackgroundTask(input: {
       ? { parentTaskId: input.parentTaskId }
       : {}),
   };
+  const command = input.command?.trim();
+  return kind === "command"
+    ? {
+        ...named,
+        kind,
+        ...(command === undefined || command.length === 0
+          ? {}
+          : { command: capPendingBackgroundCommand(command) }),
+      }
+    : { ...named, kind };
 }
 
 function claudeTaskTypeFromSdkMessage(message: SDKMessage): string | null {
@@ -2091,6 +2103,8 @@ function claudePendingBackgroundTasksFromRoster(
 function parseClaudeBackgroundTaskEntry(
   entry: unknown,
   monitorTasks: ReadonlyMap<string, unknown>,
+  // background_tasks_changed omits the command line, so carry the one task_started recorded.
+  knownTasks: ReadonlyMap<string, OrchestrationV2PendingBackgroundTask>,
 ): OrchestrationV2PendingBackgroundTask | null {
   if (entry === null || typeof entry !== "object") {
     return null;
@@ -2105,12 +2119,14 @@ function parseClaudeBackgroundTaskEntry(
     return null;
   }
   const description = Reflect.get(entry, "description");
+  const known = knownTasks.get(taskId);
   return claudePendingBackgroundTask({
     taskId,
     taskType,
     startedByMonitor: monitorTasks.has(taskId),
     description: typeof description === "string" ? description : undefined,
     parentTaskId: Reflect.get(entry, "parent_task_id"),
+    command: known?.kind === "command" ? known.command : undefined,
   });
 }
 
@@ -3578,6 +3594,23 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             { readonly toolUseId: string; readonly nativeThreadId: string }
           >;
         }>({ calls: new Set(), tasks: new Map() });
+        // task_started names the Bash call that started a background command, but not its
+        // command line. Bash can also move to the background mid-run, so remember every call.
+        const bashCommandsByToolUseId = new Map<string, string>();
+        const trackClaudeBashCalls = (message: SDKMessage) => {
+          for (const toolUse of claudeToolUseBlocksFromAssistantMessage(message)) {
+            if (toolUse.name !== "Bash" || typeof toolUse.input !== "object" || !toolUse.input) {
+              continue;
+            }
+            const command = Reflect.get(toolUse.input, "command");
+            if (typeof command !== "string" || command.trim().length === 0) continue;
+            bashCommandsByToolUseId.set(toolUse.id, command);
+            for (const oldest of bashCommandsByToolUseId.keys()) {
+              if (bashCommandsByToolUseId.size <= 64) break;
+              bashCommandsByToolUseId.delete(oldest);
+            }
+          }
+        };
         const trackClaudeMonitorCalls = (message: SDKMessage) => {
           const started = claudeToolUseBlocksFromAssistantMessage(message).flatMap((toolUse) =>
             toolUse.name === "Monitor" ? [toolUse.id] : [],
@@ -6287,8 +6320,15 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               (taskId, task) =>
                 task.nativeThreadId === input.nativeThreadId && !listedTaskIds.has(taskId),
             );
+            const knownTasks = new Map([
+              ...(yield* Ref.get(lastKnownOpaqueTasks)),
+              ...rosterForNativeThread(
+                yield* Ref.get(pendingBackgroundTasksByNativeThread),
+                input.nativeThreadId,
+              ),
+            ]);
             for (const entry of roster) {
-              const task = parseClaudeBackgroundTaskEntry(entry, monitorTasks);
+              const task = parseClaudeBackgroundTaskEntry(entry, monitorTasks, knownTasks);
               if (task !== null) {
                 nextTasks.push(task);
               }
@@ -6312,6 +6352,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 description:
                   typeof message.description === "string" ? message.description : undefined,
                 parentTaskId: Reflect.get(message, "parent_task_id"),
+                command:
+                  message.tool_use_id === undefined
+                    ? undefined
+                    : bashCommandsByToolUseId.get(message.tool_use_id),
               }),
             );
             rosterChanged = true;
@@ -6432,6 +6476,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           // Before any routing: a Monitor started during an idle wake turn
           // reports its task before the drain replays the tool call.
           yield* trackClaudeMonitorCalls(message);
+          trackClaudeBashCalls(message);
           // Before routing too: the wake gate reads it while the root is idle.
           if (
             message.type === "system" &&

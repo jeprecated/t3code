@@ -275,6 +275,8 @@ export interface PendingBackgroundWorkItem {
   readonly kind: BackgroundWorkKind;
   readonly label: string;
   readonly childThreadId: ThreadId | undefined;
+  /** The command line, omitted when the label already is the command. */
+  readonly command: string | undefined;
 }
 
 export interface PendingBackgroundWorkPresentation {
@@ -300,6 +302,7 @@ export function presentPendingBackgroundWork(
         task.kind === "subagent" && description !== undefined
           ? formatSubagentDisplayTitle(description).trim()
           : description;
+      const command = task.kind === "command" ? task.command?.trim() : undefined;
       return {
         taskId: task.taskId,
         kind: task.kind,
@@ -308,6 +311,8 @@ export function presentPendingBackgroundWork(
             ? BACKGROUND_WORK_KINDS[task.kind].singular
             : label,
         childThreadId: task.kind === "subagent" ? task.childThreadId : undefined,
+        command:
+          command === undefined || command.length === 0 || command === label ? undefined : command,
       };
     })
     // `map` returned a new array; Hermes has no `toSorted`.

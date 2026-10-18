@@ -812,7 +812,12 @@ export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
       providerInstanceId: Schema.optional(ProviderInstanceId),
       childThreadId: Schema.optional(ThreadId),
     }),
-    Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("command") }),
+    Schema.Struct({
+      ...PendingBackgroundTaskFields,
+      kind: Schema.Literal("command"),
+      /** The shell command line, when the provider reports it apart from the description. */
+      command: Schema.optional(TrimmedNonEmptyString),
+    }),
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("monitor") }),
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("background_task") }),
   ],

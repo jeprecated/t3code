@@ -42,6 +42,15 @@ void TERMINAL_RUN_STATUSES;
 
 export type PendingBackgroundWorkTask = OrchestrationV2PendingBackgroundTask;
 
+// The roster rides on every thread shell, so a long command line is cut rather than sent whole.
+const PENDING_BACKGROUND_COMMAND_MAX_LENGTH = 500;
+
+export function capPendingBackgroundCommand(command: string): string {
+  return command.length <= PENDING_BACKGROUND_COMMAND_MAX_LENGTH
+    ? command
+    : `${command.slice(0, PENDING_BACKGROUND_COMMAND_MAX_LENGTH - 1)}…`;
+}
+
 export function turnItemUpdateCanEndBackgroundWork(
   item: Pick<OrchestrationV2TurnItem, "type" | "status">,
 ): boolean {
@@ -146,8 +155,16 @@ function pendingTaskFromTurnItem(
           : { providerInstanceId: item.owningProviderInstanceId }),
         ...(item.childThreadId == null ? {} : { childThreadId: item.childThreadId }),
       };
-    case "command_execution":
-      return { ...named, kind: "command" };
+    case "command_execution": {
+      const command = typeof item.input === "string" ? item.input.trim() : "";
+      return {
+        ...named,
+        kind: "command",
+        ...(command.length === 0 || command === description
+          ? {}
+          : { command: capPendingBackgroundCommand(command) }),
+      };
+    }
     default:
       return { ...named, kind: "background_task" };
   }
