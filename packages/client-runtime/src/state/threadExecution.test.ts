@@ -22,6 +22,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { v2Projection } from "./orchestrationV2TestFixtures.ts";
 import {
+  backgroundWorkOutputSource,
   canResumeThread,
   deriveReportedModelSelection,
   deriveLatestThreadRun,
@@ -982,6 +983,35 @@ describe("presentPendingBackgroundWork", () => {
       ["Ship to TestFlight", "eve ship --testflight"],
       ["vp run dev", undefined],
       ["vp run dev", undefined],
+    ]);
+  });
+});
+
+describe("backgroundWorkOutputSource", () => {
+  const row = (id: string, status: "running" | "completed") => ({
+    id: TurnItemId.make(id),
+    type: "command_execution",
+    status,
+    threadId: ThreadId.make("thread-1"),
+    nativeItemRef: { nativeId: `native-${id}` },
+  });
+  const items = [row("live", "running"), row("launched", "completed")] as unknown as Parameters<
+    typeof backgroundWorkOutputSource
+  >[1];
+
+  it("streams a running row, and a command without one by task id", () => {
+    expect(
+      [
+        { taskId: "native-live", kind: "command" as const },
+        { taskId: "bash-1", kind: "command" as const, itemId: TurnItemId.make("launched") },
+        { taskId: "native-live", kind: "monitor" as const },
+        { taskId: "watch", kind: "monitor" as const },
+      ].map((task) => backgroundWorkOutputSource(task, items)),
+    ).toEqual([
+      { kind: "item", threadId: "thread-1", itemId: "live" },
+      { kind: "task", taskId: "bash-1" },
+      { kind: "item", threadId: "thread-1", itemId: "live" },
+      null,
     ]);
   });
 });
