@@ -6,7 +6,11 @@ import { useEffect } from "react";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { ThreadRouteView } from "../components/ThreadRouteView";
 import { ThreadLinkPrompt } from "../components/promptLinks/ThreadLinkPrompt";
-import { useClientSettings, useLegacySidebarEnabled } from "../hooks/useSettings";
+import {
+  useClientSettings,
+  useLegacySidebarEnabled,
+  usePrimarySettings,
+} from "../hooks/useSettings";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useProjects } from "../state/entities";
 import { isPreviewAvailableFor } from "../browser/previewRuntime";
@@ -17,6 +21,8 @@ import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useScratchProject } from "../hooks/useScratchProject";
+import { useStartNewThreadPreset } from "../hooks/useStartNewThreadPreset";
+import { newThreadPresetIdFromCommand } from "../newThreadPresets";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -46,6 +52,8 @@ function ChatRouteGlobalShortcuts() {
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const { scratchEnvironmentId, startScratchThread } = useScratchProject();
+  const newThreadPresets = usePrimarySettings((settings) => settings.newThreadPresets);
+  const startNewThreadPreset = useStartNewThreadPreset();
   const projectGroupCount = buildSidebarProjectSnapshots({
     projects,
     settings: projectGroupingSettings,
@@ -95,6 +103,23 @@ function ChatRouteGlobalShortcuts() {
       if (event.key === "Escape" && selectedThreadKeysSize > 0) {
         event.preventDefault();
         clearSelection();
+        return;
+      }
+
+      const presetId = command === null ? null : newThreadPresetIdFromCommand(command);
+      if (presetId !== null) {
+        const preset = newThreadPresets.find((candidate) => candidate.id === presetId);
+        if (!preset) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) void startNewThreadPreset(preset);
+        return;
+      }
+
+      if (command === "chat.newFromPreset") {
+        event.preventDefault();
+        event.stopPropagation();
+        openCommandPalette({ open: "new-thread-preset" });
         return;
       }
 
@@ -199,6 +224,8 @@ function ChatRouteGlobalShortcuts() {
     selectedThreadKeysSize,
     startScratchThread,
     legacySidebarEnabled,
+    newThreadPresets,
+    startNewThreadPreset,
     terminalOpen,
   ]);
 

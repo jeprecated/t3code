@@ -11,8 +11,11 @@ import {
   type ChatAttachment,
   CommandId,
   MessageId,
+  OrchestrationV2CommandOutputError,
+  type OrchestrationV2CommandOutputFrame,
   OrchestrationV2StopWorkflowError,
   type OrchestrationV2StopWorkflowInput,
+  type OrchestrationV2SubscribeBackgroundTaskOutputInput,
   type ModelSelection,
   type OrchestrationV2Actor,
   type OrchestrationV2Command,
@@ -46,6 +49,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import { backgroundTaskOutputFrames } from "./CommandOutputHub.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -420,6 +424,10 @@ export interface ThreadManagementServiceShape {
   readonly stopWorkflow: (
     input: OrchestrationV2StopWorkflowInput,
   ) => Effect.Effect<void, OrchestrationV2StopWorkflowError>;
+  /** Output of a background command its provider lists, read only while subscribed. */
+  readonly streamBackgroundTaskOutput: (
+    input: OrchestrationV2SubscribeBackgroundTaskOutputInput,
+  ) => Stream.Stream<OrchestrationV2CommandOutputFrame, OrchestrationV2CommandOutputError>;
   readonly stopDelegatedTasks: (input: {
     readonly threadId: ThreadId;
     readonly commandId: CommandId;
@@ -1090,6 +1098,42 @@ const make = Effect.gen(function* () {
       );
     }).pipe((effect) => threadDispatch.withLock(input.threadId, effect));
 
+  const streamBackgroundTaskOutput: ThreadManagementServiceShape["streamBackgroundTaskOutput"] = (
+    input,
+  ) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const unavailable = (message: string, cause?: unknown) =>
+          new OrchestrationV2CommandOutputError({ threadId: input.threadId, message, cause });
+        const records = yield* orchestrator
+          .getThreadRecords(input.threadId, ["providerThreads"])
+          .pipe(Effect.mapError((cause) => unavailable("Failed to read the thread.", cause)));
+        const providerThread = records.providerThreads.find(
+          (candidate) =>
+            candidate.appThreadId === input.threadId &&
+            candidate.pendingBackgroundTasks?.some(
+              (task) => task.taskId === input.taskId && task.kind === "command",
+            ),
+        );
+        if (providerThread?.providerSessionId == null) {
+          return yield* unavailable("This command is no longer running.");
+        }
+        const runtime = yield* sessions
+          .get(providerThread.providerSessionId)
+          .pipe(
+            Effect.mapError((cause) => unavailable("The provider session is unavailable.", cause)),
+          );
+        if (Option.isNone(runtime) || runtime.value.streamBackgroundTaskOutput === undefined) {
+          return yield* unavailable("This provider does not share background command output.");
+        }
+        return backgroundTaskOutputFrames(
+          runtime.value
+            .streamBackgroundTaskOutput({ providerThread, taskId: input.taskId })
+            .pipe(Stream.mapError((cause) => unavailable("Failed to read command output.", cause))),
+        );
+      }),
+    );
+
   const stopDelegatedTasks: ThreadManagementServiceShape["stopDelegatedTasks"] = (input) =>
     Effect.gen(function* () {
       const { subagents } = yield* orchestrator.getThreadRecords(input.threadId, ["subagents"]);
@@ -1120,6 +1164,7 @@ const make = Effect.gen(function* () {
 
   return ThreadManagementService.of({
     ensureLegacyTranscript,
+    streamBackgroundTaskOutput,
     searchThreadStream: (input) =>
       Stream.unwrap(
         ensureProjectionTranscript(input.threadId).pipe(

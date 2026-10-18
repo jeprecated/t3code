@@ -234,6 +234,12 @@ export function summarizeT3ToolCalls(
     case "thread-update":
       label = phrase("Updated", "update", quantity(countEntities(threadIds), "thread"));
       break;
+    case "thread-categories":
+      label = phrase("Listed", "list", `thread categories ${times}`);
+      break;
+    case "thread-categorize":
+      label = phrase("Categorized", "categorize", `threads ${times}`);
+      break;
     case "queue-list":
       label = phrase("Listed", "list", `queued messages ${times}`);
       break;

@@ -11,6 +11,7 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildReviewGuidePrompt,
+  buildThreadCategoriesPrompt,
   buildThreadTitlePrompt,
 } from "./textGenerationPrompts.ts";
 import {
@@ -72,6 +73,16 @@ export const decodeJsonReply = <S extends Schema.Top>(
     ),
   );
 };
+
+/** Models echo names with drifting case and spacing; anything not offered is dropped. */
+export function matchThreadCategoryNames(
+  categories: ReadonlyArray<{ readonly id: string; readonly name: string }>,
+  names: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  const normalize = (name: string) => name.trim().replace(/\s+/g, " ").toLowerCase();
+  const chosen = new Set(names.map(normalize));
+  return categories.filter((category) => chosen.has(normalize(category.name))).map((c) => c.id);
+}
 
 export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
   const generateCommitMessage: ProviderTextGeneration["generateCommitMessage"] = Effect.fn(
@@ -168,11 +179,28 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     });
   });
 
+  const generateThreadCategories: ProviderTextGeneration["generateThreadCategories"] = Effect.fn(
+    `${name}.generateThreadCategories`,
+  )(function* (input) {
+    const generated = yield* run({
+      operation: "generateThreadCategories",
+      cwd: input.cwd,
+      modelSelection: input.modelSelection,
+      ...buildThreadCategoriesPrompt({
+        conversation: input.conversation,
+        categories: input.categories,
+        currentCategoryNames: input.currentCategoryNames,
+      }),
+    });
+    return { categoryIds: matchThreadCategoryNames(input.categories, generated.categories) };
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateReviewGuide,
+    generateThreadCategories,
   } satisfies ProviderTextGeneration;
 }

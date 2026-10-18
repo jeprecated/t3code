@@ -122,6 +122,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   threadActiveReorder: Schema.optionalKey(Schema.Boolean),
   threadAutoSettleOptOut: Schema.optionalKey(Schema.Boolean),
   threadTitleRegeneration: Schema.optionalKey(Schema.Boolean),
+  /** Server-owned `threadCategories`, `thread.categories.update` and category suggestions. */
+  threadCategories: Schema.optionalKey(Schema.Boolean),
   threadVisitedTracking: Schema.optionalKey(Schema.Boolean),
   threadPullRequestLinking: Schema.optionalKey(Schema.Boolean),
   serverResolvedCommandContext: Schema.optionalKey(Schema.Boolean),
@@ -145,6 +147,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server answers orchestration.subscribeCommandOutput. Absent on older servers,
       which never send command output, so clients must not subscribe. */
   commandOutputStreaming: Schema.optionalKey(Schema.Boolean),
+  /** Server answers orchestration.subscribeBackgroundTaskOutput. */
+  backgroundTaskOutput: Schema.optionalKey(Schema.Boolean),
   /** Server hosts preview tabs in its own headless Chromium (`runtime:
       "server"`) and streams them over `/api/preview-stream`. Clients
       without a local browser runtime open server tabs here. */

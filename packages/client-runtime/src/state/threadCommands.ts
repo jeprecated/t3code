@@ -9,6 +9,7 @@ import {
   type OrchestrationV2ShellSnapshot,
 } from "@t3tools/contracts";
 
+import { applyThreadCategoryChanges } from "@t3tools/shared/threadCategories";
 import { createOptimisticThreadLifecycle } from "./threadLifecycle.ts";
 import * as DateTime from "effect/DateTime";
 
@@ -42,6 +43,7 @@ import {
   type ReorderPinnedThreadInput,
   type ReorderActiveThreadInput,
   type SetThreadAutoSettleInput,
+  type UpdateThreadCategoriesInput,
   type SettleThreadInput,
   type SnoozeThreadInput,
   type StartThreadTurnInput,
@@ -79,6 +81,7 @@ import {
   reorderActiveThread,
   setThreadAutoSettle,
   settleThread,
+  updateThreadCategories,
   snoozeThread,
   startThreadTurn,
   stopThreadSession,
@@ -125,6 +128,7 @@ export type {
   ReorderActiveThreadInput,
   SetThreadAutoSettleInput,
   SettleThreadInput,
+  UpdateThreadCategoriesInput,
   SnoozeThreadInput,
   StartThreadTurnInput,
   StopThreadSessionInput,
@@ -213,6 +217,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     reorderPin: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:reorder-pin",
       execute: (input: ReorderPinnedThreadInput) => reorderPinnedThread(input),
+      scheduler,
+      concurrency,
+    }),
+    updateCategories: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:update-categories",
+      execute: (input: UpdateThreadCategoriesInput) => updateThreadCategories(input),
       scheduler,
       concurrency,
     }),
@@ -450,6 +460,14 @@ export function createThreadEnvironmentAtoms<R, E>(
       ...thread,
       snoozedUntil: null,
       snoozedAt: null,
+    })),
+    updateCategories: optimistic.wrap(commands.updateCategories, (thread, input) => ({
+      ...thread,
+      categories: applyThreadCategoryChanges(
+        thread.categories,
+        input.changes ?? [],
+        input.resolveSuggestion === true,
+      ),
     })),
     setAutoSettle: optimistic.wrap(commands.setAutoSettle, (thread, input, now) => ({
       ...thread,

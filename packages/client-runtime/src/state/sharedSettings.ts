@@ -19,6 +19,8 @@ const SHARED_SERVER_SETTING_KEYS = [
   "newWorktreesStartFromOrigin",
   "sourceControlWritingStyle",
   "textGenerationModelSelection",
+  // Written everywhere so a category keeps one id across environments.
+  "threadCategories",
 ] as const satisfies ReadonlyArray<keyof ServerSettings & keyof ServerSettingsPatch>;
 
 export type SharedServerSettingKey = (typeof SHARED_SERVER_SETTING_KEYS)[number];
@@ -46,7 +48,9 @@ export function splitSharedServerPatch(patch: ServerSettingsPatch): {
 
 export function filterSharedServerPatch(
   patch: ServerSettingsPatch,
-  capabilities: Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation"> | undefined,
+  capabilities:
+    | Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation" | "threadCategories">
+    | undefined,
   settings?: ServerSettings,
   sourceSettings = settings,
   targetIsSource = false,
@@ -68,6 +72,7 @@ export function filterSharedServerPatch(
   ) {
     patch = Struct.omit(patch, ["textGenerationModelSelection"]);
   }
+  if (capabilities?.threadCategories !== true) patch = Struct.omit(patch, ["threadCategories"]);
   return capabilities?.threadRestartContinuation === true
     ? patch
     : Struct.omit(patch, ["continueThreadsAfterServerUpdate"]);
@@ -75,7 +80,10 @@ export function filterSharedServerPatch(
 
 export function pickSharedServerSettings(
   settings: ServerSettings,
-  capabilities?: Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation">,
+  capabilities?: Pick<
+    ExecutionEnvironmentCapabilities,
+    "threadRestartContinuation" | "threadCategories"
+  >,
 ): ServerSettingsPatch {
   return filterSharedServerPatch(
     Struct.pick(settings, SHARED_SERVER_SETTING_KEYS),
@@ -104,7 +112,7 @@ export interface SharedSettingsEnvironment {
   readonly syncEligible: boolean;
   readonly settings: ServerSettings | null;
   readonly capabilities?:
-    | Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation">
+    | Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation" | "threadCategories">
     | undefined;
 }
 
@@ -116,7 +124,7 @@ export function findSharedSettingsMismatches(input: {
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly primarySettings: ServerSettings | null;
   readonly primaryCapabilities?:
-    | Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation">
+    | Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation" | "threadCategories">
     | undefined;
   readonly environments: ReadonlyArray<SharedSettingsEnvironment>;
 }): ReadonlyArray<{ readonly environmentId: EnvironmentId; readonly label: string }> {

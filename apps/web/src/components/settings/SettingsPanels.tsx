@@ -60,6 +60,7 @@ import * as Schema from "effect/Schema";
 import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../../branding";
 import { CliCommandSettingsRow } from "./CliCommandSettingsRow";
 import { MobileAppSettingsRow } from "./MobileAppSettingsRow";
+import { ThreadCategoriesSetting } from "./ThreadCategoriesSetting";
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
@@ -91,6 +92,7 @@ import {
 import { useScopedModelDisabledReason } from "./useScopedModelAvailability";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
+import { NewThreadPresetsSettings } from "./NewThreadPresetsSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import {
@@ -2233,6 +2235,7 @@ export function GeneralSettingsPanel() {
   return (
     <SettingsPageContainer>
       <ProjectDefaultsSettings category="general" />
+      <NewThreadPresetsSettings />
       <SettingsSection id="organization" title="Organization">
         <SettingsRow
           {...searchableSetting("project-grouping")}
@@ -2309,6 +2312,7 @@ export function GeneralSettingsPanel() {
             </Select>
           }
         />
+        <ThreadCategoriesSetting />
 
         <SettingsRow
           serverScoped

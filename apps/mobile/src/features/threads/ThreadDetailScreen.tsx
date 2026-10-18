@@ -40,6 +40,7 @@ import {
 } from "@t3tools/shared/codexArtifactTemplates";
 import type { ThreadUserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
 import {
+  type PendingBackgroundWorkItem,
   presentPendingBackgroundWork,
   presentProviderGoal,
 } from "@t3tools/client-runtime/state/thread-execution";
@@ -144,6 +145,10 @@ import {
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
+import {
+  BackgroundCommandOutputSheet,
+  useBackgroundCommandOutputSupport,
+} from "./background-command-output-sheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
 import { useThreadQueuedCount } from "./ThreadQueueControl";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
@@ -448,6 +453,10 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
   const pendingBackgroundWork = presentPendingBackgroundWork(
     props.selectedThread.pendingBackgroundTasks,
   );
+  const canShowBackgroundOutput = useBackgroundCommandOutputSupport(props.environmentId);
+  const viewableBackgroundCommand = pendingBackgroundWork?.items.find(canShowBackgroundOutput);
+  const [backgroundOutputItem, setBackgroundOutputItem] =
+    useState<PendingBackgroundWorkItem | null>(null);
   const floatingStatus = ((): FloatingWorkingStatus | null => {
     const connectionStatus = connectionFloatingStatus({
       connectionError: props.connectionError,
@@ -500,9 +509,15 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
         kind: "background",
         label: pendingBackgroundWork.title,
         accessibilityLabel: `${pendingBackgroundWork.title}: ${pendingBackgroundWork.items
-          .map((item) => item.label)
+          .map((item) =>
+            item.command === undefined ? item.label : `${item.label} (${item.command})`,
+          )
           .join(", ")}`,
         waiting: pendingBackgroundWork.waiting,
+        onPress:
+          viewableBackgroundCommand === undefined
+            ? undefined
+            : () => setBackgroundOutputItem(viewableBackgroundCommand),
       };
     }
     if (props.selectedThread.goal !== null && contentPresentationKind === "ready") {
@@ -1363,6 +1378,14 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
           </ComposerPopoverHost>
         </KeyboardStickyView>
       ) : null}
+      {backgroundOutputItem === null ? null : (
+        <BackgroundCommandOutputSheet
+          environmentId={props.environmentId}
+          threadId={props.selectedThread.id}
+          item={backgroundOutputItem}
+          onClose={() => setBackgroundOutputItem(null)}
+        />
+      )}
     </View>
   );
 };

@@ -13,6 +13,7 @@ import {
   buildMultiSelectThreadContextMenuItems,
   createThreadJumpHintVisibilityController,
   deleteSelectedThreadEntries,
+  countSidebarThreadsNeedingUserOutsideScope,
   filterSidebarProjectScopeItems,
   filterSidebarV2VisibleThreads,
   formatWorkingDurationLabel,
@@ -442,9 +443,33 @@ describe("sidebar thread lineage helpers", () => {
     expect(
       filterSidebarV2VisibleThreads(
         [root, subagent, fork, archived, otherProject],
-        new Set([`${environmentId}:${projectId}`]),
+        (thread) => thread.projectId === projectId,
       ).map((thread) => thread.id),
     ).toEqual([parentId, fork.id]);
+  });
+
+  it("counts only hidden threads that are blocked on the user", () => {
+    const inScope = makeThreadFixture({ id: ThreadId.make("in"), hasPendingUserInput: true });
+    const hiddenInput = makeThreadFixture({
+      id: ThreadId.make("input"),
+      hasPendingUserInput: true,
+    });
+    const hiddenApproval = makeThreadFixture({
+      id: ThreadId.make("approval"),
+      hasPendingApprovals: true,
+    });
+    const hiddenIdle = makeThreadFixture({ id: ThreadId.make("idle") });
+    const hiddenArchived = makeThreadFixture({
+      id: ThreadId.make("archived"),
+      hasPendingUserInput: true,
+      archivedAt: "2026-01-02T00:00:00.000Z",
+    });
+    const threads = [inScope, hiddenInput, hiddenApproval, hiddenIdle, hiddenArchived];
+
+    expect(
+      countSidebarThreadsNeedingUserOutsideScope(threads, (thread) => thread.id === inScope.id),
+    ).toBe(2);
+    expect(countSidebarThreadsNeedingUserOutsideScope(threads, null)).toBe(0);
   });
 
   it("identifies subagent threads so the sidebar can hide them", () => {
@@ -1315,6 +1340,28 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toBeNull();
+  });
+
+  it("shows a command left running once its completion is seen", () => {
+    const thread = {
+      ...baseThread,
+      interactionMode: "default" as const,
+      latestRun: makeLatestRun(),
+      pendingBackgroundTasks: [
+        { taskId: "bg-1", description: "Upload build", kind: "command" as const },
+      ],
+      runtime: { ...baseThread.runtime, status: "completed" as const, activeRunId: null },
+    };
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...thread, lastVisitedAt: "2026-03-09T10:00:00.000Z" },
+      }),
+    ).toMatchObject({ label: "Completed" });
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...thread, lastVisitedAt: "2026-03-09T10:06:00.000Z" },
+      }),
+    ).toMatchObject({ label: "Running", pulse: false });
   });
 
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {

@@ -80,6 +80,18 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
             Stream.filter((view) => view !== EMPTY_COMMAND_OUTPUT),
           ),
       }),
+      // A background command its provider lists, with no row to follow. Same frames,
+      // same rule: subscribed only while its output is on screen.
+      backgroundTaskOutput: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+        label: "environment-data:orchestration-v2:background-task-output",
+        tag: ORCHESTRATION_V2_WS_METHODS.subscribeBackgroundTaskOutput,
+        idleTtlMs: 0,
+        transform: (frames) =>
+          frames.pipe(
+            Stream.scan(() => EMPTY_COMMAND_OUTPUT, applyCommandOutputFrame),
+            Stream.filter((view) => view !== EMPTY_COMMAND_OUTPUT),
+          ),
+      }),
     },
     turnDiff: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:turn-diff",

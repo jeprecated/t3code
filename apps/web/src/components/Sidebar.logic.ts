@@ -1,5 +1,8 @@
 import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
-import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import {
+  backgroundWorkHoldsCompletion,
+  hasRunningBackgroundCommand,
+} from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
 import {
@@ -518,18 +521,28 @@ export function isSidebarSubagentThread(thread: Pick<SidebarThreadSummary, "line
 }
 
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & {
-    environmentId: string;
-    projectId: string;
-  },
->(threads: readonly T[], scopedProjectKeys: ReadonlySet<string> | null): T[] {
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage">,
+>(threads: readonly T[], inScope: ((thread: T) => boolean) | null): T[] {
   return threads.filter(
     (thread) =>
       thread.archivedAt === null &&
       !isSidebarSubagentThread(thread) &&
-      (scopedProjectKeys === null ||
-        scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+      (inScope === null || inScope(thread)),
   );
+}
+
+/** Threads a scope hides that are blocked on the user, so a focus never buries them. */
+export function countSidebarThreadsNeedingUserOutsideScope<
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & SidebarThreadStatusInput,
+>(threads: readonly T[], inScope: ((thread: T) => boolean) | null): number {
+  if (inScope === null) return 0;
+  let count = 0;
+  for (const thread of threads) {
+    if (thread.archivedAt !== null || isSidebarSubagentThread(thread) || inScope(thread)) continue;
+    const status = resolveSidebarThreadStatus(thread);
+    if (status === "approval" || status === "input") count += 1;
+  }
+  return count;
 }
 
 export function getSidebarForkParentThreadId(
@@ -577,7 +590,8 @@ export interface ThreadStatusPill {
     | "Pending Approval"
     | "Awaiting Input"
     | "Waiting"
-    | "Plan Ready";
+    | "Plan Ready"
+    | "Running";
   colorClass: string;
   dotClass: string;
   pulse: boolean;
@@ -592,6 +606,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Waiting: 2.5,
   "Plan Ready": 2,
   Completed: 1,
+  Running: 0.5,
 };
 
 type ThreadStatusInput = Pick<
@@ -1177,6 +1192,15 @@ export function resolveThreadStatusPill(input: {
       label: "Completed",
       colorClass: "text-emerald-600 dark:text-emerald-300/90",
       dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+      pulse: false,
+    };
+  }
+
+  if (hasRunningBackgroundCommand(thread.pendingBackgroundTasks ?? [])) {
+    return {
+      label: "Running",
+      colorClass: "text-sidebar-muted-foreground",
+      dotClass: "bg-sidebar-muted-foreground",
       pulse: false,
     };
   }

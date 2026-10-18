@@ -17,11 +17,15 @@ import * as Schema from "effect/Schema";
 import { createMuseSdkHost, createMuseSdkHostEffect, type MuseSdkHost } from "./sdk.ts";
 import { museModelCapabilities, resolveMuseReasoningEffort } from "./modelCatalog.ts";
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
-import { investigationUnsupported } from "@t3tools/provider-core/server/textGenerationOperations";
+import {
+  investigationUnsupported,
+  matchThreadCategoryNames,
+} from "@t3tools/provider-core/server/textGenerationOperations";
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
+  buildThreadCategoriesPrompt,
   buildThreadTitlePrompt,
 } from "@t3tools/provider-core/server/textGenerationPrompts";
 import {
@@ -342,11 +346,26 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
   });
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
+  const generateThreadCategories: ProviderTextGeneration["generateThreadCategories"] = Effect.fn(
+    "MuseTextGeneration.generateThreadCategories",
+  )(function* (input) {
+    const generated = yield* runMuseJson({
+      operation: "generateThreadCategories",
+      ...buildThreadCategoriesPrompt({
+        conversation: input.conversation,
+        categories: input.categories,
+        currentCategoryNames: input.currentCategoryNames,
+      }),
+      modelSelection: input.modelSelection,
+    });
+    return { categoryIds: matchThreadCategoryNames(input.categories, generated.categories) };
+  });
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateReviewGuide,
+    generateThreadCategories,
   } satisfies ProviderTextGeneration;
 });

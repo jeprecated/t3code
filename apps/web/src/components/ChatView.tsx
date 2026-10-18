@@ -40,6 +40,7 @@ import {
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import { isUsageLimitsCommand } from "@t3tools/shared/usageLimits";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
+import { useThreadCategorySuggestionBanner } from "./chat/ThreadCategorySuggestion";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
 import { useChatShortcuts, type ChatShortcutHandler } from "./chat/useChatShortcuts";
@@ -87,9 +88,20 @@ import {
 } from "@t3tools/client-runtime/errors";
 import { readPastedComposerContext } from "./composerInlineTokenPaste";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
-import { effectiveSnoozed, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
+import {
+  canSnooze,
+  effectiveSnoozed,
+  resolveSnoozePresets,
+  threadWokeAt,
+  type SnoozePresetId,
+} from "@t3tools/client-runtime/state/thread-settled";
 import { childThreadInputsTitle } from "@t3tools/client-runtime/state/threads";
-import { useAcknowledgeThreadWoke, useThreadActions } from "../hooks/useThreadActions";
+import {
+  ThreadSnoozeBlockedError,
+  useAcknowledgeThreadWoke,
+  useThreadActions,
+} from "../hooks/useThreadActions";
+import { requestSnoozeTime, snoozePresetForCommand } from "./SnoozePrompt";
 import {
   deriveProviderSubagentStatus,
   deriveReportedModelSelection,
@@ -106,6 +118,10 @@ import {
   workflowOpeningParentThreadId,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { threadSupportsProviderHandoff } from "@t3tools/client-runtime/state/thread-workflows";
+import {
+  BackgroundCommandOutput,
+  useBackgroundCommandOutputSupport,
+} from "./chat/BackgroundCommandOutput";
 import { resolvePendingHandoff } from "@t3tools/client-runtime/handoff";
 import { HandoffRow } from "./chat/V2LifecycleRow";
 import {
@@ -295,7 +311,12 @@ import {
   useClientSettings,
   useClientSettingsHydrated,
   useEnvironmentSettings,
+  usePrimarySettings,
+  useUpdatePrimarySettings,
 } from "../hooks/useSettings";
+import { commandForNewThreadPreset, saveNewThreadPreset } from "../newThreadPresets";
+import { requestNewThreadPresetSave } from "./NewThreadPresetNameDialog";
+import { subscribeSaveDraftAsNewThreadPreset } from "./chat/newThreadPresetActionBus";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
@@ -1057,7 +1078,7 @@ export default function ChatView(props: ChatViewProps) {
   const canReadTerminal = useEnvironmentScope(environmentId, AuthTerminalReadScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
   const handleNewThread = useNewThreadHandler();
-  const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
+  const { settleThread, pinThread, confirmAndUnpinThread, snoozeThread } = useThreadActions();
   const routeThreadRef = scopeThreadRef(environmentId, threadId);
   const routeThreadKey = scopedThreadKey(routeThreadRef);
   const currentRouteThreadKeyRef = useRef<string | null>(routeThreadKey);
@@ -4957,6 +4978,44 @@ export default function ChatView(props: ChatViewProps) {
     setUnsnoozingThreadKey((current) => (current === threadKey ? null : current));
   };
   const handleUnsnoozeActiveThreadStable = useStableCallback(handleUnsnoozeActiveThread);
+  // Keyboard snooze: wakes a snoozed thread; otherwise snoozes to the preset,
+  // or, with no preset, to the time chosen in the snooze prompt.
+  const snoozeActiveThreadFromShortcut = async (presetId: SnoozePresetId | null) => {
+    if (!activeThreadRef || !activeThreadShell || !supportsSnooze) return;
+    if (activeThreadSnoozed) {
+      if (presetId === null) await handleUnsnoozeActiveThread();
+      return;
+    }
+    const reportFailure = (error: unknown) =>
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to snooze thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    // Reject before opening the prompt rather than after a time is chosen.
+    if (!canSnooze(activeThreadShell, { now: new Date().toISOString() })) {
+      reportFailure(
+        new ThreadSnoozeBlockedError({
+          environmentId: activeThreadRef.environmentId,
+          threadId: activeThreadRef.threadId,
+        }),
+      );
+      return;
+    }
+    const threadRef = activeThreadRef;
+    const snoozedUntil =
+      presetId === null
+        ? (await requestSnoozeTime())?.snoozedUntil
+        : resolveSnoozePresets(new Date()).find((preset) => preset.id === presetId)?.snoozedUntil;
+    if (!snoozedUntil) return;
+    const result = await snoozeThread(threadRef, snoozedUntil);
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      reportFailure(squashAtomCommandFailure(result));
+    }
+  };
+  const snoozeActiveThreadFromShortcutStable = useStableCallback(snoozeActiveThreadFromShortcut);
   const [isRestoringThreadBranch, setIsRestoringThreadBranch] = useState(false);
   const [revealedBranchMismatchKey, setRevealedBranchMismatchKey] = useState<string | null>(null);
   const [, setBranchMismatchDismissTick] = useState(0);
@@ -5214,11 +5273,13 @@ export default function ChatView(props: ChatViewProps) {
     };
   })() as ComposerBannerStackItem | null;
 
+  const canShowBackgroundOutput = useBackgroundCommandOutputSupport(environmentId);
   const backgroundWorkBannerItem = (() => {
     const presentation = presentPendingBackgroundWork(activeBackgroundTasks);
     if (presentation === null || !activeThread) {
       return null;
     }
+    const only = presentation.items.length === 1 ? presentation.items[0] : undefined;
     return {
       id: `background-work:${activeThread.id}`,
       variant: "default",
@@ -5234,34 +5295,62 @@ export default function ChatView(props: ChatViewProps) {
       ),
       title: presentation.title,
       description:
-        presentation.items.length === 1 && presentation.items[0]?.childThreadId === undefined
-          ? undefined
-          : presentation.items.map((item, index) => {
-              const childThreadId = item.childThreadId;
-              const separator = index < presentation.items.length - 1 ? "," : null;
-              return (
-                <Fragment key={item.taskId}>
-                  {index > 0 ? " " : null}
-                  {childThreadId === undefined ? (
-                    <>
-                      {item.label}
-                      {separator}
-                    </>
-                  ) : (
-                    <span className="whitespace-nowrap">
-                      <InlineButton
-                        tone="muted"
-                        aria-label={`Open subagent ${item.label}`}
-                        onClick={() => onOpenRelatedThreadStable(childThreadId)}
+        only !== undefined && only.childThreadId === undefined ? (
+          canShowBackgroundOutput(only) ? (
+            <BackgroundCommandOutput
+              environmentId={environmentId}
+              threadId={activeThread.id}
+              item={only}
+            >
+              {only.command ? <span className="font-mono">{only.command}</span> : "Show output"}
+            </BackgroundCommandOutput>
+          ) : (
+            only.command && <span className="font-mono">{only.command}</span>
+          )
+        ) : (
+          presentation.items.map((item, index) => {
+            const childThreadId = item.childThreadId;
+            const separator = index < presentation.items.length - 1 ? "," : null;
+            return (
+              <Fragment key={item.taskId}>
+                {index > 0 ? " " : null}
+                {childThreadId === undefined ? (
+                  <>
+                    {canShowBackgroundOutput(item) ? (
+                      <BackgroundCommandOutput
+                        environmentId={environmentId}
+                        threadId={activeThread.id}
+                        item={item}
                       >
                         {item.label}
-                      </InlineButton>
-                      {separator}
-                    </span>
-                  )}
-                </Fragment>
-              );
-            }),
+                      </BackgroundCommandOutput>
+                    ) : (
+                      item.label
+                    )}
+                    {item.command ? (
+                      <>
+                        {" "}
+                        <span className="font-mono">({item.command})</span>
+                      </>
+                    ) : null}
+                    {separator}
+                  </>
+                ) : (
+                  <span className="whitespace-nowrap">
+                    <InlineButton
+                      tone="muted"
+                      aria-label={`Open subagent ${item.label}`}
+                      onClick={() => onOpenRelatedThreadStable(childThreadId)}
+                    >
+                      {item.label}
+                    </InlineButton>
+                    {separator}
+                  </span>
+                )}
+              </Fragment>
+            );
+          })
+        ),
       actions: (
         <Button
           size="xs"
@@ -5409,8 +5498,23 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const categorySuggestionBanner = useThreadCategorySuggestionBanner({
+    threadRef: activeThreadShell ? activeThreadRef : null,
+    subject: activeThreadShell
+      ? {
+          environmentId: activeThreadShell.environmentId,
+          providerInstanceId: activeThreadShell.providerInstanceId,
+          branch: activeThreadShell.branch,
+          project: activeProject,
+        }
+      : null,
+    state: activeThreadShell?.categories,
+    messages: serverProjection?.messages ?? null,
+  });
   const composerBannerItems = (() => {
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
+    const categorySuggestionItems =
+      categorySuggestionBanner === null ? [] : [categorySuggestionBanner];
     const backgroundWorkItems = [
       childInputBannerItem,
       goalBannerItem,
@@ -5426,6 +5530,7 @@ export default function ChatView(props: ChatViewProps) {
         ...projectCloneItems,
         ...systemComposerBannerItems,
         ...backgroundWorkItems,
+        ...categorySuggestionItems,
       ];
     }
     return [
@@ -5435,6 +5540,7 @@ export default function ChatView(props: ChatViewProps) {
       ...projectCloneItems,
       ...systemComposerBannerItems,
       ...backgroundWorkItems,
+      ...categorySuggestionItems,
       {
         id: `branch-mismatch:${activeBranchMismatchKey}`,
         variant: "info",
@@ -5559,6 +5665,12 @@ export default function ChatView(props: ChatViewProps) {
     (({ event }) => {
       if (!event.repeat) composerRef.current?.openControl(command);
     }) satisfies ChatShortcutHandler;
+  const snoozeShortcut = (presetId: SnoozePresetId | null) =>
+    (({ event }) => {
+      if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
+      if (event.repeat || !isServerThread) return;
+      void snoozeActiveThreadFromShortcutStable(presetId);
+    }) satisfies ChatShortcutHandler;
   useChatShortcuts({
     enabled: activeThreadId !== null,
     keybindings,
@@ -5593,6 +5705,7 @@ export default function ChatView(props: ChatViewProps) {
           toastPinFailure(activeThreadPinned ? "Failed to unpin thread" : "Failed to pin thread"),
         );
       },
+      "thread.snooze": snoozeShortcut(null),
       "terminal.toggle": () => {
         if (!terminalUiState.terminalOpen && !canReadTerminal && !canOperateTerminal) return false;
         toggleTerminalVisibilityStable();
@@ -5664,6 +5777,22 @@ export default function ChatView(props: ChatViewProps) {
       "composer.effort": openComposerControl("composer.effort"),
       "composer.mode": openComposerControl("composer.mode"),
       "composer.workspace": openComposerControl("composer.workspace"),
+      "composer.project": ({ event }) => {
+        // The draft heading owns the project menu; it is absent once a thread exists.
+        const trigger = draftId
+          ? document.querySelector<HTMLElement>("[data-draft-project-trigger]")
+          : null;
+        if (!trigger) return false;
+        if (event.repeat) return;
+        trigger.focus({ preventScroll: true });
+        trigger.click();
+      },
+      "composer.toggleStartFromOrigin": ({ event }) => {
+        if (!isLocalDraftThread || envMode !== "worktree") return false;
+        if (!event.repeat) {
+          setDraftThreadContext(composerDraftTarget, { startFromOrigin: !startFromOrigin });
+        }
+      },
       "composer.cycleHost": ({ event }) => {
         if (envLocked || !draftId || !hasMultipleEnvironments) return false;
         if (event.repeat) return;
@@ -5692,6 +5821,8 @@ export default function ChatView(props: ChatViewProps) {
       },
     },
     fallback: (command) => {
+      const snoozePresetId = snoozePresetForCommand(command);
+      if (snoozePresetId !== null) return snoozeShortcut(snoozePresetId);
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject || !canOperateTerminal) return undefined;
       const script = activeProjectScripts.find((entry) => entry.id === scriptId);
@@ -7688,6 +7819,58 @@ export default function ChatView(props: ChatViewProps) {
       });
     }
   };
+
+  const newThreadPresets = usePrimarySettings((settings) => settings.newThreadPresets);
+  const updatePrimarySettings = useUpdatePrimarySettings();
+  const saveDraftAsNewThreadPreset = async () => {
+    const modelSelection = composerRef.current?.getSendContext().selectedModelSelection;
+    if (!isLocalDraftThread || !modelSelection || !activeProject) return;
+    const environmentLabel = environmentById.get(activeProject.environmentId)?.label;
+    const choice = await requestNewThreadPresetSave({
+      existingNames: newThreadPresets.map((preset) => preset.name),
+      projectLabel: activeProjectIsScratch
+        ? null
+        : environmentLabel
+          ? `${activeProject.title} on ${environmentLabel}`
+          : activeProject.title,
+      environmentId: activeProject.environmentId,
+    });
+    if (choice === null) return;
+    const { name } = choice;
+    const workspace = { envMode, startFromOrigin: envMode === "worktree" && startFromOrigin };
+    const machine = choice.environmentId ? { environmentId: choice.environmentId } : {};
+    const presets = saveNewThreadPreset(
+      newThreadPresets,
+      activeProjectIsScratch
+        ? { name, modelSelection, project: "none", ...machine }
+        : choice.pinProject
+          ? {
+              name,
+              modelSelection,
+              project: "pinned",
+              environmentId: activeProject.environmentId,
+              projectId: activeProject.id,
+              ...workspace,
+            }
+          : { name, modelSelection, project: "current", ...machine, ...workspace },
+    );
+    updatePrimarySettings({ newThreadPresets: presets });
+    const saved = presets.find((preset) => preset.name.toLowerCase() === name.toLowerCase());
+    toastManager.add({
+      type: "success",
+      title: `Saved preset “${name}”`,
+      ...(saved
+        ? {
+            description: `Bind ${commandForNewThreadPreset(saved.id)} in Settings → Keybindings to start it from the keyboard.`,
+          }
+        : {}),
+    });
+  };
+  const saveDraftAsNewThreadPresetStable = useStableCallback(saveDraftAsNewThreadPreset);
+  useEffect(
+    () => subscribeSaveDraftAsNewThreadPreset(() => void saveDraftAsNewThreadPresetStable()),
+    [saveDraftAsNewThreadPresetStable],
+  );
 
   const onExpandTimelineImage = (preview: ExpandedImagePreview) => {
     openExpandedImagePreview(routeThreadKey, preview);

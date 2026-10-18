@@ -10,6 +10,8 @@ import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import {
+  EnvironmentId,
+  ForwardCompatibleArray,
   ForwardCompatibleNullable,
   ForwardCompatibleOptional,
   OmittedWhenNull,
@@ -20,7 +22,7 @@ import {
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
-import { KeybindingShortcut } from "./keybindings.ts";
+import { KeybindingShortcut, NewThreadPresetId } from "./keybindings.ts";
 import {
   CustomModelSetting,
   DEFAULT_TEXT_GENERATION_MODEL,
@@ -28,7 +30,7 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ProjectScript, type ProjectMutation } from "./project.ts";
+import { ProjectIconColor, ProjectScript, type ProjectMutation } from "./project.ts";
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
 import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
 import {
@@ -69,6 +71,29 @@ export const SidebarProjectGroupingMode = Schema.Literals([
 ]);
 export type SidebarProjectGroupingMode = typeof SidebarProjectGroupingMode.Type;
 const DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE: SidebarProjectGroupingMode = "repository";
+
+// Fields stay plain strings so a half-edited category can never fail decoding,
+// which would reset every server setting. The matcher ignores blank entries.
+export const ThreadCategoryRule = Schema.Struct({
+  repositories: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  environments: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  providerInstances: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  branches: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  workspacePaths: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type ThreadCategoryRule = typeof ThreadCategoryRule.Type;
+
+export const ThreadCategory = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  /** What belongs in the category, in the user's words, so suggestions can recognize it. */
+  description: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  color: ProjectIconColor,
+  rules: Schema.Array(ThreadCategoryRule).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type ThreadCategory = typeof ThreadCategory.Type;
 export const MIN_SIDEBAR_THREAD_PREVIEW_COUNT = 1;
 export const MAX_SIDEBAR_THREAD_PREVIEW_COUNT = 15;
 export const SidebarThreadPreviewCount = Schema.Int.check(
@@ -934,6 +959,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "defaultRuntimeMode",
   "defaultThreadEnvMode",
   "newWorktreesStartFromOrigin",
+  "jujutsuWorkspaces",
   "worktreeSubmodules",
   "defaultAutoPull",
   "defaultProjectScripts",
@@ -977,6 +1003,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
+  jujutsuWorkspaces: Schema.optionalKey(Schema.Boolean),
   worktreeSubmodules: ForwardCompatibleOptional(WorktreeSubmodules),
   defaultAutoPull: Schema.optionalKey(Schema.Boolean),
   defaultProjectScripts: Schema.optionalKey(Schema.Array(ProjectScript)),
@@ -1086,6 +1113,44 @@ export const StorageCleanupSettings = Schema.Struct({
   logsAfterDays: StorageRetentionDays.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
+
+const NewThreadPresetBase = {
+  id: NewThreadPresetId,
+  name: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+};
+// An absent workspace or origin field defers to the project's new-thread defaults.
+const NewThreadPresetWorkspace = {
+  envMode: Schema.optionalKey(ThreadEnvMode),
+  startFromOrigin: Schema.optionalKey(Schema.Boolean),
+};
+
+/**
+ * A named starting point for new threads. "current" follows the thread the user
+ * is in; "pinned" always opens one project on one machine; "none" starts without
+ * a project. An absent machine on "current" or "none" means the current one.
+ */
+export const NewThreadPreset = Schema.Union([
+  Schema.Struct({
+    ...NewThreadPresetBase,
+    project: Schema.Literal("current"),
+    environmentId: Schema.optionalKey(EnvironmentId),
+    ...NewThreadPresetWorkspace,
+  }),
+  Schema.Struct({
+    ...NewThreadPresetBase,
+    project: Schema.Literal("pinned"),
+    environmentId: EnvironmentId,
+    projectId: ProjectId,
+    ...NewThreadPresetWorkspace,
+  }),
+  Schema.Struct({
+    ...NewThreadPresetBase,
+    project: Schema.Literal("none"),
+    environmentId: Schema.optionalKey(EnvironmentId),
+  }),
+]);
+export type NewThreadPreset = typeof NewThreadPreset.Type;
 
 export const ServerSettings = Schema.Struct({
   // Null means no client has migrated this preference yet; an empty value is
@@ -1197,6 +1262,14 @@ export const ServerSettings = Schema.Struct({
   newWorktreesStartFromOrigin: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
+  newThreadPresets: ForwardCompatibleArray(NewThreadPreset).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  /**
+   * Creates new worktrees with `jj workspace add --colocate`, so they show up
+   * in jj as well as git. Needs a colocated jj repository and jj 0.46+.
+   */
+  jujutsuWorkspaces: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
    * Null defers to the repository's t3.json, then to recursive. A value
    * picked on a newer server decodes as null here rather than failing the
@@ -1206,6 +1279,13 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /**
+   * Clients write the same list to every connected environment, so a category
+   * keeps one id everywhere; each environment answers agents from its own copy.
+   */
+  threadCategories: Schema.Array(ThreadCategory).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -1479,8 +1559,11 @@ export const ServerSettingsPatch = Schema.Struct({
   environmentIcon: Schema.optionalKey(Schema.NullOr(EnvironmentMachineKind)),
   defaultThreadEnvMode: Schema.optionalKey(Schema.NullOr(ThreadEnvMode)),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
+  jujutsuWorkspaces: Schema.optionalKey(Schema.Boolean),
+  newThreadPresets: Schema.optionalKey(Schema.Array(NewThreadPreset)),
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
+  threadCategories: Schema.optionalKey(Schema.Array(ThreadCategory)),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
   branchNamePrefix: Schema.optionalKey(TrimmedString),

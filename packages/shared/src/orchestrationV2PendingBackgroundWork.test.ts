@@ -136,7 +136,9 @@ describe("derivePendingBackgroundWork", () => {
         },
       ],
     });
-    expect(tasks).toEqual([{ taskId: "cmd-1", description: "npm test", kind: "command" }]);
+    expect(tasks).toEqual([
+      { taskId: "cmd-1", description: "npm test", kind: "command", itemId: "item-1" },
+    ]);
   });
 
   it("still returns empty when the latest run is running even with background items", () => {
@@ -196,6 +198,8 @@ describe("derivePendingBackgroundWork", () => {
         taskId: "cmd-new",
         description: "still pending",
         kind: "command",
+        command: "npm test",
+        itemId: "item-new",
       },
     ]);
   });
@@ -240,7 +244,9 @@ describe("derivePendingBackgroundWork", () => {
         },
       ],
     });
-    expect(tasks).toEqual([{ taskId: "cmd-1", description: "npm test", kind: "command" }]);
+    expect(tasks).toEqual([
+      { taskId: "cmd-1", description: "npm test", kind: "command", itemId: "item-1" },
+    ]);
   });
 
   it("trims normalized background-work descriptions", () => {
@@ -290,6 +296,7 @@ describe("derivePendingBackgroundWork", () => {
         taskId: "item-command",
         description: "npm test",
         kind: "command",
+        itemId: "item-command",
       },
       {
         taskId: "item-tool",
@@ -458,6 +465,8 @@ describe("derivePendingBackgroundWork", () => {
         taskId: "cmd-new",
         description: "still pending",
         kind: "command",
+        command: "npm test",
+        itemId: "item-new",
       },
     ]);
   });
@@ -513,8 +522,32 @@ describe("derivePendingBackgroundWork", () => {
         taskId: "cmd-null",
         description: "orphan item",
         kind: "command",
+        command: "echo orphan",
+        itemId: "item-null-run",
       },
     ]);
+  });
+
+  it("cuts a long command line to 500 characters", () => {
+    const [task] = derivePendingBackgroundWork({
+      latestRun: { id: "run-1" as never, ordinal: 1, status: "completed" },
+      providerThreads: [{ id: "pt-1" as never }],
+      runs: [],
+      turnItems: [
+        {
+          id: "item-long" as never,
+          type: "command_execution",
+          status: "running",
+          title: "long command",
+          runId: null,
+          nativeItemRef: { nativeId: "cmd-long" },
+          input: `echo ${"x".repeat(1_000)}`,
+        },
+      ],
+    });
+    const command = task?.kind === "command" ? task.command : undefined;
+    expect(command).toHaveLength(500);
+    expect(command?.endsWith("x…")).toBe(true);
   });
 });
 
@@ -561,7 +594,7 @@ describe("derivePendingBackgroundWork kinds", () => {
         kind: "subagent",
         childThreadId: "thread:child",
       },
-      { taskId: "cmd", description: "npm test", kind: "command" },
+      { taskId: "cmd", description: "npm test", kind: "command", itemId: "item-cmd" },
     ]);
   });
 

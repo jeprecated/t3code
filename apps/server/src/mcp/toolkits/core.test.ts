@@ -39,6 +39,7 @@ import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapter
 import * as ThreadLaunchService from "../../orchestration-v2/ThreadLaunchService.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
 import * as ThreadManagement from "../../orchestration-v2/ThreadManagementService.ts";
+import * as ThreadCategoryService from "../../orchestration-v2/ThreadCategoryService.ts";
 import * as ThreadSearch from "../../orchestration-v2/ThreadSearch.ts";
 import * as PreviewBrowser from "../../preview/PreviewBrowser.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
@@ -86,10 +87,15 @@ import { htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
 const decodeMcpAttachmentInput = Schema.decodeUnknownEffect(McpAttachmentInput);
 const decodeThreadReadResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadReadResult);
 
-const layerThreadToolkit = McpHttpServer.layerThreadToolkit.pipe(
-  Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
-  Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
-);
+const layerThreadToolkitWith = (
+  categories: Partial<ThreadCategoryService.ThreadCategoryService["Service"]> = {},
+) =>
+  McpHttpServer.layerThreadToolkit.pipe(
+    Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
+    Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
+    Layer.provide(Layer.mock(ThreadCategoryService.ThreadCategoryService)(categories)),
+  );
+const layerThreadToolkit = layerThreadToolkitWith();
 
 it("publishes unique tool names with reference-free object-root inputs", () => {
   const names = new Set<string>();
@@ -618,6 +624,96 @@ it.effect("a client caller targets any thread within its ceiling and cannot act 
     ),
   ),
 );
+
+it.effect("agents list categories and tag threads by category name", () => {
+  const categories = [
+    {
+      id: "mobile",
+      name: "Mobile",
+      description: "",
+      color: "teal" as const,
+      rules: [],
+    },
+    {
+      id: "gpt",
+      name: "GPT Live",
+      description: "Voice features",
+      color: "violet" as const,
+      rules: [],
+    },
+  ];
+  const updates: Array<{ add: ReadonlyArray<string>; remove: ReadonlyArray<string> }> = [];
+  const membership = (categoryIds: ReadonlyArray<string>) => ({
+    threadId,
+    categoryIds,
+    ruleCategoryIds: ["mobile"],
+    state: null,
+  });
+  return Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const call = (name: string, args: Record<string, unknown>) =>
+      server
+        .callTool({ name, arguments: args })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+
+    const listed = yield* call("t3_thread_categories", {});
+    expect(listed.structuredContent).toEqual({
+      categories: [
+        { id: "mobile", name: "Mobile", description: "" },
+        { id: "gpt", name: "GPT Live", description: "Voice features" },
+      ],
+      thread: { threadId, categories: ["Mobile"], fromRules: ["Mobile"], suggested: [] },
+    });
+
+    const tagged = yield* call("t3_thread_categorize", { add: ["gpt live"] });
+    expect(updates).toEqual([{ add: ["gpt live"], remove: [] }]);
+    expect(tagged.structuredContent).toMatchObject({ categories: ["Mobile", "GPT Live"] });
+
+    const unknown = yield* call("t3_thread_categorize", { add: ["Infra"] });
+    expect(declaredFailure(unknown)).toMatchObject({ code: "invalid_request" });
+  }).pipe(
+    Effect.provide(
+      layerThreadToolkitWith({
+        list: Effect.succeed(categories),
+        membership: () => Effect.succeed(membership(["mobile"])),
+        update: (input) =>
+          input.add.includes("Infra")
+            ? Effect.fail(
+                new ThreadCategoryService.ThreadCategoryNotFoundError({
+                  threadId: input.threadId,
+                  unknownCount: 1,
+                }),
+              )
+            : Effect.sync(() => {
+                updates.push({ add: input.add, remove: input.remove });
+                return membership(["mobile", "gpt"]);
+              }),
+      }).pipe(
+        Layer.provideMerge(McpServer.McpServer.layer),
+        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            getThreadShell: (id) =>
+              Effect.succeed(McpToolAccessTestkit.liveThreadShell(id, { runtimeMode: "auto" })),
+            getProjectThreadRecords: () =>
+              Effect.succeed({
+                thread: {
+                  id: threadId,
+                  projectId: "project",
+                  runtimeMode: "auto",
+                  interactionMode: "default",
+                  deletedAt: null,
+                },
+              } as never),
+          }),
+        ),
+      ),
+    ),
+  );
+});
 
 it.effect("a read-only client reads threads and is refused every write before it runs", () =>
   Effect.gen(function* () {

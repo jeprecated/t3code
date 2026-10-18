@@ -1,3 +1,4 @@
+import { applyThreadCategoryChanges } from "@t3tools/shared/threadCategories";
 import type {
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -459,6 +460,8 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request-watch.sync":
     case "thread.pull-request.sync":
     case "thread.title.regeneration.complete":
+    case "thread.categories.update":
+    case "thread.categories.suggestion.record":
     case "thread.runtime-mode.set":
     case "thread.interaction-mode.set":
     case "thread.model-selection.set":
@@ -2455,6 +2458,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.pull-request-watch.sync"
           | "thread.pull-request.sync"
           | "thread.title.regeneration.complete"
+          | "thread.categories.update"
+          | "thread.categories.suggestion.record"
           | "thread.runtime-mode.set"
           | "thread.interaction-mode.set"
           | "thread.model-selection.set"
@@ -3246,6 +3251,38 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 }),
             updatedAt: thread.updatedAt,
           };
+        // Categories are filing, not activity: they keep `updatedAt` so tagging a
+        // thread never postpones its auto-settle.
+        case "thread.categories.update":
+          return {
+            ...thread,
+            categories: applyThreadCategoryChanges(
+              thread.categories,
+              command.changes ?? [],
+              command.resolveSuggestion === true,
+            ),
+          };
+        case "thread.categories.suggestion.record": {
+          const current = thread.categories;
+          const ruledOut = new Set([
+            ...(current?.included ?? []),
+            ...(current?.excluded ?? []),
+            ...(current?.dismissed ?? []),
+          ]);
+          return {
+            ...thread,
+            categories: {
+              included: current?.included ?? [],
+              excluded: current?.excluded ?? [],
+              dismissed: current?.dismissed ?? [],
+              suggested: [...new Set(command.suggested)].filter((id) => !ruledOut.has(id)),
+              reviewedMessageCount: Math.max(
+                current?.reviewedMessageCount ?? 0,
+                command.reviewedMessageCount,
+              ),
+            },
+          };
+        }
         case "thread.title.regeneration.complete":
           return thread.titleRegeneration?.requestId === command.requestId
             ? {
@@ -3318,6 +3355,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.marked-unread" as const;
         case "thread.metadata.update":
         case "thread.title.regeneration.complete":
+        case "thread.categories.update":
+        case "thread.categories.suggestion.record":
           return "thread.metadata-updated" as const;
         case "thread.pull-request.link":
         case "thread.pull-request.unlink":
@@ -11040,6 +11079,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pull-request.watch":
       case "thread.pull-request.sync":
       case "thread.title.regeneration.complete":
+      case "thread.categories.update":
+      case "thread.categories.suggestion.record":
       case "thread.runtime-mode.set":
       case "thread.interaction-mode.set":
       case "thread.model-selection.set":

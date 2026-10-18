@@ -18,6 +18,8 @@ export type ThreadActionMenuId =
   | "rename"
   | "regenerate-title"
   | "mark-unread"
+  | "categories"
+  | `category:${string}`
   | "copy"
   | "copy-path"
   | "copy-branch"
@@ -86,6 +88,12 @@ export interface ThreadActionMenuState {
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
+  /** Empty when the thread's environment cannot store categories or none are defined. */
+  readonly categories: ReadonlyArray<{
+    readonly id: string;
+    readonly label: string;
+    readonly member: boolean;
+  }>;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -159,6 +167,20 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
+    ...(state.categories.length > 0
+      ? [
+          {
+            id: "categories" as const,
+            label: "Categories",
+            icon: "tag",
+            children: state.categories.map((category) => ({
+              id: `category:${category.id}` as const,
+              label: category.label,
+              checked: category.member,
+            })),
+          },
+        ]
+      : []),
     ...(state.projectFilter
       ? [
           {
