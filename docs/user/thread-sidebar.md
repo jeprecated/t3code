@@ -43,6 +43,20 @@ moves and the agent keeps working in the same place. Other threads in that folde
 move with it. Rename the project in its settings, and use **Initialize Git** to
 get branch and diff controls.
 
+### Start from a preset
+
+A preset saves a new thread's model, effort, and workspace, plus where it starts:
+a specific project on its machine, whichever project you are in, or no project on
+its machine. Set up a new thread the way you want it, open the command palette,
+and choose **Save draft as new-thread preset…**, then pick the project option.
+Saving under an existing name replaces that preset.
+
+To pick a preset, bind **Chat: New From Preset** in Settings → Keybindings; it
+opens a list of your presets. They also appear at the top of **New thread in…**
+and under **New thread from preset…** in the command palette. To start one
+directly, bind its `preset.{id}.new` command. Presets are saved on each machine,
+and you can rename or delete them in Settings → Threads.
+
 ### Start in the background
 
 In a desktop browser or the desktop app, press `Cmd+Enter` on macOS or `Ctrl+Enter`

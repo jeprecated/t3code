@@ -20,6 +20,7 @@ import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { GuestShareDialogHost } from "../components/chat/GuestShareControls";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
 import { SnoozePromptHost } from "../components/SnoozePrompt";
+import { NewThreadPresetNameDialogHost } from "../components/NewThreadPresetNameDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { DevReplayHost } from "../components/DevReplayHost";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
@@ -170,6 +171,7 @@ function RootRouteBranch() {
       <>
         <CustomSnoozeDialogHost />
         <SnoozePromptHost />
+        <NewThreadPresetNameDialogHost />
         <GuestShareDialogHost />
         <CommandPalette>
           <AppSidebarLayout>
@@ -212,6 +214,7 @@ function RootRouteBranch() {
         <ConfirmDialogHost />
         <CustomSnoozeDialogHost />
         <SnoozePromptHost />
+        <NewThreadPresetNameDialogHost />
         <GuestShareDialogHost />
         <ProjectCloneToastCoordinator />
         <AddProjectToMachineDialogHost />
