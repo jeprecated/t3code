@@ -76,6 +76,7 @@ export function DraftHeroHeadline({
   const { scratchEnvironmentId, scratchWorkspaceRootFor, openScratchProject } = useScratchProject();
   const openProjectDraft = useNewThreadHandler();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const projectShortcut = shortcutLabelForCommand(keybindings, "composer.project");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const pickerFilter = useComboboxFilter();
@@ -261,8 +262,11 @@ export function DraftHeroHeadline({
             {isScratchDraft ? "No project" : (activeProjectDisplayName ?? "Choose a project")}
           </span>
         </TooltipTrigger>
-        {activeProjectDisplayName && !isScratchDraft ? (
-          <TooltipPopup side="top">{activeProjectDisplayName}</TooltipPopup>
+        {(activeProjectDisplayName && !isScratchDraft) || projectShortcut ? (
+          <TooltipPopup side="top">
+            {isScratchDraft ? "Choose a project" : (activeProjectDisplayName ?? "Choose a project")}
+            {projectShortcut ? ` · ${projectShortcut}` : null}
+          </TooltipPopup>
         ) : null}
       </Tooltip>
       <ComboboxPopup align="center" className="w-72 overflow-hidden">
