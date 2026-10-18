@@ -25,6 +25,7 @@ import {
   orchestrationV2RunWorkStartedAt,
   type RunId,
   type ThreadId,
+  type TurnItemId,
 } from "@t3tools/contracts";
 import {
   backgroundWorkHoldsCompletion,
@@ -709,6 +710,29 @@ export function isBackgroundWorkStopPending(
 ): boolean {
   if (request === null || request.threadKey !== threadKey || retryExpired) return false;
   return request.retryAt === null || tasks.some((task) => request.taskIds.includes(task.taskId));
+}
+
+export type BackgroundWorkOutputSource =
+  | { readonly kind: "item"; readonly threadId: ThreadId | undefined; readonly itemId: TurnItemId }
+  | { readonly kind: "task"; readonly taskId: string };
+
+/**
+ * Where a background task's live output streams from. A running command row streams its own;
+ * a command the provider lists without one (Claude's background Bash) is read by task id.
+ */
+export function backgroundWorkOutputSource(
+  task: OrchestrationV2PendingBackgroundTask,
+  turnItems: ReadonlyArray<ThreadStructure["turnItems"][number]>,
+): BackgroundWorkOutputSource | null {
+  const item = turnItems.findLast((candidate) =>
+    task.itemId === undefined
+      ? (candidate.nativeItemRef?.nativeId || candidate.id) === task.taskId
+      : candidate.id === task.itemId,
+  );
+  if (item?.type === "command_execution" && item.status === "running") {
+    return { kind: "item", threadId: task.sourceThreadId ?? item.threadId, itemId: item.id };
+  }
+  return task.kind === "command" ? { kind: "task", taskId: task.taskId } : null;
 }
 
 export function presentPendingBackgroundWork(
