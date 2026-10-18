@@ -25,6 +25,7 @@ import {
   deriveRunlessWorkStartedAt,
   deriveThreadActivityRun,
   deriveThreadRuntime,
+  presentPendingBackgroundWork,
   presentProviderGoal,
   presentRunStop,
   threadRuntimeHasInterruptibleRun,
@@ -486,5 +487,24 @@ describe("presentProviderGoal", () => {
         false,
       ).usage,
     ).toBe("1m / 1m tokens");
+  });
+});
+
+describe("presentPendingBackgroundWork", () => {
+  it("shows a command line only when it adds to the label", () => {
+    expect(
+      presentPendingBackgroundWork([
+        {
+          taskId: "upload",
+          kind: "command",
+          description: "Ship to TestFlight",
+          command: "eve ship --testflight",
+        },
+        { taskId: "dev", kind: "command", description: "vp run dev", command: "vp run dev" },
+      ])?.items.map((item) => [item.label, item.command]),
+    ).toEqual([
+      ["Ship to TestFlight", "eve ship --testflight"],
+      ["vp run dev", undefined],
+    ]);
   });
 });
