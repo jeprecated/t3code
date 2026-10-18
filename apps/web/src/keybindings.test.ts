@@ -286,6 +286,7 @@ describe("snooze thread shortcut", () => {
     const bindings = mergeWithDefaultKeybindings(
       compileResolvedKeybindingsConfig([
         { key: "mod+alt+shift+z", command: "thread.snooze", when: "!terminalFocus" },
+        { key: "mod+alt+shift+y", command: "thread.snooze.tomorrow", when: "!terminalFocus" },
       ]),
     );
     assert.strictEqual(
@@ -294,6 +295,13 @@ describe("snooze thread shortcut", () => {
         context: { terminalFocus: false, composerFocus: true, editableFocus: true },
       }),
       "thread.snooze",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ ...snoozeKey, key: "Y" }), bindings, {
+        platform: "Linux",
+        context: { terminalFocus: false },
+      }),
+      "thread.snooze.tomorrow",
     );
     assert.isNull(
       resolveShortcutCommand(event(snoozeKey), bindings, {

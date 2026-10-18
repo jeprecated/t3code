@@ -139,6 +139,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedThreadSnooze.command, "thread.snooze");
 
+    const parsedThreadSnoozePreset = yield* decode(KeybindingRule, {
+      key: "mod+alt+t",
+      command: "thread.snooze.tomorrow",
+    });
+    assert.strictEqual(parsedThreadSnoozePreset.command, "thread.snooze.tomorrow");
+
     const parsedThreadCopyReference = yield* decode(KeybindingRule, {
       key: "mod+shift+c",
       command: "thread.copyReference",
