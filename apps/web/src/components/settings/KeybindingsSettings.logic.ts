@@ -16,6 +16,7 @@ import { msg } from "gt-react";
 
 import { m, type MessageResolver } from "../../i18n/messages";
 import { shortcutConflictKey, shortcutKeyFromEvent } from "../../keybindings";
+import { commandForNewThreadPreset, newThreadPresetIdFromCommand } from "../../newThreadPresets";
 import { isMacPlatform } from "../../lib/utils";
 import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
 
@@ -233,7 +234,7 @@ const KEYBINDING_GROUPS = [
     title: msg("Navigation"),
     prefixes: ["sidebar", "rightPanel", "commandPalette", "filePicker", "projectSearch", "editor"],
   },
-  { id: "threads", title: msg("Threads"), prefixes: ["thread", "chat", "pullRequest"] },
+  { id: "threads", title: msg("Threads"), prefixes: ["thread", "chat", "preset", "pullRequest"] },
   { id: "composer", title: msg("Composer"), prefixes: ["composer", "modelPicker"] },
   { id: "terminal", title: msg("Terminal"), prefixes: ["terminal"] },
   { id: "preview", title: msg("Preview & diff"), prefixes: ["preview", "diff"] },
@@ -393,9 +394,13 @@ export function buildWhenVariableOptions(): ReadonlyArray<WhenVariableOption> {
 
 export function buildKeybindingCommandOptions(
   keybindings: ResolvedKeybindingsConfig,
+  newThreadPresetIds: ReadonlyArray<string> = [],
   resolve: MessageResolver = m,
 ): ReadonlyArray<KeybindingCommandOption> {
   const commands = new Set<KeybindingCommand>(STATIC_KEYBINDING_COMMANDS);
+  for (const presetId of newThreadPresetIds) {
+    commands.add(commandForNewThreadPreset(presetId));
+  }
   for (const binding of keybindings) {
     commands.add(binding.command);
   }
@@ -459,6 +464,7 @@ const COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
   "chat.new": msg("Chat: New"),
   "chat.newLocal": msg("Chat: New Local"),
   "chat.newWithoutProject": msg("Chat: New Without Project"),
+  "chat.newFromPreset": msg("Chat: New From Preset"),
   "chat.find": msg("Chat: Find"),
   "editor.openFavorite": msg("Editor: Open Favorite"),
   "modelPicker.toggle": msg("Model Picker: Toggle"),
@@ -519,6 +525,10 @@ export function commandLabel(command: KeybindingCommand, resolve: MessageResolve
         name: titleCaseCommandSegment(raw.slice("script.".length, -".run".length)),
       }),
     );
+  }
+  const presetId = newThreadPresetIdFromCommand(raw);
+  if (presetId !== null) {
+    return resolve(msg("New Thread Preset: {name}", { name: titleCaseCommandSegment(presetId) }));
   }
   return raw.split(".").map(titleCaseCommandSegment).join(": ");
 }
