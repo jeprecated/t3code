@@ -67,3 +67,14 @@ it.effect("accepts the snooze commands", () =>
     assert.strictEqual(parsedThreadSnoozePreset.command, "thread.snooze.tomorrow");
   }),
 );
+
+it.effect("accepts new-thread preset commands and rejects malformed preset ids", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decode(KeybindingRule, { key: "mod+1", command: "preset.quick.new" });
+    assert.strictEqual(parsed.command, "preset.quick.new");
+    const invalid = yield* Effect.exit(
+      decode(KeybindingRule, { key: "mod+1", command: "preset.Quick.new" }),
+    );
+    assert.strictEqual(invalid._tag, "Failure");
+  }),
+);

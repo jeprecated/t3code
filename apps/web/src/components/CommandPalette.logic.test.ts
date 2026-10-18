@@ -106,6 +106,8 @@ describe("reduceCommandPaletteUiState", () => {
       openIntent: { kind: "add-project" },
       session: 2,
     });
+    state = reduceCommandPaletteUiState(state, { _tag: "OpenNewThreadPreset" });
+    expect(state).toMatchObject({ mode: "command", openIntent: { kind: "new-thread-preset" } });
   });
 });
 

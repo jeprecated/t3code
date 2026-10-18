@@ -19,6 +19,8 @@ export interface CommandScopeOptions {
   /** When-clause context the dispatcher cannot know (terminalOpen, previewOpen), read at event time. */
   readonly context?: () => Partial<ShortcutMatchContext>;
   readonly keybindings?: () => ResolvedKeybindingsConfig;
+  /** Handles commands `commands` cannot list ahead of time, such as one per saved preset. */
+  readonly fallback?: (command: KeybindingCommand) => CommandHandler | undefined;
   /** For shortcuts that are not keybinding commands (Escape, "/"); runs before command lookup. */
   readonly onKeyDown?: CommandHandler;
   /**
@@ -66,7 +68,7 @@ function runScope(scope: CommandScope, event: KeyboardEvent): boolean {
     options.keybindings?.() ?? appAtomRegistry.get(primaryServerKeybindingsAtom),
     { context: { ...readFocusContext(event), ...options.context?.() } },
   );
-  const handler = command === null ? undefined : commands[command];
+  const handler = command === null ? undefined : (commands[command] ?? options.fallback?.(command));
   if (handler === undefined) return false;
   if (isInsideConfirmation(event.target)) {
     event.preventDefault();

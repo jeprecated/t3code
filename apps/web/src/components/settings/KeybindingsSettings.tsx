@@ -1304,10 +1304,13 @@ function keybindingAnchorIds(rows: ReturnType<typeof buildKeybindingRows>) {
 
 // Cache rows in a separate hook so the compiler does not rebuild them per search keystroke.
 function useKeybindingCatalog() {
-  const serverKeybindings = useSettingsScope().environment?.serverConfig?.keybindings;
-  const merged = mergeWithDefaultKeybindings(serverKeybindings ?? []);
+  const serverConfig = useSettingsScope().environment?.serverConfig;
+  const merged = mergeWithDefaultKeybindings(serverConfig?.keybindings ?? []);
   return {
-    commandOptions: buildKeybindingCommandOptions(merged),
+    commandOptions: buildKeybindingCommandOptions(
+      merged,
+      (serverConfig?.settings.newThreadPresets ?? []).map((preset) => preset.id),
+    ),
     allRows: buildKeybindingRows(merged),
   };
 }

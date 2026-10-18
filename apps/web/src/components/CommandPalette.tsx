@@ -102,7 +102,10 @@ import {
   copyPromptLink,
   promptLinkRepositoryOf,
 } from "./promptLinks/copyPromptLink";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, usePrimarySettings } from "../hooks/useSettings";
+import { useStartNewThreadPreset } from "../hooks/useStartNewThreadPreset";
+import { commandForNewThreadPreset } from "../newThreadPresets";
+import { requestSaveDraftAsNewThreadPreset } from "./chat/newThreadPresetActionBus";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { readLocalApi } from "../localApi";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
@@ -253,6 +256,7 @@ import { threadRecentUse } from "@t3tools/shared/paletteSearch";
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 const ADD_PROJECT_ENTRY_GROUP = "add-project";
 const NEW_THREAD_IN_GROUP = "projects";
+const NEW_THREAD_PRESET_GROUP = "presets";
 
 /** The submenu an open intent starts in; its groups resolve while rendering. */
 function openIntentView(intent: CommandPaletteOpenIntent | null): CommandPaletteView | null {
@@ -266,6 +270,11 @@ function openIntentView(intent: CommandPaletteOpenIntent | null): CommandPalette
       return {
         addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
         groups: [{ value: NEW_THREAD_IN_GROUP, label: "Projects", items: [] }],
+      };
+    case "new-thread-preset":
+      return {
+        addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
+        groups: [{ value: NEW_THREAD_PRESET_GROUP, label: "Presets", items: [] }],
       };
     case "change-theme":
       return {
@@ -446,6 +455,8 @@ function OpenCommandPaletteDialog(props: {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const paletteRouteTarget = useThreadRouteTarget();
+  const newThreadPresets = usePrimarySettings((settings) => settings.newThreadPresets);
+  const startNewThreadPreset = useStartNewThreadPreset();
   const projects = useProjects();
   const referenceThreadRef =
     pathname === "/pull-requests"
@@ -859,6 +870,22 @@ function OpenCommandPaletteDialog(props: {
   const projectThreadItems = openingOrderThreadItems.map(
     (item) => projectJumpItems.get(item.value) ?? item,
   );
+  const newThreadPresetItems = newThreadPresets.map((preset) => ({
+    kind: "action" as const,
+    value: `new-thread-preset:${preset.id}`,
+    searchTerms: ["preset", preset.name],
+    title: preset.name,
+    icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: commandForNewThreadPreset(preset.id),
+    run: () => startNewThreadPreset(preset),
+  }));
+  // Presets lead "New thread in…", since each picks its project itself.
+  const newThreadInGroups = [
+    ...(newThreadPresetItems.length > 0
+      ? [{ value: NEW_THREAD_PRESET_GROUP, label: "Presets", items: newThreadPresetItems }]
+      : []),
+    { value: NEW_THREAD_IN_GROUP, label: "Projects", items: projectThreadItems },
+  ];
 
   const {
     threadItems: allThreadItems,
@@ -1248,7 +1275,49 @@ function OpenCommandPaletteDialog(props: {
       title: "New thread in...",
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
-      groups: [{ value: NEW_THREAD_IN_GROUP, label: "Projects", items: projectThreadItems }],
+      groups: newThreadInGroups,
+    });
+  }
+
+  if (newThreadPresetItems.length > 0) {
+    actionItems.push({
+      kind: "submenu",
+      value: "action:new-thread-from-preset",
+      searchTerms: ["new thread", "preset", "pick", "choose"],
+      title: "New thread from preset...",
+      icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
+      shortcutCommand: "chat.newFromPreset",
+      groups: [{ value: NEW_THREAD_PRESET_GROUP, label: "Presets", items: newThreadPresetItems }],
+    });
+  }
+
+  for (const preset of newThreadPresets) {
+    actionItems.push({
+      kind: "action",
+      value: `action:new-thread-preset:${preset.id}`,
+      searchTerms: ["new thread", "preset", preset.name],
+      title: (
+        <>
+          New thread from <span className="font-semibold">{preset.name}</span>
+        </>
+      ),
+      icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: commandForNewThreadPreset(preset.id),
+      run: () => startNewThreadPreset(preset),
+    });
+  }
+
+  if (paletteRouteTarget?.kind === "draft") {
+    actionItems.push({
+      kind: "action",
+      value: "action:save-draft-as-new-thread-preset",
+      searchTerms: ["preset", "save", "new thread", "draft", "template"],
+      title: "Save draft as new-thread preset…",
+      icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        requestSaveDraftAsNewThreadPreset();
+      },
     });
   }
 
@@ -1682,15 +1751,15 @@ function OpenCommandPaletteDialog(props: {
         )
       : currentView?.groups[0]?.value === ADD_PROJECT_ENTRY_GROUP
         ? addProjectEntryGroups()
-        : currentView?.groups[0]?.value === NEW_THREAD_IN_GROUP
-          ? [
-              {
-                value: NEW_THREAD_IN_GROUP,
-                label: "Projects",
-                // Every project archived and no "No project" home leaves only adding one.
-                items: projectThreadItems.length > 0 ? projectThreadItems : [addProjectAction],
-              },
-            ]
+        : currentView?.groups.some((group) => group.value === NEW_THREAD_IN_GROUP)
+          ? newThreadInGroups.map((group) =>
+              // Every project archived and no "No project" home leaves only adding one.
+              group.value === NEW_THREAD_IN_GROUP && group.items.length === 0
+                ? { ...group, items: [addProjectAction] }
+                : group,
+            )
+          : currentView?.groups[0]?.value === NEW_THREAD_PRESET_GROUP
+            ? [{ value: NEW_THREAD_PRESET_GROUP, label: "Presets", items: newThreadPresetItems }]
           : currentView?.groups[0]?.value === "themes"
             ? changeThemeItem.groups
             : currentView?.groups[0]?.value === "appearance"
