@@ -13,6 +13,8 @@ import { discardComposerDraft } from "../lib/discardComposerDraft";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
+import { hasRunningBackgroundCommand } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import { presentPendingBackgroundWork } from "@t3tools/client-runtime/state/thread-execution";
 import { useAtomValue } from "@effect/atom-react";
 import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
@@ -86,6 +88,7 @@ import {
   SettingsIcon,
   ShieldQuestionIcon,
   SquarePenIcon,
+  SquareTerminalIcon,
   TerminalIcon,
   Undo2Icon,
   XIcon,
@@ -953,6 +956,7 @@ function SidebarThreadTooltip({
     .filter((instanceId) => instanceId !== modelInstanceId)
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
+  const backgroundWork = presentPendingBackgroundWork(thread.pendingBackgroundTasks);
   return (
     <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
       <ThreadHoverCard
@@ -1033,6 +1037,19 @@ function SidebarThreadTooltip({
             <div className="min-w-0 truncate text-foreground/75">
               {terminalProcessLabel(terminalProcessCount)}
             </div>
+          </div>
+        ) : null}
+        {backgroundWork ? (
+          <div className="flex min-w-0 items-center gap-2">
+            {backgroundWork.waiting ? (
+              <CircleDotDashedIcon
+                aria-hidden
+                className="size-3 shrink-0 stroke-muted-foreground"
+              />
+            ) : (
+              <SquareTerminalIcon aria-hidden className="size-3 shrink-0 stroke-muted-foreground" />
+            )}
+            <div className="min-w-0 truncate text-foreground/75">{backgroundWork.title}</div>
           </div>
         ) : null}
         {thread.runtime?.lastError ? (
@@ -1712,7 +1729,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                         icon: "done" as const,
                         className: "text-success",
                       }
-                    : null;
+                    : hasRunningBackgroundCommand(thread.pendingBackgroundTasks)
+                      ? {
+                          label: "Running",
+                          icon: "command" as const,
+                          className: "text-muted-foreground",
+                        }
+                      : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -2352,6 +2375,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                             <CircleAlertIcon aria-hidden className="size-4 shrink-0" />
                           ) : topStatus.icon === "done" ? (
                             <CircleCheckIcon aria-hidden className="size-4 shrink-0" />
+                          ) : topStatus.icon === "command" ? (
+                            <SquareTerminalIcon aria-hidden className="size-4 shrink-0" />
                           ) : null}
                           {/* The label alone is the live region: a role="status"
                             wrapper around the ticking duration would make

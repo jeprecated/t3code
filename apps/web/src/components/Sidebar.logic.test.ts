@@ -1317,6 +1317,28 @@ describe("resolveThreadStatusPill", () => {
     ).toBeNull();
   });
 
+  it("shows a command left running once its completion is seen", () => {
+    const thread = {
+      ...baseThread,
+      interactionMode: "default" as const,
+      latestRun: makeLatestRun(),
+      pendingBackgroundTasks: [
+        { taskId: "bg-1", description: "Upload build", kind: "command" as const },
+      ],
+      runtime: { ...baseThread.runtime, status: "completed" as const, activeRunId: null },
+    };
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...thread, lastVisitedAt: "2026-03-09T10:00:00.000Z" },
+      }),
+    ).toMatchObject({ label: "Completed" });
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...thread, lastVisitedAt: "2026-03-09T10:06:00.000Z" },
+      }),
+    ).toMatchObject({ label: "Running", pulse: false });
+  });
+
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {
     expect(
       resolveThreadStatusPill({
