@@ -7,6 +7,8 @@ import { contextMenuSourceOf } from "../../contextMenuSource";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { useDeadlinePassed } from "~/hooks/useDeadline";
+import { hasRunningBackgroundCommand } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import { presentPendingBackgroundWork } from "@t3tools/client-runtime/state/thread-execution";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/client-runtime/thread-pull-requests";
 import { useDraggable } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
@@ -46,6 +48,7 @@ import {
   CircleCheckIcon,
   CircleDashedIcon,
   CircleDotDashedIcon,
+  SquareTerminalIcon,
   ClockIcon,
   GitBranchIcon,
   MessageCircleQuestionIcon,
@@ -288,6 +291,7 @@ function SidebarThreadTooltip({
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
   const gt = useGT();
   const m = useMessages();
+  const backgroundWork = presentPendingBackgroundWork(thread.pendingBackgroundTasks, m);
   return (
     <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
       <ThreadHoverCard
@@ -370,6 +374,19 @@ function SidebarThreadTooltip({
             <div className="min-w-0 truncate text-foreground/75">
               {terminalProcessLabel(terminalProcessCount, m)}
             </div>
+          </div>
+        ) : null}
+        {backgroundWork ? (
+          <div className="flex min-w-0 items-center gap-2">
+            {backgroundWork.waiting ? (
+              <CircleDotDashedIcon
+                aria-hidden
+                className="size-3 shrink-0 stroke-muted-foreground"
+              />
+            ) : (
+              <SquareTerminalIcon aria-hidden className="size-3 shrink-0 stroke-muted-foreground" />
+            )}
+            <div className="min-w-0 truncate text-foreground/75">{backgroundWork.title}</div>
           </div>
         ) : null}
         {thread.runtime?.lastError ? (
@@ -562,6 +579,7 @@ const TOP_STATUS_ICONS = {
   failed: CircleAlertIcon,
   done: CircleCheckIcon,
   woke: AlarmClockIcon,
+  command: SquareTerminalIcon,
 } as const;
 
 function TopStatusIcon(props: { icon: keyof typeof TOP_STATUS_ICONS; className: string }) {
@@ -837,7 +855,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                           icon: "done" as const,
                           className: "text-success-foreground",
                         }
-                      : null;
+                      : hasRunningBackgroundCommand(thread.pendingBackgroundTasks)
+                        ? {
+                            label: gt("Running"),
+                            icon: "command" as const,
+                            className: "text-muted-foreground",
+                          }
+                        : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
