@@ -28,6 +28,38 @@ const BASE_ARGS = [
   "git.abandon-unreachable-commits=false",
 ] as const;
 
+/**
+ * Splits the `jujutsuCommand` setting into the program and the arguments that
+ * precede jj's own, so `tick jj` runs Agent Tick's patched jj.
+ */
+export function parseJjCommand(setting: string): {
+  readonly program: string;
+  readonly args: ReadonlyArray<string>;
+} {
+  const [program, ...args] = setting
+    .trim()
+    .split(/\s+/)
+    .filter((part) => part !== "");
+  return program === undefined ? { program: "jj", args: [] } : { program, args };
+}
+
+/**
+ * Agent Tick only lets `jj workspace add` create workspaces named
+ * `<host>/...`, where host is `TICK_HOST` or the hostname's first label.
+ */
+export function jjWorkspaceHost(hostname: string, env: NodeJS.ProcessEnv): string {
+  const tickHost = env.TICK_HOST?.trim();
+  return tickHost ? tickHost : (hostname.split(".")[0] ?? hostname).toLowerCase();
+}
+
+/**
+ * A jj revset naming `ref` as a single symbol, so characters such as `/`, `-`,
+ * or `@` in a branch name are not read as revset operators.
+ */
+export function jjSymbolRevset(ref: string): string {
+  return `"${ref.replace(/[\\"]/g, (character) => `\\${character}`)}"`;
+}
+
 export interface JjWorkspace {
   readonly name: string;
   readonly root: string;
@@ -82,15 +114,17 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
 
   const runJj = Effect.fn("JjWorkspaces.runJj")(function* (input: {
     readonly operation: string;
+    readonly jjCommand?: string | undefined;
     readonly cwd: string;
     readonly args: ReadonlyArray<string>;
     readonly timeout?: Duration.Input;
   }) {
-    const args = [...BASE_ARGS, ...input.args];
+    const jjCommand = parseJjCommand(input.jjCommand ?? "jj");
+    const args = [...jjCommand.args, ...BASE_ARGS, ...input.args];
     const failure = (detail: string, extra: { exitCode?: number; cause?: unknown } = {}) =>
       new GitCommandError({
         operation: input.operation,
-        command: `jj ${input.args.slice(0, 2).join(" ")}`,
+        command: [jjCommand.program, ...jjCommand.args, ...input.args.slice(0, 2)].join(" "),
         cwd: input.cwd,
         argumentCount: args.length,
         detail,
@@ -98,7 +132,7 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
       });
     const result = yield* runner
       .run({
-        command: "jj",
+        command: jjCommand.program,
         args,
         cwd: input.cwd,
         timeout: input.timeout ?? DEFAULT_TIMEOUT,
@@ -106,7 +140,9 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
       .pipe(
         Effect.mapError((cause) =>
           cause._tag === "ProcessSpawnError"
-            ? failure("jj is not installed or not on the server's PATH.", { cause })
+            ? failure(`${jjCommand.program} is not installed or not on the server's PATH.`, {
+                cause,
+              })
             : failure("jj did not finish.", { cause }),
         ),
       );
@@ -134,14 +170,15 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
 
   const requireSupportedVersion = Effect.fn("JjWorkspaces.requireSupportedVersion")(function* (
     operation: string,
+    jjCommand: string,
     cwd: string,
   ) {
-    const output = yield* runJj({ operation, cwd, args: ["--version"] });
+    const output = yield* runJj({ operation, jjCommand, cwd, args: ["--version"] });
     const version = parseJjVersion(output);
     if (version === null || !isSupportedJjVersion(version)) {
       return yield* new GitCommandError({
         operation,
-        command: "jj --version",
+        command: `${jjCommand} --version`,
         cwd,
         detail: `jj ${JJ_MIN_VERSION.join(".")} or newer is required to create jj workspaces (found ${output.trim() || "an unknown version"}).`,
       });
@@ -149,13 +186,62 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
   });
 
   /** `cwd` is any directory inside a workspace of the repository. */
-  const list = (operation: string, cwd: string) =>
-    runJj({ operation, cwd, args: ["workspace", "list", "-T", WORKSPACE_LIST_TEMPLATE] }).pipe(
-      Effect.map(parseJjWorkspaceList),
+  const list = (operation: string, jjCommand: string | undefined, cwd: string) =>
+    runJj({
+      operation,
+      jjCommand,
+      cwd,
+      args: ["workspace", "list", "-T", WORKSPACE_LIST_TEMPLATE],
+    }).pipe(Effect.map(parseJjWorkspaceList));
+
+  const forget = (operation: string, jjCommand: string | undefined, cwd: string, name: string) =>
+    runJj({ operation, jjCommand, cwd, args: ["workspace", "forget", name] }).pipe(Effect.asVoid);
+
+  /**
+   * The commit `ref` names in jj, or null when jj cannot resolve it to exactly
+   * one commit. Agent Tick shares bookmarks across hosts but not git branches,
+   * so jj can know a base that git lacks, or has only a stale copy of.
+   */
+  const resolveCommit = (input: {
+    readonly operation: string;
+    readonly jjCommand?: string | undefined;
+    readonly cwd: string;
+    readonly ref: string;
+  }) =>
+    runJj({
+      ...input,
+      args: [
+        "log",
+        "--ignore-working-copy",
+        "--no-graph",
+        "-r",
+        `exactly(${jjSymbolRevset(input.ref)}, 1)`,
+        "-T",
+        "commit_id",
+      ],
+    }).pipe(
+      Effect.map((stdout) => stdout.trim() || null),
+      Effect.orElseSucceed(() => null),
     );
 
-  const forget = (operation: string, cwd: string, name: string) =>
-    runJj({ operation, cwd, args: ["workspace", "forget", name] }).pipe(Effect.asVoid);
+  /** Local bookmark names, each once even when the bookmark is conflicted. */
+  const listBookmarks = (input: {
+    readonly operation: string;
+    readonly jjCommand?: string | undefined;
+    readonly cwd: string;
+  }) =>
+    runJj({
+      ...input,
+      args: [
+        "log",
+        "--ignore-working-copy",
+        "--no-graph",
+        "-r",
+        "bookmarks()",
+        "-T",
+        'local_bookmarks.map(|b| b.name() ++ "\\n").join("")',
+      ],
+    }).pipe(Effect.map((stdout) => [...new Set(stdout.split("\n").filter((name) => name !== ""))]));
 
   /**
    * Adds a colocated workspace named `name` at `path`, checked out at
@@ -165,12 +251,13 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
    */
   const add = Effect.fn("JjWorkspaces.add")(function* (input: {
     readonly operation: string;
+    readonly jjCommand?: string | undefined;
     readonly cwd: string;
     readonly name: string;
     readonly path: string;
     readonly commit: string;
   }) {
-    const stale = (yield* list(input.operation, input.cwd)).find(
+    const stale = (yield* list(input.operation, input.jjCommand, input.cwd)).find(
       (workspace) => workspace.name === input.name,
     );
     if (
@@ -178,7 +265,7 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
       (yield* canonical(stale.root)) === (yield* canonical(input.path)) &&
       !(yield* fileSystem.exists(input.path).pipe(Effect.orElseSucceed(() => true)))
     ) {
-      yield* forget(input.operation, input.cwd, input.name);
+      yield* forget(input.operation, input.jjCommand, input.cwd, input.name);
     }
     // Unlike `git worktree add`, jj does not create missing parent folders.
     yield* fileSystem.makeDirectory(path.dirname(input.path), { recursive: true }).pipe(
@@ -195,6 +282,7 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
     );
     yield* runJj({
       operation: input.operation,
+      jjCommand: input.jjCommand,
       cwd: input.cwd,
       args: [
         "workspace",
@@ -219,16 +307,24 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
    */
   const forgetAt = Effect.fn("JjWorkspaces.forgetAt")(function* (input: {
     readonly operation: string;
+    readonly jjCommand?: string | undefined;
     readonly cwd: string;
     readonly path: string;
   }) {
     const target = yield* canonical(input.path);
-    for (const workspace of yield* list(input.operation, input.cwd)) {
+    for (const workspace of yield* list(input.operation, input.jjCommand, input.cwd)) {
       if ((yield* canonical(workspace.root)) === target) {
-        return yield* forget(input.operation, input.cwd, workspace.name);
+        return yield* forget(input.operation, input.jjCommand, input.cwd, workspace.name);
       }
     }
   });
 
-  return { repositoryRoot, requireSupportedVersion, add, forgetAt };
+  return {
+    repositoryRoot,
+    requireSupportedVersion,
+    resolveCommit,
+    listBookmarks,
+    add,
+    forgetAt,
+  };
 });

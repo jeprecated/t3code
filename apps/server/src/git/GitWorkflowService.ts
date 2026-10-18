@@ -365,7 +365,7 @@ export const make = Effect.gen(function* () {
     listRefs: (input) =>
       detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>
-          isGitRepository ? git.listRefs(input) : Effect.succeed(nonRepositoryListRefs()),
+          isGitRepository ? gitManager.listRefs(input) : Effect.succeed(nonRepositoryListRefs()),
         ),
       ),
     createWorktree: (input, options) =>
@@ -394,7 +394,7 @@ export const make = Effect.gen(function* () {
       ),
     removeWorktree: (input) =>
       ensureGitCommand("GitWorkflowService.removeWorktree", input.cwd).pipe(
-        Effect.andThen(git.removeWorktree(input)),
+        Effect.andThen(gitManager.removeWorktree(input)),
       ),
     pruneWorktrees: (input) =>
       ensureGitCommand("GitWorkflowService.pruneWorktrees", input.cwd).pipe(

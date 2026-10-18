@@ -1271,6 +1271,11 @@ export const ServerSettings = Schema.Struct({
    */
   jujutsuWorkspaces: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
+   * The program, plus any leading arguments, that runs jj, such as `tick jj`
+   * for Agent Tick repositories, where the system jj refuses to run.
+   */
+  jujutsuCommand: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("jj"))),
+  /**
    * Null defers to the repository's t3.json, then to recursive. A value
    * picked on a newer server decodes as null here rather than failing the
    * whole settings snapshot for an older client.
@@ -1560,6 +1565,7 @@ export const ServerSettingsPatch = Schema.Struct({
   defaultThreadEnvMode: Schema.optionalKey(Schema.NullOr(ThreadEnvMode)),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   jujutsuWorkspaces: Schema.optionalKey(Schema.Boolean),
+  jujutsuCommand: Schema.optionalKey(TrimmedString),
   newThreadPresets: Schema.optionalKey(Schema.Array(NewThreadPreset)),
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
