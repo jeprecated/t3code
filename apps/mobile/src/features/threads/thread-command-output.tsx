@@ -19,22 +19,37 @@ export function useCommandOutputStreaming(environmentId: EnvironmentId): boolean
   );
 }
 
+/** True when the environment streams the output of background commands its providers list. */
+export function useBackgroundTaskOutput(environmentId: EnvironmentId): boolean {
+  return (
+    useServerConfigs().get(environmentId)?.environment.capabilities.backgroundTaskOutput === true
+  );
+}
+
 /**
- * Output of one expanded command row: streams while the command runs, then
- * shows its final output. Mount it only when `useCommandOutputStreaming` holds.
+ * Output of one expanded command row, or of a background command its provider
+ * lists by `taskId`: streams while the command runs, then shows its final
+ * output. Mount it only when `useCommandOutputStreaming` (or, for a task,
+ * `useBackgroundTaskOutput`) holds.
  * It subscribes only while mounted, so collapsed rows and other threads receive nothing.
  */
-export function ThreadCommandOutput(props: {
-  readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
-  readonly itemId: TurnItemId;
-  readonly themeAppearance: "light" | "dark";
-}) {
+export function ThreadCommandOutput(
+  props: {
+    readonly environmentId: EnvironmentId;
+    readonly threadId: ThreadId;
+    readonly themeAppearance: "light" | "dark";
+  } & ({ readonly itemId: TurnItemId } | { readonly taskId: string }),
+) {
   const { data, error } = useEnvironmentQuery(
-    orchestrationEnvironment.v2.commandOutput({
-      environmentId: props.environmentId,
-      input: { threadId: props.threadId, itemId: props.itemId },
-    }),
+    "itemId" in props
+      ? orchestrationEnvironment.v2.commandOutput({
+          environmentId: props.environmentId,
+          input: { threadId: props.threadId, itemId: props.itemId },
+        })
+      : orchestrationEnvironment.v2.backgroundTaskOutput({
+          environmentId: props.environmentId,
+          input: { threadId: props.threadId, taskId: props.taskId },
+        }),
   );
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   // Follow new output until the reader scrolls up; scrolling back down resumes.

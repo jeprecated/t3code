@@ -136,6 +136,52 @@ function setBounded<V>(
   onEvict?.(oldest);
 }
 
+/**
+ * Frames for a background command read straight from its provider, which has no
+ * command row for the hub to follow. One viewer per read, so no state is shared.
+ */
+export function backgroundTaskOutputFrames<E>(
+  chunks: Stream.Stream<string, E>,
+): Stream.Stream<OrchestrationV2CommandOutputFrame, E> {
+  return Stream.suspend(() => {
+    let tail = EMPTY_TERMINAL_OUTPUT;
+    const opened: OrchestrationV2CommandOutputFrame = {
+      kind: "replace",
+      text: "",
+      truncated: false,
+      running: true,
+    };
+    return Stream.succeed(opened).pipe(
+      Stream.concat(
+        chunks.pipe(
+          Stream.map((chunk): OrchestrationV2CommandOutputFrame => {
+            tail = appendTerminalOutput(tail, chunk);
+            // The first read can be a large backlog: send the bounded tail instead.
+            return chunk.length > COMMAND_OUTPUT_MAX_APPEND_CHARS
+              ? {
+                  kind: "replace",
+                  text: terminalOutputResumeText(tail),
+                  truncated: tail.truncated,
+                  running: true,
+                }
+              : { kind: "append", text: chunk, truncated: tail.truncated, running: true };
+          }),
+        ),
+      ),
+      Stream.concat(
+        Stream.suspend(() =>
+          Stream.succeed<OrchestrationV2CommandOutputFrame>({
+            kind: "replace",
+            text: tail.text,
+            truncated: tail.truncated,
+            running: false,
+          }),
+        ),
+      ),
+    );
+  });
+}
+
 export const make = Effect.gen(function* () {
   const eventSink = yield* EventSink.EventSinkV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;

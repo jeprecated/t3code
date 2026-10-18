@@ -6,7 +6,7 @@ import type {
   ThreadId,
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
-import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
+import { isOrchestrationV2WorkActive, TurnItemId } from "@t3tools/contracts";
 
 import { threadPullRequestKeyOf } from "./threadPullRequests.ts";
 
@@ -163,6 +163,7 @@ function pendingTaskFromTurnItem(
         ...(command.length === 0 || command === description
           ? {}
           : { command: capPendingBackgroundCommand(command) }),
+        itemId: TurnItemId.make(String(item.id)),
       };
     }
     default:
