@@ -196,6 +196,7 @@ describe("derivePendingBackgroundWork", () => {
         taskId: "cmd-new",
         description: "still pending",
         kind: "command",
+        command: "npm test",
       },
     ]);
   });
@@ -458,6 +459,7 @@ describe("derivePendingBackgroundWork", () => {
         taskId: "cmd-new",
         description: "still pending",
         kind: "command",
+        command: "npm test",
       },
     ]);
   });
@@ -513,8 +515,31 @@ describe("derivePendingBackgroundWork", () => {
         taskId: "cmd-null",
         description: "orphan item",
         kind: "command",
+        command: "echo orphan",
       },
     ]);
+  });
+
+  it("cuts a long command line to 500 characters", () => {
+    const [task] = derivePendingBackgroundWork({
+      latestRun: { id: "run-1" as never, ordinal: 1, status: "completed" },
+      providerThreads: [{ id: "pt-1" as never }],
+      runs: [],
+      turnItems: [
+        {
+          id: "item-long" as never,
+          type: "command_execution",
+          status: "running",
+          title: "long command",
+          runId: null,
+          nativeItemRef: { nativeId: "cmd-long" },
+          input: `echo ${"x".repeat(1_000)}`,
+        },
+      ],
+    });
+    const command = task?.kind === "command" ? task.command : undefined;
+    expect(command).toHaveLength(500);
+    expect(command?.endsWith("x…")).toBe(true);
   });
 });
 

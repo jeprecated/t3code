@@ -5202,7 +5202,9 @@ export default function ChatView(props: ChatViewProps) {
       title: presentation.title,
       description:
         presentation.items.length === 1 && presentation.items[0]?.childThreadId === undefined
-          ? undefined
+          ? presentation.items[0]?.command && (
+              <span className="font-mono">{presentation.items[0].command}</span>
+            )
           : presentation.items.map((item, index) => {
               const childThreadId = item.childThreadId;
               const separator = index < presentation.items.length - 1 ? "," : null;
@@ -5212,6 +5214,12 @@ export default function ChatView(props: ChatViewProps) {
                   {childThreadId === undefined ? (
                     <>
                       {item.label}
+                      {item.command ? (
+                        <>
+                          {" "}
+                          <span className="font-mono">({item.command})</span>
+                        </>
+                      ) : null}
                       {separator}
                     </>
                   ) : (

@@ -500,7 +500,9 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
         kind: "background",
         label: pendingBackgroundWork.title,
         accessibilityLabel: `${pendingBackgroundWork.title}: ${pendingBackgroundWork.items
-          .map((item) => item.label)
+          .map((item) =>
+            item.command === undefined ? item.label : `${item.label} (${item.command})`,
+          )
           .join(", ")}`,
         waiting: pendingBackgroundWork.waiting,
       };
