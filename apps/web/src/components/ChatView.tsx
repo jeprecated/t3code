@@ -89,7 +89,9 @@ import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
 import {
   canSnooze,
   effectiveSnoozed,
+  resolveSnoozePresets,
   threadWokeAt,
+  type SnoozePresetId,
 } from "@t3tools/client-runtime/state/thread-settled";
 import { childThreadInputsTitle } from "@t3tools/client-runtime/state/threads";
 import {
@@ -97,7 +99,7 @@ import {
   useAcknowledgeThreadWoke,
   useThreadActions,
 } from "../hooks/useThreadActions";
-import { requestSnoozeTime } from "./SnoozePrompt";
+import { requestSnoozeTime, snoozePresetForCommand } from "./SnoozePrompt";
 import {
   deriveProviderSubagentStatus,
   deriveReportedModelSelection,
@@ -4887,12 +4889,12 @@ export default function ChatView(props: ChatViewProps) {
     setUnsnoozingThreadKey((current) => (current === threadKey ? null : current));
   };
   const handleUnsnoozeActiveThreadStable = useStableCallback(handleUnsnoozeActiveThread);
-  // Keyboard snooze: wakes a snoozed thread; otherwise snoozes to the time
-  // chosen in the snooze picker.
-  const snoozeActiveThreadFromShortcut = async () => {
+  // Keyboard snooze: wakes a snoozed thread; otherwise snoozes to the preset,
+  // or, with no preset, to the time chosen in the snooze prompt.
+  const snoozeActiveThreadFromShortcut = async (presetId: SnoozePresetId | null) => {
     if (!activeThreadRef || !activeThreadShell || !supportsSnooze) return;
     if (activeThreadSnoozed) {
-      await handleUnsnoozeActiveThread();
+      if (presetId === null) await handleUnsnoozeActiveThread();
       return;
     }
     const reportFailure = (error: unknown) =>
@@ -4914,9 +4916,12 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
     const threadRef = activeThreadRef;
-    const choice = await requestSnoozeTime();
-    if (!choice) return;
-    const result = await snoozeThread(threadRef, choice.snoozedUntil);
+    const snoozedUntil =
+      presetId === null
+        ? (await requestSnoozeTime())?.snoozedUntil
+        : resolveSnoozePresets(new Date()).find((preset) => preset.id === presetId)?.snoozedUntil;
+    if (!snoozedUntil) return;
+    const result = await snoozeThread(threadRef, snoozedUntil);
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       reportFailure(squashAtomCommandFailure(result));
     }
@@ -5522,6 +5527,12 @@ export default function ChatView(props: ChatViewProps) {
     (({ event }) => {
       if (!event.repeat) composerRef.current?.openControl(command);
     }) satisfies ChatShortcutHandler;
+  const snoozeShortcut = (presetId: SnoozePresetId | null) =>
+    (({ event }) => {
+      if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
+      if (event.repeat || !isServerThread) return;
+      void snoozeActiveThreadFromShortcutStable(presetId);
+    }) satisfies ChatShortcutHandler;
   useChatShortcuts({
     enabled: activeThreadId !== null,
     keybindings,
@@ -5556,11 +5567,7 @@ export default function ChatView(props: ChatViewProps) {
           toastPinFailure(activeThreadPinned ? "Failed to unpin thread" : "Failed to pin thread"),
         );
       },
-      "thread.snooze": ({ event }) => {
-        if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
-        if (event.repeat || !isServerThread) return;
-        void snoozeActiveThreadFromShortcutStable();
-      },
+      "thread.snooze": snoozeShortcut(null),
       "terminal.toggle": () => {
         if (!terminalUiState.terminalOpen && !canReadTerminal && !canOperateTerminal) return false;
         toggleTerminalVisibilityStable();
@@ -5647,6 +5654,8 @@ export default function ChatView(props: ChatViewProps) {
       },
     },
     fallback: (command) => {
+      const snoozePresetId = snoozePresetForCommand(command);
+      if (snoozePresetId !== null) return snoozeShortcut(snoozePresetId);
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject || !canOperateTerminal) return undefined;
       const script = activeProjectScripts.find((entry) => entry.id === scriptId);
