@@ -221,6 +221,7 @@ const makeTestRelay = Effect.fnUntraced(function* (
     stopWorkflow: () => Effect.die("unused stopWorkflow"),
     forceStopThread: () => Effect.die("unused forceStopThread"),
     awaitBackgroundTasks: unused,
+    streamBackgroundTaskOutput: () => Stream.empty,
     stopDelegatedTasks: unused,
     getThreadEventSequence: unused,
     recoverDelegatedTask: unused,
