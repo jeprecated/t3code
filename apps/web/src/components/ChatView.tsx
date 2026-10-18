@@ -5617,6 +5617,22 @@ export default function ChatView(props: ChatViewProps) {
       "composer.effort": openComposerControl("composer.effort"),
       "composer.mode": openComposerControl("composer.mode"),
       "composer.workspace": openComposerControl("composer.workspace"),
+      "composer.project": ({ event }) => {
+        // The draft heading owns the project menu; it is absent once a thread exists.
+        const trigger = draftId
+          ? document.querySelector<HTMLElement>("[data-draft-project-trigger]")
+          : null;
+        if (!trigger) return false;
+        if (event.repeat) return;
+        trigger.focus({ preventScroll: true });
+        trigger.click();
+      },
+      "composer.toggleStartFromOrigin": ({ event }) => {
+        if (!isLocalDraftThread || envMode !== "worktree") return false;
+        if (!event.repeat) {
+          setDraftThreadContext(composerDraftTarget, { startFromOrigin: !startFromOrigin });
+        }
+      },
       "composer.cycleHost": ({ event }) => {
         if (envLocked || !draftId || !hasMultipleEnvironments) return false;
         if (event.repeat) return;
