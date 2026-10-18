@@ -1,6 +1,6 @@
 import { m } from "../i18n/messages";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
-import { useGT, useMessages } from "gt-react";
+import { msg, useGT, useMessages } from "gt-react";
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { draftSupportedRuntimeModes } from "./chat/runtimeModeConfig";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
@@ -234,7 +234,12 @@ import {
   useClientSettings,
   useClientSettingsHydrated,
   useEnvironmentSettings,
+  usePrimarySettings,
+  useUpdatePrimarySettings,
 } from "../hooks/useSettings";
+import { commandForNewThreadPreset, saveNewThreadPreset } from "../newThreadPresets";
+import { requestNewThreadPresetSave } from "./NewThreadPresetNameDialog";
+import { subscribeSaveDraftAsNewThreadPreset } from "./chat/newThreadPresetActionBus";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
@@ -3344,6 +3349,65 @@ export default function ChatView(props: ChatViewProps) {
     workLocallyResendReady,
   ]);
 
+  const newThreadPresets = usePrimarySettings((settings) => settings.newThreadPresets);
+  const updatePrimarySettings = useUpdatePrimarySettings();
+  const saveDraftAsNewThreadPreset = async () => {
+    const modelSelection = composerRef.current?.getSendContext().selectedModelSelection;
+    if (!isLocalDraftThread || !modelSelection || !activeProject) return;
+    const environmentLabel = environmentById.get(activeProject.environmentId)?.label;
+    const choice = await requestNewThreadPresetSave({
+      existingNames: newThreadPresets.map((preset) => preset.name),
+      projectLabel: activeProjectIsScratch
+        ? null
+        : environmentLabel
+          ? m(
+              msg("{project} on {machine}", {
+                project: activeProject.title,
+                machine: environmentLabel,
+              }),
+            )
+          : activeProject.title,
+    });
+    if (choice === null) return;
+    const { name } = choice;
+    const workspace = { envMode, startFromOrigin: envMode === "worktree" && startFromOrigin };
+    const presets = saveNewThreadPreset(
+      newThreadPresets,
+      activeProjectIsScratch
+        ? { name, modelSelection, project: "none", environmentId: activeProject.environmentId }
+        : choice.pinProject
+          ? {
+              name,
+              modelSelection,
+              project: "pinned",
+              environmentId: activeProject.environmentId,
+              projectId: activeProject.id,
+              ...workspace,
+            }
+          : { name, modelSelection, project: "current", ...workspace },
+    );
+    updatePrimarySettings({ newThreadPresets: presets });
+    const saved = presets.find((preset) => preset.name.toLowerCase() === name.toLowerCase());
+    toastManager.add({
+      type: "success",
+      title: m(msg("Saved preset “{name}”", { name })),
+      ...(saved
+        ? {
+            description: m(
+              msg("Bind {command} in Settings → Keybindings to start it from the keyboard.", {
+                command: commandForNewThreadPreset(saved.id),
+              }),
+            ),
+          }
+        : {}),
+    });
+  };
+  const saveDraftAsNewThreadPresetStable = useStableCallback(saveDraftAsNewThreadPreset);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to the palette's save-as-preset action for this chat's lifetime
+  useEffect(
+    () => subscribeSaveDraftAsNewThreadPreset(() => void saveDraftAsNewThreadPresetStable()),
+    [saveDraftAsNewThreadPresetStable],
+  );
   const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
   const hasThreadNow =
     attentionNow !== null || workNow !== null || goalNow !== null || shownThreadSyncPhase !== null;
