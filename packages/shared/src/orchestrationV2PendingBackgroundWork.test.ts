@@ -136,7 +136,9 @@ describe("derivePendingBackgroundWork", () => {
         },
       ],
     });
-    expect(tasks).toEqual([{ taskId: "cmd-1", description: "npm test", kind: "command" }]);
+    expect(tasks).toEqual([
+      { taskId: "cmd-1", description: "npm test", kind: "command", itemId: "item-1" },
+    ]);
   });
 
   it("still returns empty when the latest run is running even with background items", () => {
@@ -197,6 +199,7 @@ describe("derivePendingBackgroundWork", () => {
         description: "still pending",
         kind: "command",
         command: "npm test",
+        itemId: "item-new",
       },
     ]);
   });
@@ -241,7 +244,9 @@ describe("derivePendingBackgroundWork", () => {
         },
       ],
     });
-    expect(tasks).toEqual([{ taskId: "cmd-1", description: "npm test", kind: "command" }]);
+    expect(tasks).toEqual([
+      { taskId: "cmd-1", description: "npm test", kind: "command", itemId: "item-1" },
+    ]);
   });
 
   it("trims normalized background-work descriptions", () => {
@@ -291,6 +296,7 @@ describe("derivePendingBackgroundWork", () => {
         taskId: "item-command",
         description: "npm test",
         kind: "command",
+        itemId: "item-command",
       },
       {
         taskId: "item-tool",
@@ -460,6 +466,7 @@ describe("derivePendingBackgroundWork", () => {
         description: "still pending",
         kind: "command",
         command: "npm test",
+        itemId: "item-new",
       },
     ]);
   });
@@ -516,6 +523,7 @@ describe("derivePendingBackgroundWork", () => {
         description: "orphan item",
         kind: "command",
         command: "echo orphan",
+        itemId: "item-null-run",
       },
     ]);
   });
@@ -586,7 +594,7 @@ describe("derivePendingBackgroundWork kinds", () => {
         kind: "subagent",
         childThreadId: "thread:child",
       },
-      { taskId: "cmd", description: "npm test", kind: "command" },
+      { taskId: "cmd", description: "npm test", kind: "command", itemId: "item-cmd" },
     ]);
   });
 

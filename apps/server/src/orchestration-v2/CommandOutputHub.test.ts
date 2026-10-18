@@ -1,4 +1,4 @@
-import { assert, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import {
   type ModelSelection,
   type OrchestrationV2AppThread,
@@ -457,5 +457,39 @@ layer("CommandOutputHub", (it) => {
         assert.equal(yield* Queue.take(frames), "ended");
       }),
     ),
+  );
+});
+
+describe("backgroundTaskOutputFrames", () => {
+  it.effect("opens at once, keeps a large backlog bounded, and ends with the final output", () =>
+    Effect.gen(function* () {
+      const backlog = `${"x".repeat(TERMINAL_OUTPUT_TAIL_CHARS)}\nbacklog end\n`;
+      const frames = yield* CommandOutputHub.backgroundTaskOutputFrames(
+        Stream.make(backlog, "live\n"),
+      ).pipe(Stream.runCollect);
+
+      assert.deepEqual(frames[0], { kind: "replace", text: "", truncated: false, running: true });
+      assert.equal(frames[1]?.kind, "replace");
+      assert.isAtMost(frames[1]?.text.length ?? 0, TERMINAL_OUTPUT_TAIL_CHARS + 1024);
+      assert.deepEqual(frames[2], {
+        kind: "append",
+        text: "live\n",
+        truncated: true,
+        running: true,
+      });
+      const last = frames.at(-1);
+      assert.equal(last?.running, false);
+      assert.equal(frames.length, 4);
+
+      const expected = appendTerminalOutput(
+        appendTerminalOutput(EMPTY_TERMINAL_OUTPUT, backlog),
+        "live\n",
+      );
+      assert.equal(
+        frames.slice(0, 3).reduce(applyFrame, EMPTY_TERMINAL_OUTPUT).text,
+        expected.text,
+      );
+      assert.equal(applyFrame(EMPTY_TERMINAL_OUTPUT, last!).text, expected.text);
+    }),
   );
 });

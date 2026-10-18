@@ -71,6 +71,7 @@ import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 
 import { attachmentRelativePath } from "../../attachmentStore.ts";
+import { claudeTaskOutputRoot } from "./ClaudeTaskOutputTail.ts";
 import * as ServerConfig from "../../config.ts";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -4655,6 +4656,97 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         { type: "provider_thread.updated" }
       > => event.type === "provider_thread.updated",
     );
+
+  // Live clock and a real file, as in ClaudeTaskOutputTail.test.ts: the tail polls the file.
+  it.live("streams a background Bash command's output only until the command ends", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const tmpRoot = yield* fileSystem.makeTempDirectoryScoped({ prefix: "claude-bg-output-" });
+        const harness = yield* makeWakeHarnessWithOptions({
+          environment: { CLAUDE_CODE_TMPDIR: tmpRoot },
+        });
+        const streamOutput = harness.runtime.streamBackgroundTaskOutput;
+        const root = claudeTaskOutputRoot({ CLAUDE_CODE_TMPDIR: tmpRoot }, path);
+        if (streamOutput === undefined || root === undefined) {
+          return yield* Effect.die("Claude must stream background command output here.");
+        }
+        const command = "sleep 8 && echo BG_DONE";
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("attempt-background-output"),
+            text: "Run the build in the background.",
+            attachments: [],
+          }),
+        );
+        yield* harness.offerAndWait(
+          claudeSdkFrame({
+            type: "assistant",
+            message: {
+              model: "claude-sonnet-4-6",
+              id: "msg_background_bash",
+              type: "message",
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: WAKE_TOOL_USE_ID,
+                  name: "Bash",
+                  input: { command, description: WAKE_TASK_DESCRIPTION, run_in_background: true },
+                },
+              ],
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+            parent_tool_use_id: null,
+            uuid: "00000000-0000-4000-8000-000000000901",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* harness.offerAndWait(wakeTaskStarted);
+        yield* harness.offerAndWait(turnOneResult);
+        yield* Queue.take(harness.terminalReceipts);
+        assert.deepEqual(
+          providerThreadRosterEvents(harness.events).at(-1)?.providerThread.pendingBackgroundTasks,
+          [{ taskId: WAKE_TASK_ID, description: WAKE_TASK_DESCRIPTION, kind: "command", command }],
+        );
+
+        const unknown = yield* streamOutput({
+          providerThread: harness.providerThread,
+          taskId: "not-a-task",
+        }).pipe(Stream.runDrain, Effect.result);
+        assert.equal(unknown._tag, "Failure");
+
+        const tasks = path.join(root, "-private-tmp-project", WAKE_NATIVE_SESSION, "tasks");
+        const file = path.join(tasks, `${WAKE_TASK_ID}.output`);
+        yield* fileSystem.makeDirectory(tasks, { recursive: true });
+        yield* fileSystem.writeFileString(file, "building\n");
+        const chunks = yield* Queue.unbounded<string>();
+        const reader = yield* streamOutput({
+          providerThread: harness.providerThread,
+          taskId: WAKE_TASK_ID,
+        }).pipe(
+          Stream.runForEach((chunk) => Queue.offer(chunks, chunk)),
+          Effect.forkScoped,
+        );
+        assert.equal(yield* Queue.take(chunks), "building\n");
+        yield* fileSystem.writeFileString(file, "building\nBG_DONE\n");
+        assert.equal(yield* Queue.take(chunks), "BG_DONE\n");
+
+        yield* harness.offerAndWait(wakeNotification);
+        yield* Fiber.join(reader);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
 
   it.effect(
     "uses task_started as an incremental roster fallback and clears on empty snapshot",

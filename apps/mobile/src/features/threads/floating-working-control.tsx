@@ -402,6 +402,9 @@ function FloatingStatusLabel(props: {
       <StatusLabelRow
         key="background"
         accessibilityLabel={props.status.accessibilityLabel}
+        {...(props.status.onPress === undefined
+          ? {}
+          : { accessibilityRole: "button" as const, onPress: props.status.onPress })}
         className="gap-2"
         onLayout={props.onLayout}
       >

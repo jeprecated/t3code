@@ -101,6 +101,10 @@ import {
   presentProviderGoal,
 } from "@t3tools/client-runtime/state/thread-execution";
 import { threadSupportsProviderHandoff } from "@t3tools/client-runtime/state/thread-workflows";
+import {
+  BackgroundCommandOutput,
+  useBackgroundCommandOutputSupport,
+} from "./chat/BackgroundCommandOutput";
 import { resolvePendingHandoff } from "@t3tools/client-runtime/handoff";
 import { HandoffRow } from "./chat/V2LifecycleRow";
 import {
@@ -5135,11 +5139,13 @@ export default function ChatView(props: ChatViewProps) {
     };
   })() as ComposerBannerStackItem | null;
 
+  const canShowBackgroundOutput = useBackgroundCommandOutputSupport(environmentId);
   const backgroundWorkBannerItem = (() => {
     const presentation = presentPendingBackgroundWork(activeBackgroundTasks);
     if (presentation === null || !activeThread) {
       return null;
     }
+    const only = presentation.items.length === 1 ? presentation.items[0] : undefined;
     return {
       id: `background-work:${activeThread.id}`,
       variant: "default",
@@ -5155,42 +5161,62 @@ export default function ChatView(props: ChatViewProps) {
       ),
       title: presentation.title,
       description:
-        presentation.items.length === 1 && presentation.items[0]?.childThreadId === undefined
-          ? presentation.items[0]?.command && (
-              <span className="font-mono">{presentation.items[0].command}</span>
-            )
-          : presentation.items.map((item, index) => {
-              const childThreadId = item.childThreadId;
-              const separator = index < presentation.items.length - 1 ? "," : null;
-              return (
-                <Fragment key={item.taskId}>
-                  {index > 0 ? " " : null}
-                  {childThreadId === undefined ? (
-                    <>
-                      {item.label}
-                      {item.command ? (
-                        <>
-                          {" "}
-                          <span className="font-mono">({item.command})</span>
-                        </>
-                      ) : null}
-                      {separator}
-                    </>
-                  ) : (
-                    <span className="whitespace-nowrap">
-                      <InlineButton
-                        tone="muted"
-                        aria-label={`Open subagent ${item.label}`}
-                        onClick={() => onOpenRelatedThreadStable(childThreadId)}
+        only !== undefined && only.childThreadId === undefined ? (
+          canShowBackgroundOutput(only) ? (
+            <BackgroundCommandOutput
+              environmentId={environmentId}
+              threadId={activeThread.id}
+              item={only}
+            >
+              {only.command ? <span className="font-mono">{only.command}</span> : "Show output"}
+            </BackgroundCommandOutput>
+          ) : (
+            only.command && <span className="font-mono">{only.command}</span>
+          )
+        ) : (
+          presentation.items.map((item, index) => {
+            const childThreadId = item.childThreadId;
+            const separator = index < presentation.items.length - 1 ? "," : null;
+            return (
+              <Fragment key={item.taskId}>
+                {index > 0 ? " " : null}
+                {childThreadId === undefined ? (
+                  <>
+                    {canShowBackgroundOutput(item) ? (
+                      <BackgroundCommandOutput
+                        environmentId={environmentId}
+                        threadId={activeThread.id}
+                        item={item}
                       >
                         {item.label}
-                      </InlineButton>
-                      {separator}
-                    </span>
-                  )}
-                </Fragment>
-              );
-            }),
+                      </BackgroundCommandOutput>
+                    ) : (
+                      item.label
+                    )}
+                    {item.command ? (
+                      <>
+                        {" "}
+                        <span className="font-mono">({item.command})</span>
+                      </>
+                    ) : null}
+                    {separator}
+                  </>
+                ) : (
+                  <span className="whitespace-nowrap">
+                    <InlineButton
+                      tone="muted"
+                      aria-label={`Open subagent ${item.label}`}
+                      onClick={() => onOpenRelatedThreadStable(childThreadId)}
+                    >
+                      {item.label}
+                    </InlineButton>
+                    {separator}
+                  </span>
+                )}
+              </Fragment>
+            );
+          })
+        ),
       actions: (
         <Button
           size="xs"

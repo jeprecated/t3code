@@ -8901,6 +8901,51 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 ),
               );
             }),
+          streamBackgroundTaskOutput: ({ providerThread, taskId }) =>
+            Stream.callback<string, ProviderAdapter.ProviderAdapterV2Error>((queue) =>
+              Effect.gen(function* () {
+                const nativeThreadId = providerThread.nativeThreadRef?.nativeId ?? undefined;
+                const task =
+                  nativeThreadId === undefined
+                    ? undefined
+                    : rosterForNativeThread(
+                        yield* Ref.get(pendingBackgroundTasksByNativeThread),
+                        nativeThreadId,
+                      ).get(taskId);
+                if (
+                  taskOutputRoot === undefined ||
+                  nativeThreadId === undefined ||
+                  task?.kind !== "command"
+                ) {
+                  return yield* Queue.fail(
+                    queue,
+                    new ProviderAdapter.ProviderAdapterProtocolError({
+                      driver: CLAUDE_PROVIDER,
+                      detail: "No background command with this id is running",
+                    }),
+                  );
+                }
+                // task_notification takes the command off the roster once it exits.
+                const stop = yield* Deferred.make<void>();
+                yield* Effect.gen(function* () {
+                  while (yield* hasPendingBackgroundTaskOnNativeThread(nativeThreadId, taskId)) {
+                    yield* Effect.sleep("500 millis");
+                  }
+                  yield* Deferred.succeed(stop, undefined);
+                }).pipe(Effect.forkScoped);
+                yield* tailClaudeTaskOutput({
+                  root: taskOutputRoot,
+                  sessionId: nativeThreadId,
+                  taskId,
+                  stop,
+                  onChunk: (chunk) => Queue.offer(queue, chunk).pipe(Effect.asVoid),
+                }).pipe(
+                  Effect.provideService(FileSystem.FileSystem, fileSystem),
+                  Effect.provideService(Path.Path, path),
+                );
+                yield* Queue.end(queue);
+              }),
+            ),
           interruptTurn,
           stopSubagent: Effect.fn("ClaudeAdapterV2.stopSubagent")(function* (input) {
             const existing = yield* Ref.get(queryContext);
