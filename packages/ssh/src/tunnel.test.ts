@@ -1,10 +1,12 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 import * as Result from "effect/Result";
@@ -368,3 +370,103 @@ describe("ssh tunnel scripts", () => {
 // desktop app with network access on) listens on *:<port>. Linux refuses that
 // bind unless both sockets set SO_REUSEPORT, so on Linux the preload adds it to
 // the picker's probe and the holder sets it too.
+
+const runScript = (home: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const child = yield* spawner.spawn(
+      ChildProcess.make("sh", args, {
+        env: { PATH: process.env.PATH ?? "", HOME: home },
+        extendEnv: false,
+      }),
+    );
+    const [stdout, stderr, exitCode] = yield* Effect.all(
+      [
+        child.stdout.pipe(
+          Stream.decodeText(),
+          Stream.runFold(
+            () => "",
+            (acc, chunk) => acc + chunk,
+          ),
+        ),
+        child.stderr.pipe(
+          Stream.decodeText(),
+          Stream.runFold(
+            () => "",
+            (acc, chunk) => acc + chunk,
+          ),
+        ),
+        child.exitCode.pipe(Effect.map(Number)),
+      ],
+      { concurrency: "unbounded" },
+    );
+    return { stdout, stderr, exitCode };
+  });
+
+describe("archive runner script", () => {
+  const hostPlatform = HostProcess.Platform.defaultValue();
+  const hostArch = HostProcess.Architecture.defaultValue();
+  const windowsHost = hostPlatform === "win32";
+  const archiveVersion = "1.2.3-preview.20260911.4";
+
+  const runRunner = (home: string, runner: string) => runScript(home, [runner, "--version"]);
+
+  const makeMirror = Effect.fn("makeMirror")(function* (root: string) {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const platform = hostPlatform === "darwin" ? "darwin" : "linux";
+    const arch = hostArch === "arm64" ? "arm64" : "x64";
+    const stem = `t3-${archiveVersion}-${platform}-${arch}`;
+    const stage = `${root}/stage/${stem}`;
+    const release = `${root}/mirror/v${archiveVersion}`;
+    const script = [
+      "set -eu",
+      `mkdir -p '${stage}' '${release}'`,
+      `printf '#!/bin/sh\\necho t3 v${archiveVersion}\\n' > '${stage}/t3'`,
+      `chmod +x '${stage}/t3'`,
+      `tar -czf '${release}/${stem}.tar.gz' -C '${root}/stage' '${stem}'`,
+      `cd '${release}' && (sha256sum '${stem}.tar.gz' 2>/dev/null || shasum -a 256 '${stem}.tar.gz') > SHA256SUMS`,
+    ].join("\n");
+    const child = yield* spawner.spawn(ChildProcess.make("sh", ["-c", script]));
+    assert.equal(Number(yield* child.exitCode), 0);
+    return `file://${root}/mirror`;
+  });
+
+  it.effect.skipIf(windowsHost)("names the release file it could not download", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-archive-runner-" });
+      const releaseBaseUrl = yield* makeMirror(root);
+      const home = `${root}/home`;
+      yield* fs.makeDirectory(home, { recursive: true });
+      const versionsDir = `${home}/.t3/runtime/versions`;
+
+      const missingRelease = `${root}/run-missing-release.sh`;
+      yield* fs.writeFileString(
+        missingRelease,
+        SshTunnel.buildRemoteT3RunnerScript({ archiveVersion: "9.9.9", releaseBaseUrl }),
+      );
+      const noRelease = yield* runRunner(home, missingRelease);
+      assert.equal(noRelease.exitCode, 1);
+      assert.include(
+        noRelease.stderr,
+        `Could not download SHA256SUMS for t3 9.9.9 from ${releaseBaseUrl}/v9.9.9.`,
+      );
+
+      const tarball = (yield* fs.readDirectory(`${root}/mirror/v${archiveVersion}`)).find((name) =>
+        name.endsWith(".tar.gz"),
+      );
+      assert.isDefined(tarball);
+      yield* fs.remove(`${root}/mirror/v${archiveVersion}/${tarball}`);
+      const missingArchive = `${root}/run-missing-archive.sh`;
+      yield* fs.writeFileString(
+        missingArchive,
+        SshTunnel.buildRemoteT3RunnerScript({ archiveVersion, releaseBaseUrl }),
+      );
+      const noArchive = yield* runRunner(home, missingArchive);
+      assert.equal(noArchive.exitCode, 1);
+      assert.include(noArchive.stderr, `Could not download ${tarball} for t3 ${archiveVersion}`);
+      assert.isFalse(yield* fs.exists(`${versionsDir}/.${archiveVersion}.install.lock`));
+      assert.isFalse(yield* fs.exists(`${versionsDir}/${archiveVersion}`));
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
