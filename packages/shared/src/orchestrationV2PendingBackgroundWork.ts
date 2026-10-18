@@ -103,6 +103,16 @@ export function backgroundWorkHoldsCompletion(
   );
 }
 
+/**
+ * A command left running, such as a dev server or an upload, does not hold completion, so the
+ * thread reads as finished. Thread lists still show it so the work is not invisible.
+ */
+export function hasRunningBackgroundCommand(
+  tasks: ReadonlyArray<Pick<PendingBackgroundWorkTask, "kind">>,
+): boolean {
+  return tasks.some((task) => task.kind === "command");
+}
+
 // Commands and monitors are as often a dev server or its watchdog as a wait, so they hold
 // only when the agent marks them awaited.
 function backgroundWorkKindHoldsCompletion(kind: PendingBackgroundWorkTask["kind"]): boolean {
