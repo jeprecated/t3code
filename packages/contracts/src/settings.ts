@@ -10,6 +10,8 @@ import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import {
+  EnvironmentId,
+  ForwardCompatibleArray,
   ForwardCompatibleNullable,
   ForwardCompatibleOptional,
   OmittedWhenNull,
@@ -20,7 +22,7 @@ import {
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
-import { KeybindingShortcut } from "./keybindings.ts";
+import { KeybindingShortcut, NewThreadPresetId } from "./keybindings.ts";
 import {
   CustomModelSetting,
   DEFAULT_TEXT_GENERATION_MODEL,
@@ -1065,6 +1067,43 @@ export const StorageCleanupSettings = Schema.Struct({
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
+const NewThreadPresetBase = {
+  id: NewThreadPresetId,
+  name: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+};
+// An absent workspace or origin field defers to the project's new-thread defaults.
+const NewThreadPresetWorkspace = {
+  envMode: Schema.optionalKey(ThreadEnvMode),
+  startFromOrigin: Schema.optionalKey(Schema.Boolean),
+};
+
+/**
+ * A named starting point for new threads. "current" follows the thread the user
+ * is in; "pinned" always opens one project on one machine; "none" starts without
+ * a project on its saved machine, or the current one when it predates pinning.
+ */
+export const NewThreadPreset = Schema.Union([
+  Schema.Struct({
+    ...NewThreadPresetBase,
+    project: Schema.Literal("current"),
+    ...NewThreadPresetWorkspace,
+  }),
+  Schema.Struct({
+    ...NewThreadPresetBase,
+    project: Schema.Literal("pinned"),
+    environmentId: EnvironmentId,
+    projectId: ProjectId,
+    ...NewThreadPresetWorkspace,
+  }),
+  Schema.Struct({
+    ...NewThreadPresetBase,
+    project: Schema.Literal("none"),
+    environmentId: Schema.optionalKey(EnvironmentId),
+  }),
+]);
+export type NewThreadPreset = typeof NewThreadPreset.Type;
+
 export const ServerSettings = Schema.Struct({
   // Null means no client has migrated this preference yet; an empty value is
   // authoritative so another device cannot resurrect cleared preferences.
@@ -1174,6 +1213,9 @@ export const ServerSettings = Schema.Struct({
   defaultThreadEnvMode: OmittedWhenNull(ThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  newThreadPresets: ForwardCompatibleArray(NewThreadPreset).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
   ),
   /**
    * Null defers to the repository's t3.json, then to recursive. A value
@@ -1457,6 +1499,7 @@ export const ServerSettingsPatch = Schema.Struct({
   environmentIcon: Schema.optionalKey(Schema.NullOr(EnvironmentMachineKind)),
   defaultThreadEnvMode: Schema.optionalKey(Schema.NullOr(ThreadEnvMode)),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
+  newThreadPresets: Schema.optionalKey(Schema.Array(NewThreadPreset)),
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),

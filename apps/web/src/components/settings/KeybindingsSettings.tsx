@@ -1276,10 +1276,13 @@ function keybindingAnchorIds(rows: ReturnType<typeof buildKeybindingRows>) {
 // inline, the compiler joins them to the query's cache scope (filtering might
 // mutate them), and every keystroke rebuilds and re-renders every row.
 function useKeybindingCatalog() {
-  const serverKeybindings = useSettingsScope().environment?.serverConfig?.keybindings;
-  const merged = mergeWithDefaultKeybindings(serverKeybindings ?? []);
+  const serverConfig = useSettingsScope().environment?.serverConfig;
+  const merged = mergeWithDefaultKeybindings(serverConfig?.keybindings ?? []);
   return {
-    commandOptions: buildKeybindingCommandOptions(merged),
+    commandOptions: buildKeybindingCommandOptions(
+      merged,
+      (serverConfig?.settings.newThreadPresets ?? []).map((preset) => preset.id),
+    ),
     allRows: buildKeybindingRows(merged),
   };
 }

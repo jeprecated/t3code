@@ -99,6 +99,9 @@ Each rule requires a `key` shortcut and a `command` ID. An optional `when`
 expression restricts when it runs.
 
 Project scripts use `script.{id}.run`, such as `script.test.run`.
+[New thread presets](./thread-sidebar.md#start-from-a-preset) use
+`preset.{id}.new`, such as `preset.quick.new`. Settings → General lists each
+preset's command.
 
 ## Key syntax
 

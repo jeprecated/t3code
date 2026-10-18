@@ -300,6 +300,11 @@ describe("KeybindingsSettings.logic", () => {
     expect(commandLabel("view.reopenClosed")).toBe("Reopen Closed Tab");
     expect(commandLabel("preview.focusUrl")).toBe("Preview: Focus URL");
     expect(commandLabel("script.setup-db.run")).toBe("Run Script: Setup Db");
+    expect(commandLabel("preset.quick-sol.new")).toBe("New Thread Preset: Quick Sol");
+  });
+
+  it("offers each saved new-thread preset as a bindable command", () => {
+    expect(buildKeybindingCommandOptions([], ["quick"])).toContain("preset.quick.new");
   });
 
   it("builds known when variable options from defaults without frontend labels", () => {

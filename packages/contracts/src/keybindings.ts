@@ -102,6 +102,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "chat.new",
   "chat.newLocal",
   "chat.newWithoutProject",
+  "chat.newFromPreset",
   "chat.find",
   "editor.openFavorite",
   "usage.cost",
@@ -124,9 +125,21 @@ export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
   Schema.Literal(".run"),
 ]);
 
+export const NewThreadPresetId = Schema.NonEmptyString.check(
+  Schema.isMaxLength(MAX_SCRIPT_ID_LENGTH),
+  Schema.isPattern(/^[a-z0-9][a-z0-9-]*$/),
+);
+
+export const NEW_THREAD_PRESET_COMMAND_PATTERN = Schema.TemplateLiteral([
+  Schema.Literal("preset."),
+  NewThreadPresetId,
+  Schema.Literal(".new"),
+]);
+
 export const KeybindingCommand = Schema.Union([
   Schema.Literals(STATIC_KEYBINDING_COMMANDS),
   SCRIPT_RUN_COMMAND_PATTERN,
+  NEW_THREAD_PRESET_COMMAND_PATTERN,
 ]);
 export type KeybindingCommand = typeof KeybindingCommand.Type;
 
