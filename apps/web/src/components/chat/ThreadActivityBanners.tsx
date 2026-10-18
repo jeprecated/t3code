@@ -219,8 +219,13 @@ export function backgroundWorkNowItem(
       (candidate) => (candidate.nativeItemRef?.nativeId || candidate.id) === itemKey,
     );
     const subagent = item?.type === "subagent" ? item : undefined;
+    const itemCommand = item?.type === "command_execution" ? commandDisplayText(item.input) : "";
     return {
       task,
+      // The command line, where it says more than the label.
+      command:
+        task.command ??
+        (itemCommand.length > 0 && itemCommand !== task.label ? itemCommand : undefined),
       label:
         item?.type === "command_execution" && commandDisplayText(item.input) === task.label ? (
           <span className="font-mono in-data-[slot=popover-popup]:whitespace-pre-wrap">
@@ -262,7 +267,7 @@ export function backgroundWorkNowItem(
         presentation.title
       ),
     description: only ? (
-      only.activity
+      (only.activity ?? (only.command ? <span className="font-mono">{only.command}</span> : null))
     ) : newest ? (
       <>
         {newest.label}: {newest.activity}
@@ -272,6 +277,12 @@ export function backgroundWorkNowItem(
         <Fragment key={row.task.taskId}>
           {index > 0 ? ", " : null}
           {row.label}
+          {row.command ? (
+            <>
+              {" ("}
+              <span className="font-mono">{row.command}</span>)
+            </>
+          ) : null}
         </Fragment>
       ))
     ),
