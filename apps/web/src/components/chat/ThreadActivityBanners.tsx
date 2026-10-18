@@ -183,6 +183,9 @@ export function backgroundWorkNowItem(input: {
     .filter((row) => row.activity)
     .toSorted((left, right) => right.updatedAtMs - left.updatedAtMs)[0];
   const isCommand = (row: (typeof rows)[number]) => row.task.kind !== "subagent";
+  // A command line shows only where it says more than the label.
+  const rowLabel = (row: (typeof rows)[number]) =>
+    row.task.command ? `${row.task.label} (${row.task.command})` : row.task.label;
   const verb = presentation.waiting ? "Waiting on" : "Running";
   const onlyThreadId = only?.childThreadId;
   const startedAtMs = only?.startedAtMs ?? null;
@@ -204,13 +207,14 @@ export function backgroundWorkNowItem(input: {
       presentation.title
     ),
     description: only ? (
-      only.activity
+      (only.activity ??
+      (only.task.command ? <span className="font-mono">{only.task.command}</span> : null))
     ) : newest ? (
       `${newest.task.label}: ${newest.activity}`
     ) : rows.every(isCommand) ? (
-      <span className="font-mono">{rows.map((row) => row.task.label).join(", ")}</span>
+      <span className="font-mono">{rows.map(rowLabel).join(", ")}</span>
     ) : (
-      rows.map((row) => row.task.label).join(", ")
+      rows.map(rowLabel).join(", ")
     ),
     actions: (
       <>
