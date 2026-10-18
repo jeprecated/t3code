@@ -70,6 +70,7 @@ import type { RunStopPresentation } from "@t3tools/client-runtime/state/thread-e
 import { Atom } from "effect/reactivity";
 import { environmentThreadDetails } from "../../state/threads";
 import { openSideChatTab } from "../../lib/sideChatPane";
+import { useBackgroundCommandOutputSupport } from "./BackgroundCommandOutput";
 import type { useLocalDispatchState } from "./useLocalDispatchState";
 const RELATED_THREAD_SHELL_WAIT_MS = 1_000;
 const NO_RUN_STOP_ATOM = Atom.make<RunStopPresentation | null>(null).pipe(
@@ -541,6 +542,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       : null;
 
   const forceStop = useForceStopThread(environmentId);
+  const canShowBackgroundOutput = useBackgroundCommandOutputSupport(environmentId);
   const anyRunStop = useAtomValue(
     threadDetailRef ? environmentThreadDetails.runStopAtom(threadDetailRef) : NO_RUN_STOP_ATOM,
   );
@@ -558,7 +560,9 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       : null;
   const backgroundWorkNow = activeThread
     ? backgroundWorkNowItem({
+        environmentId,
         threadId: activeThread.id,
+        canShowOutput: canShowBackgroundOutput,
         tasks: activeBackgroundTasks,
         turnItems,
         stopDisabled: !canOperateThread || isStoppingBackgroundWork,

@@ -60,6 +60,7 @@ import {
   type ThreadUserInputQuestion,
 } from "@t3tools/client-runtime/state/thread-requests";
 import {
+  type PendingBackgroundWorkItem,
   presentPendingBackgroundWork,
   presentProviderGoal,
 } from "@t3tools/client-runtime/state/thread-execution";
@@ -193,6 +194,10 @@ import {
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
 import { ThreadFeed, type ThreadFeedHandle, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
+import {
+  BackgroundCommandOutputSheet,
+  useBackgroundCommandOutputSupport,
+} from "./background-command-output-sheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
 import { useThreadQueuedCount } from "./ThreadQueueControl";
 import { ThreadGuestShareBar } from "./ThreadGuestShareBar";
@@ -674,6 +679,10 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
   const pendingBackgroundWork = presentPendingBackgroundWork(
     props.selectedThread.pendingBackgroundTasks,
   );
+  const canShowBackgroundOutput = useBackgroundCommandOutputSupport(props.environmentId);
+  const viewableBackgroundCommand = pendingBackgroundWork?.items.find(canShowBackgroundOutput);
+  const [backgroundOutputItem, setBackgroundOutputItem] =
+    useState<PendingBackgroundWorkItem | null>(null);
   const floatingStatus = ((): FloatingWorkingStatus | null => {
     const connectionStatus = connectionFloatingStatus({
       connectionError: connectionRetrying ? retryConnectionError : props.connectionError,
@@ -756,6 +765,12 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
         waiting: pendingBackgroundWork.waiting,
         onPress: () => {
           Keyboard.dismiss();
+          // A command whose live output this environment streams opens it;
+          // other background work opens the background work sheet.
+          if (viewableBackgroundCommand !== undefined) {
+            setBackgroundOutputItem(viewableBackgroundCommand);
+            return;
+          }
           navigation.navigate("ThreadBackgroundWork", {
             environmentId: props.environmentId,
             threadId: props.selectedThread.id,
@@ -1763,6 +1778,14 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
           </ComposerPopoverHost>
         </KeyboardStickyView>
       ) : null}
+      {backgroundOutputItem === null ? null : (
+        <BackgroundCommandOutputSheet
+          environmentId={props.environmentId}
+          threadId={props.selectedThread.id}
+          item={backgroundOutputItem}
+          onClose={() => setBackgroundOutputItem(null)}
+        />
+      )}
     </View>
   );
 }

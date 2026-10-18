@@ -19,6 +19,7 @@ import {
   orchestrationV2RunWorkStartedAt,
   type RunId,
   type ThreadId,
+  type TurnItemId,
 } from "@t3tools/contracts";
 import {
   backgroundWorkHoldsCompletion,
@@ -367,6 +368,8 @@ export interface PendingBackgroundWorkItem {
   readonly childThreadId: ThreadId | undefined;
   /** The command line, omitted when the label already is the command. */
   readonly command: string | undefined;
+  /** The command row streaming this command's output; absent for a provider-listed task. */
+  readonly itemId: TurnItemId | undefined;
 }
 
 export interface PendingBackgroundWorkPresentation {
@@ -411,6 +414,7 @@ export function presentPendingBackgroundWork(
         childThreadId: task.kind === "subagent" ? task.childThreadId : undefined,
         command:
           command === undefined || command.length === 0 || command === label ? undefined : command,
+        itemId: task.kind === "command" ? task.itemId : undefined,
       };
     })
     // `map` returned a new array; Hermes has no `toSorted`.

@@ -1,10 +1,12 @@
 import type {
+  EnvironmentId,
   OrchestrationV2PendingBackgroundTask,
   OrchestrationV2ProviderGoal,
   ThreadId,
 } from "@t3tools/contracts";
 import type { EnvironmentThreadShell, ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import {
+  type PendingBackgroundWorkItem,
   presentPendingBackgroundWork,
   presentProviderGoal,
   type RunStopPresentation,
@@ -27,6 +29,7 @@ import { tickTextContent } from "~/lib/tickTextContent";
 import { cn } from "~/lib/utils";
 import { Button, InlineButton } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { BackgroundCommandOutput } from "./BackgroundCommandOutput";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 import type { ThreadNowItem } from "./ThreadNow";
 
@@ -153,7 +156,10 @@ export function runStopNowItem(input: {
 
 /** Background commands and subagents, for the end of the timeline. */
 export function backgroundWorkNowItem(input: {
+  readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  /** Which commands this environment can show live output for (useBackgroundCommandOutputSupport). */
+  readonly canShowOutput: (item: PendingBackgroundWorkItem) => boolean;
   readonly tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
   readonly turnItems: ThreadStructure["turnItems"];
   readonly stopDisabled: boolean;
@@ -208,13 +214,38 @@ export function backgroundWorkNowItem(input: {
     ),
     description: only ? (
       (only.activity ??
-      (only.task.command ? <span className="font-mono">{only.task.command}</span> : null))
+      (input.canShowOutput(only.task) ? (
+        <BackgroundCommandOutput
+          environmentId={input.environmentId}
+          threadId={input.threadId}
+          item={only.task}
+        >
+          {only.task.command ? <span className="font-mono">{only.task.command}</span> : "Show output"}
+        </BackgroundCommandOutput>
+      ) : only.task.command ? (
+        <span className="font-mono">{only.task.command}</span>
+      ) : null))
     ) : newest ? (
       `${newest.task.label}: ${newest.activity}`
-    ) : rows.every(isCommand) ? (
-      <span className="font-mono">{rows.map(rowLabel).join(", ")}</span>
     ) : (
-      rows.map(rowLabel).join(", ")
+      <span className={cn(rows.every(isCommand) && "font-mono")}>
+        {rows.map((row, index) => (
+          <Fragment key={row.task.taskId}>
+            {index > 0 ? ", " : null}
+            {input.canShowOutput(row.task) ? (
+              <BackgroundCommandOutput
+                environmentId={input.environmentId}
+                threadId={input.threadId}
+                item={row.task}
+              >
+                {rowLabel(row)}
+              </BackgroundCommandOutput>
+            ) : (
+              rowLabel(row)
+            )}
+          </Fragment>
+        ))}
+      </span>
     ),
     actions: (
       <>
