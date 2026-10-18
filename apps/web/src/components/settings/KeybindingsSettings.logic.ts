@@ -498,6 +498,11 @@ const COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
   "thread.pin": msg("Thread: Pin"),
   "thread.regenerateTitle": msg("Thread: Regenerate Title"),
   "thread.snooze": msg("Thread: Snooze or Wake"),
+  "thread.snooze.hour": msg("Thread: Snooze 1 Hour"),
+  "thread.snooze.threeHours": msg("Thread: Snooze 3 Hours"),
+  "thread.snooze.evening": msg("Thread: Snooze Until Evening"),
+  "thread.snooze.tomorrow": msg("Thread: Snooze Until Tomorrow"),
+  "thread.snooze.nextWeek": msg("Thread: Snooze Until Next Week"),
   "thread.undo": msg("Thread: Undo"),
 };
 
