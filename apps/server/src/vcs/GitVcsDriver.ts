@@ -367,6 +367,17 @@ export class GitVcsDriver extends Context.Service<
       input: VcsCreateWorktreeInput,
       options?: CreateWorktreeOptions,
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
+    /**
+     * Start-from-origin for jj workspaces: `jj git fetch` in the colocated
+     * repository, then the commit of `<refName>@origin`, else of `<refName>`
+     * (Agent Tick has no remote; its fetch syncs the local bookmarks), or null
+     * when jj names neither.
+     */
+    readonly fetchJjBase: (input: {
+      readonly cwd: string;
+      readonly refName: string;
+      readonly jujutsuCommand: string;
+    }) => Effect.Effect<string | null, GitCommandError>;
     readonly fetchPullRequestBranch: (
       input: GitFetchPullRequestBranchInput,
     ) => Effect.Effect<void, GitCommandError>;

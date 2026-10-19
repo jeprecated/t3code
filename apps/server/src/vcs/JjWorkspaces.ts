@@ -198,15 +198,17 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
     runJj({ operation, jjCommand, cwd, args: ["workspace", "forget", name] }).pipe(Effect.asVoid);
 
   /**
-   * The commit `ref` names in jj, or null when jj cannot resolve it to exactly
-   * one commit. Agent Tick shares bookmarks across hosts but not git branches,
-   * so jj can know a base that git lacks, or has only a stale copy of.
+   * The commit `ref` (or, with `remote`, the remote bookmark `ref@remote`)
+   * names in jj, or null when jj cannot resolve it to exactly one commit.
+   * Agent Tick shares bookmarks across hosts but not git branches, so jj can
+   * know a base that git lacks, or has only a stale copy of.
    */
   const resolveCommit = (input: {
     readonly operation: string;
     readonly jjCommand?: string | undefined;
     readonly cwd: string;
     readonly ref: string;
+    readonly remote?: string | undefined;
   }) =>
     runJj({
       ...input,
@@ -215,7 +217,7 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
         "--ignore-working-copy",
         "--no-graph",
         "-r",
-        `exactly(${jjSymbolRevset(input.ref)}, 1)`,
+        `exactly(${jjSymbolRevset(input.ref)}${input.remote === undefined ? "" : `@${jjSymbolRevset(input.remote)}`}, 1)`,
         "-T",
         "commit_id",
       ],
@@ -223,6 +225,17 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
       Effect.map((stdout) => stdout.trim() || null),
       Effect.orElseSucceed(() => null),
     );
+
+  /**
+   * `jj git fetch`. In Agent Tick repositories, where bookmarks are synced by
+   * a daemon and there is no git remote, it waits until this host has the
+   * server's latest state instead.
+   */
+  const gitFetch = (input: {
+    readonly operation: string;
+    readonly jjCommand?: string | undefined;
+    readonly cwd: string;
+  }) => runJj({ ...input, args: ["git", "fetch"], timeout: ADD_TIMEOUT }).pipe(Effect.asVoid);
 
   /** Local bookmark names, each once even when the bookmark is conflicted. */
   const listBookmarks = (input: {
@@ -323,6 +336,7 @@ export const make = Effect.fn("JjWorkspaces.make")(function* () {
     repositoryRoot,
     requireSupportedVersion,
     resolveCommit,
+    gitFetch,
     listBookmarks,
     add,
     forgetAt,

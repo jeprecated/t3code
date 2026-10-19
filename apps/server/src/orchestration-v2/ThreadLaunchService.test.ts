@@ -196,6 +196,7 @@ function makeHarness(options: HarnessOptions = {}) {
       createWorktree,
       renameBranch,
       fetchRemote: options.fetchRemote ?? (() => Effect.void),
+      jujutsuCommandFor: () => Effect.succeed(null),
       hasCommit: options.hasCommit ?? (() => Effect.succeed(false)),
       remoteExists: () => Effect.succeed(true),
       remoteBranchExists: () => Effect.succeed(true),
@@ -1599,6 +1600,89 @@ it.effect("shows the fetch diagnosis when preparing a worktree from origin fails
     );
     assert.equal(harness.createWorktree.mock.calls.length, 0);
     assert.equal(harness.runSetup.mock.calls.length, 0);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("starts a jj workspace from origin through jj, not git", () => {
+  const fetchJjBase = vi.fn<GitWorkflow.GitWorkflowService["Service"]["fetchJjBase"]>(() =>
+    Effect.succeed("jj-origin-sha"),
+  );
+  const fetchRemote = vi.fn<GitWorkflow.GitWorkflowService["Service"]["fetchRemote"]>(
+    () => Effect.void,
+  );
+  const harness = makeHarness({
+    fetchRemote,
+    git: {
+      jujutsuCommandFor: () => Effect.succeed("tick jj"),
+      fetchJjBase,
+      remoteExists: () => Effect.succeed(false),
+    },
+  });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:launch:jj-origin",
+        thread: "thread:launch:jj-origin",
+        message: "Start from origin with jj",
+        workspace: { type: "worktree", baseRef: "main", startFromOrigin: true },
+      }),
+    );
+    yield* waitUntil(() =>
+      threads
+        .getThreadProjection(launched.threadId)
+        .pipe(Effect.map((projection) => projection.thread.worktreePath !== null)),
+    );
+    assert.deepEqual(fetchJjBase.mock.calls[0]?.[0], {
+      cwd: project.workspaceRoot,
+      refName: "main",
+      jujutsuCommand: "tick jj",
+    });
+    assert.equal(fetchRemote.mock.calls.length, 0);
+    assert.equal(harness.createWorktree.mock.calls[0]?.[0]?.refName, "jj-origin-sha");
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("fails a jj workspace's start from origin with jj's fetch error", () => {
+  const detail = "Error: Timed out waiting for the Agent Tick server.";
+  const harness = makeHarness({
+    git: {
+      jujutsuCommandFor: () => Effect.succeed("tick jj"),
+      fetchJjBase: () =>
+        Effect.fail(
+          new GitCommandError({
+            operation: "GitVcsDriver.fetchJjBase",
+            command: "tick jj git fetch",
+            cwd: project.workspaceRoot,
+            detail,
+            exitCode: 1,
+          }),
+        ),
+    },
+  });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:launch:jj-fetch-failure",
+        thread: "thread:launch:jj-fetch-failure",
+        message: "Start from origin with jj",
+        workspace: { type: "worktree", baseRef: "main", startFromOrigin: true },
+      }),
+    );
+    yield* waitUntil(() =>
+      threads
+        .getThreadProjection(launched.threadId)
+        .pipe(Effect.map((projection) => projection.runs[0]?.status === "failed")),
+    );
+    const projection = yield* threads.getThreadProjection(launched.threadId);
+    assert.include(
+      projection.turnItems.find((item) => item.type === "error")?.failure.message ?? "",
+      detail,
+    );
+    assert.equal(harness.createWorktree.mock.calls.length, 0);
   }).pipe(Effect.provide(harness.layer));
 });
 

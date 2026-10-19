@@ -390,12 +390,34 @@ const make = Effect.gen(function* () {
             .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
         }
         let startRef = input.workspaceStrategy.baseRef;
+        // jj workspaces fetch through jj: Agent Tick repositories have no git
+        // remote, and their `jj git fetch` syncs the shared bookmarks.
+        const jujutsuCommand =
+          input.workspaceStrategy.startFromOrigin === true
+            ? yield* git.jujutsuCommandFor({ cwd: project.workspaceRoot })
+            : null;
         const startFromOrigin =
           input.workspaceStrategy.startFromOrigin === true &&
+          jujutsuCommand === null &&
           (yield* git
             .remoteExists({ cwd: project.workspaceRoot, remoteName: "origin" })
             .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))));
-        yield* setupTracker.stageStatus(threadId, "fetch", startFromOrigin ? "running" : "skipped");
+        yield* setupTracker.stageStatus(
+          threadId,
+          "fetch",
+          startFromOrigin || jujutsuCommand !== null ? "running" : "skipped",
+        );
+        if (jujutsuCommand !== null) {
+          const commit = yield* git
+            .fetchJjBase({
+              cwd: project.workspaceRoot,
+              refName: input.workspaceStrategy.baseRef,
+              jujutsuCommand,
+            })
+            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+          if (commit !== null) startRef = commit;
+          yield* setupTracker.stageStatus(threadId, "fetch", "done");
+        }
         if (startFromOrigin) {
           yield* git
             .fetchRemote({
