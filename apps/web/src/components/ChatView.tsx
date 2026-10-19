@@ -3029,14 +3029,16 @@ export default function ChatView(props: ChatViewProps) {
         : environmentLabel
           ? `${activeProject.title} on ${environmentLabel}`
           : activeProject.title,
+      environmentId: activeProject.environmentId,
     });
     if (choice === null) return;
     const { name } = choice;
     const workspace = { envMode, startFromOrigin: envMode === "worktree" && startFromOrigin };
+    const machine = choice.environmentId ? { environmentId: choice.environmentId } : {};
     const presets = saveNewThreadPreset(
       newThreadPresets,
       activeProjectIsScratch
-        ? { name, modelSelection, project: "none", environmentId: activeProject.environmentId }
+        ? { name, modelSelection, project: "none", ...machine }
         : choice.pinProject
           ? {
               name,
@@ -3046,7 +3048,7 @@ export default function ChatView(props: ChatViewProps) {
               projectId: activeProject.id,
               ...workspace,
             }
-          : { name, modelSelection, project: "current", ...workspace },
+          : { name, modelSelection, project: "current", ...machine, ...workspace },
     );
     updatePrimarySettings({ newThreadPresets: presets });
     const saved = presets.find((preset) => preset.name.toLowerCase() === name.toLowerCase());

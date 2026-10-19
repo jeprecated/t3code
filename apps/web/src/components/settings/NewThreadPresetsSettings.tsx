@@ -3,7 +3,12 @@ import { Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
-import { commandForNewThreadPreset, describeNewThreadPreset } from "../../newThreadPresets";
+import {
+  commandForNewThreadPreset,
+  describeNewThreadPreset,
+  setNewThreadPresetMachine,
+} from "../../newThreadPresets";
+import { NewThreadPresetMachineSelect } from "../NewThreadPresetMachineSelect";
 import { useProjects } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { Button } from "../ui/button";
@@ -17,11 +22,11 @@ export function NewThreadPresetsSettings() {
   const projects = useProjects();
   const { environments } = useEnvironments();
   const pinnedLabel = (preset: NewThreadPreset): string | null => {
-    if (preset.project === "current" || preset.environmentId === undefined) return null;
+    if (preset.environmentId === undefined) return null;
     const machine = environments.find(
       (environment) => environment.environmentId === preset.environmentId,
     )?.label;
-    if (preset.project === "none") return machine ?? null;
+    if (preset.project !== "pinned") return machine ?? null;
     const project = projects.find(
       (candidate) =>
         candidate.environmentId === preset.environmentId && candidate.id === preset.projectId,
@@ -55,6 +60,21 @@ export function NewThreadPresetsSettings() {
             }
             control={
               <div className="flex items-center gap-1.5">
+                {preset.project === "pinned" ? null : (
+                  <NewThreadPresetMachineSelect
+                    label={`Machine for preset ${preset.name}`}
+                    value={preset.environmentId}
+                    onValueChange={(environmentId) =>
+                      save(
+                        presets.map((candidate) =>
+                          candidate.id === preset.id
+                            ? setNewThreadPresetMachine(candidate, environmentId)
+                            : candidate,
+                        ),
+                      )
+                    }
+                  />
+                )}
                 <PresetNameInput
                   preset={preset}
                   takenNames={presets
