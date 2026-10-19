@@ -40,6 +40,34 @@ const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const encodeServerSettingsPatch = Schema.encodeSync(ServerSettingsPatch);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("ServerSettings new-thread presets", () => {
+  const modelSelection = { instanceId: "claudeAgent", model: "claude-opus-5-5" };
+
+  it("decodes presets saved before machine pins without a machine", () => {
+    const presets = [
+      { id: "quick", name: "Quick", modelSelection, project: "current", envMode: "worktree" },
+      { id: "scratch", name: "Scratch", modelSelection, project: "none" },
+    ];
+    expect(decodeServerSettings({ newThreadPresets: presets }).newThreadPresets).toEqual(presets);
+  });
+
+  it("round-trips a machine pin on a current-project preset", () => {
+    const input = {
+      newThreadPresets: [
+        {
+          id: "lego-work",
+          name: "Lego Work",
+          modelSelection,
+          project: "current",
+          environmentId: "env-prism",
+        },
+      ],
+    };
+    expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
+    expect(decodeServerSettingsPatch(input)).toEqual(input);
+  });
+});
+
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {
     expect(decodeServerSettings({}).worktreeCleanup).toBeNull();

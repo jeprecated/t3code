@@ -100,6 +100,14 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
     context: readThreadContext,
     scratch,
     primaryEnvironmentId: () => appAtomRegistry.get(primaryEnvironmentIdAtom),
+    environments: () =>
+      [...appAtomRegistry.get(environmentPresentations.presentationsAtom)].map(
+        ([environmentId, presentation]) => ({
+          environmentId,
+          label: presentation.entry.target.label,
+          connection: presentation.connection,
+        }),
+      ),
   });
   const presetCommand = (command: KeybindingCommand): CommandHandler | undefined => {
     const presetId = newThreadPresetIdFromCommand(command);
