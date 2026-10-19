@@ -6,6 +6,7 @@ import {
   commandForNewThreadPreset,
   describeNewThreadPreset,
   newThreadPresetIdFromCommand,
+  resolveNewThreadPresetStart,
   saveNewThreadPreset,
 } from "./newThreadPresets";
 
@@ -88,6 +89,143 @@ describe("new-thread presets", () => {
     );
     expect(describeNewThreadPreset({ ...pinned, project: "current" }, null)).toBe(
       "claude-opus-5-5 · current project, new worktree from origin",
+    );
+  });
+});
+
+describe("new-thread preset start", () => {
+  const lattice = EnvironmentId.make("lattice");
+  const prism = EnvironmentId.make("prism");
+  const repository = (canonicalKey: string, rootPath: string) => ({
+    canonicalKey,
+    rootPath,
+    locator: { source: "git-remote" as const, remoteName: "origin", remoteUrl: canonicalKey },
+  });
+  const project = (
+    environmentId: EnvironmentId,
+    id: string,
+    workspaceRoot: string,
+    repositoryIdentity: ReturnType<typeof repository> | null,
+  ) => ({ environmentId, id: ProjectId.make(id), workspaceRoot, repositoryIdentity });
+  const ref = (target: { environmentId: EnvironmentId; id: ProjectId }) => ({
+    environmentId: target.environmentId,
+    projectId: target.id,
+  });
+
+  const latticeApp = project(
+    lattice,
+    "lattice-app",
+    "/home/jmo/mono/apps/web",
+    repository("github.com/jmo/mono", "/home/jmo/mono"),
+  );
+  const prismRoot = project(
+    prism,
+    "prism-root",
+    "/Users/jmo/mono",
+    repository("github.com/jmo/mono", "/Users/jmo/mono"),
+  );
+  const prismApp = project(
+    prism,
+    "prism-app",
+    "/Users/jmo/mono/apps/web",
+    repository("github.com/jmo/mono", "/Users/jmo/mono"),
+  );
+  const latticeOther = project(
+    lattice,
+    "lattice-other",
+    "/home/jmo/other",
+    repository("github.com/jmo/other", "/home/jmo/other"),
+  );
+  const latticeScratch = project(lattice, "lattice-scratch", "/home/jmo/.t3/scratch", null);
+  const projects = [latticeApp, latticeOther, latticeScratch, prismRoot, prismApp];
+
+  const lego: NewThreadPreset = {
+    id: "lego-work",
+    name: "Lego Work",
+    modelSelection: opus,
+    project: "current",
+    environmentId: prism,
+    envMode: "worktree",
+  };
+  const start = (
+    preset: NewThreadPreset,
+    current: (typeof projects)[number] | null,
+    options: { connected?: ReadonlyArray<EnvironmentId>; scratch?: boolean } = {},
+  ) =>
+    resolveNewThreadPresetStart({
+      preset,
+      currentProjectRef: current ? ref(current) : null,
+      currentProject: current,
+      currentProjectIsScratch: options.scratch ?? false,
+      currentEnvironmentId: current?.environmentId ?? null,
+      defaultProjectRef: ref(latticeOther),
+      projects,
+      isConnected: (environmentId) =>
+        (options.connected ?? [lattice, prism]).includes(environmentId),
+    });
+
+  it("keeps an unpinned preset on the current project, or the first project from no project", () => {
+    const { environmentId: _, ...unpinned } = lego;
+    expect(start(unpinned, latticeApp)).toEqual({ kind: "project", projectRef: ref(latticeApp) });
+    expect(start(unpinned, latticeScratch, { scratch: true })).toEqual({
+      kind: "project",
+      projectRef: ref(latticeOther),
+    });
+    expect(
+      start({ id: "s", name: "S", modelSelection: opus, project: "none" }, latticeApp),
+    ).toEqual({ kind: "scratch", environmentId: lattice });
+  });
+
+  it("uses the current project when it is already on the pinned machine", () => {
+    expect(start(lego, prismRoot)).toEqual({ kind: "project", projectRef: ref(prismRoot) });
+  });
+
+  it("swaps a project on another machine for the same repository folder on the pinned one", () => {
+    expect(start(lego, latticeApp)).toEqual({ kind: "project", projectRef: ref(prismApp) });
+    expect(start(lego, { ...latticeApp, workspaceRoot: "/home/jmo/mono/docs" })).toEqual({
+      kind: "project",
+      projectRef: ref(prismRoot),
+    });
+  });
+
+  it("starts without a project on the pinned machine when it has no matching repository", () => {
+    expect(start(lego, latticeOther)).toEqual({ kind: "scratch", environmentId: prism });
+    expect(start(lego, latticeScratch, { scratch: true })).toEqual({
+      kind: "scratch",
+      environmentId: prism,
+    });
+    expect(start(lego, null)).toEqual({ kind: "scratch", environmentId: prism });
+    expect(
+      start(
+        { id: "s", name: "S", modelSelection: opus, project: "none", environmentId: prism },
+        latticeApp,
+      ),
+    ).toEqual({ kind: "scratch", environmentId: prism });
+  });
+
+  it("refuses to start on another machine while the pinned one is offline", () => {
+    const offline = { connected: [lattice] };
+    const unavailable = { kind: "machine-unavailable", environmentId: prism };
+    expect(start(lego, latticeApp, offline)).toEqual(unavailable);
+    expect(
+      start(
+        { id: "s", name: "S", modelSelection: opus, project: "none", environmentId: prism },
+        null,
+        offline,
+      ),
+    ).toEqual(unavailable);
+    expect(
+      start(
+        { ...lego, project: "pinned", environmentId: prism, projectId: prismRoot.id },
+        latticeApp,
+        offline,
+      ),
+    ).toEqual(unavailable);
+  });
+
+  it("describes a machine-pinned current-project preset", () => {
+    expect(describeNewThreadPreset({ ...lego, modelSelection: sol }, "Prism")).toBe(
+      "gpt-6.1-sol · xhigh · current project on Prism, new worktree",
     );
   });
 });

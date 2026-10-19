@@ -1,3 +1,4 @@
+import type { EnvironmentId } from "@t3tools/contracts";
 import { useEffect, useId, useState } from "react";
 import { create } from "zustand";
 
@@ -12,18 +13,22 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Input } from "./ui/input";
+import { NewThreadPresetMachineSelect } from "./NewThreadPresetMachineSelect";
 import { Label } from "./ui/label";
 import { Radio, RadioGroup } from "./ui/radio-group";
 
 export interface NewThreadPresetSaveChoice {
   readonly name: string;
   readonly pinProject: boolean;
+  /** Undefined starts on whichever machine is current; ignored for a pinned project. */
+  readonly environmentId: EnvironmentId | undefined;
 }
 
 interface Request {
   readonly existingNames: ReadonlyArray<string>;
-  /** Null for a draft without a project, which always saves its machine. */
+  /** Null for a draft without a project. */
   readonly projectLabel: string | null;
+  readonly environmentId: EnvironmentId;
   readonly resolve: (choice: NewThreadPresetSaveChoice | null) => void;
 }
 const useRequest = create<{ request: Request | null }>(() => ({ request: null }));
@@ -48,6 +53,7 @@ export function NewThreadPresetNameDialogHost() {
     <NewThreadPresetNameDialog
       existingNames={request.existingNames}
       projectLabel={request.projectLabel}
+      environmentId={request.environmentId}
     />
   ) : null;
 }
@@ -55,13 +61,20 @@ export function NewThreadPresetNameDialogHost() {
 function NewThreadPresetNameDialog({
   existingNames,
   projectLabel,
+  environmentId,
 }: {
   existingNames: ReadonlyArray<string>;
   projectLabel: string | null;
+  environmentId: EnvironmentId;
 }) {
   const id = useId();
   const [name, setName] = useState("");
   const [pinProject, setPinProject] = useState(true);
+  // A draft without a project keeps its machine unless the user widens it.
+  const [machine, setMachine] = useState<EnvironmentId | undefined>(
+    projectLabel === null ? environmentId : undefined,
+  );
+  const choosesMachine = projectLabel === null || !pinProject;
   const trimmed = name.trim();
   const replaces = existingNames.some(
     (existing) => existing.toLowerCase() === trimmed.toLowerCase(),
@@ -78,7 +91,7 @@ function NewThreadPresetNameDialog({
           className="flex min-h-0 flex-col"
           onSubmit={(event) => {
             event.preventDefault();
-            if (trimmed.length > 0) finish({ name: trimmed, pinProject });
+            if (trimmed.length > 0) finish({ name: trimmed, pinProject, environmentId: machine });
           }}
         >
           <DialogHeader>
@@ -122,6 +135,17 @@ function NewThreadPresetNameDialog({
                     Whichever project I'm in
                   </Label>
                 </RadioGroup>
+              </div>
+            ) : null}
+            {choosesMachine ? (
+              <div className="mt-4 flex flex-col gap-1.5">
+                <Label htmlFor={`${id}-machine`}>Machine</Label>
+                <NewThreadPresetMachineSelect
+                  id={`${id}-machine`}
+                  label="Machine"
+                  value={machine}
+                  onValueChange={setMachine}
+                />
               </div>
             ) : null}
           </DialogPanel>

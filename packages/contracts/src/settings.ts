@@ -1081,12 +1081,13 @@ const NewThreadPresetWorkspace = {
 /**
  * A named starting point for new threads. "current" follows the thread the user
  * is in; "pinned" always opens one project on one machine; "none" starts without
- * a project on its saved machine, or the current one when it predates pinning.
+ * a project. An absent machine on "current" or "none" means the current one.
  */
 export const NewThreadPreset = Schema.Union([
   Schema.Struct({
     ...NewThreadPresetBase,
     project: Schema.Literal("current"),
+    environmentId: Schema.optionalKey(EnvironmentId),
     ...NewThreadPresetWorkspace,
   }),
   Schema.Struct({

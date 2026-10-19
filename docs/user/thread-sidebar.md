@@ -34,16 +34,23 @@ directory itself sits inside a Git checkout.
 ### Start from a preset
 
 A preset saves a new thread's model, effort, and workspace, plus where it starts:
-a specific project on its machine, whichever project you are in, or no project on
-its machine. Set up a new thread the way you want it, open the command palette,
-and choose **Save draft as new-thread preset…**, then pick the project option.
-Saving under an existing name replaces that preset.
+a specific project on its machine, whichever project you are in, or no project.
+Set up a new thread the way you want it, open the command palette, and choose
+**Save draft as new-thread preset…**, then pick the project option. Saving under
+an existing name replaces that preset.
+
+A preset that follows your current project, or starts without one, can be tied to
+one machine, for example when its model's provider only exists there. Started
+from a project on another machine, it opens the same repository on the pinned
+machine, or no project there when that machine lacks the repository. It never
+starts elsewhere: while the pinned machine is disconnected, it shows a warning.
+Choose the machine when saving, or change it later in Settings → General.
 
 To pick a preset, bind **Chat: New From Preset** in Settings → Keybindings; it
 opens a list of your presets. They also appear at the top of **New thread in…**
 and under **New thread from preset…** in the command palette. To start one
 directly, bind its `preset.{id}.new` command. Presets are saved on each machine,
-and you can rename or delete them in Settings → General.
+and you can rename, re-pin, or delete them in Settings → General.
 
 ### Start in the background
 
