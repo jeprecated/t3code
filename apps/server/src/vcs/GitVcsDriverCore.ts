@@ -205,6 +205,12 @@ class GitRefsSnapshotCacheKey extends Data.Class<{
   epoch: number;
 }> {}
 
+class JjBookmarksCacheKey extends Data.Class<{
+  gitCommonDir: string;
+  jjCommand: string;
+  epoch: number;
+}> {}
+
 class GitRefsRefreshCacheKey extends Data.Class<{
   gitCommonDir: string;
   generation: number;
@@ -5566,6 +5572,31 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       );
     },
   );
+  // Keyed by the git snapshot's epoch, so a refresh rereads bookmarks too.
+  const jjBookmarksCache = yield* Cache.makeWith(
+    (cacheKey: JjBookmarksCacheKey) =>
+      jj.repositoryRoot(cacheKey.gitCommonDir).pipe(
+        Effect.flatMap((root) =>
+          root === null
+            ? Effect.succeed([])
+            : jj.listBookmarks({
+                operation: "GitVcsDriver.listRefs.jjBookmarks",
+                jjCommand: cacheKey.jjCommand,
+                cwd: root,
+              }),
+        ),
+        Effect.catch((cause) =>
+          Effect.logWarning("GitVcsDriver.listRefs: could not list jj bookmarks", {
+            gitCommonDir: cacheKey.gitCommonDir,
+            cause,
+          }).pipe(Effect.as([])),
+        ),
+      ),
+    {
+      capacity: LIST_REFS_SNAPSHOT_CACHE_CAPACITY,
+      timeToLive: () => LIST_REFS_SNAPSHOT_CACHE_TTL,
+    },
+  );
   const resolveListRefsSnapshot = Effect.fn("resolveListRefsSnapshot")(function* (
     gitCommonDir: string,
     refresh: boolean,
@@ -5622,7 +5653,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   );
 
   const listRefs: GitVcsDriver.GitVcsDriver["Service"]["listRefs"] = Effect.fn("listRefs")(
-    function* (input) {
+    function* (input, options) {
       const repositoryPaths = yield* resolveRepositoryPaths(input.cwd, input.refresh === true).pipe(
         Effect.catchTags({
           GitCommandError: (error) =>
@@ -5684,9 +5715,30 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         };
       });
       const localBranches = [...unlistedCurrentBranch, ...listedBranches];
+      const localBranchNames = new Set(localBranches.map((ref) => ref.name));
+      const bookmarks =
+        options?.jujutsuCommand === undefined
+          ? []
+          : (yield* Cache.get(
+              jjBookmarksCache,
+              new JjBookmarksCacheKey({
+                gitCommonDir: repositoryPaths.gitCommonDir,
+                jjCommand: options.jujutsuCommand,
+                epoch: listRefsEpochByCommonDir.get(repositoryPaths.gitCommonDir) ?? 0,
+              }),
+            ))
+              .filter((name) => !localBranchNames.has(name))
+              .map((name): VcsRef => ({
+                name,
+                current: false,
+                isRemote: false,
+                isDefault: false,
+                worktreePath: null,
+              }));
+      const localRefs = [...localBranches, ...bookmarks];
       const combinedBranches = input.includeMatchingRemoteRefs
-        ? [...localBranches, ...snapshot.remoteBranches]
-        : dedupeRemoteBranchesWithLocalMatches([...localBranches, ...snapshot.remoteBranches]);
+        ? [...localRefs, ...snapshot.remoteBranches]
+        : dedupeRemoteBranchesWithLocalMatches([...localRefs, ...snapshot.remoteBranches]);
       const allBranches = combinedBranches.toSorted((left, right) => {
         const leftPriority = left.current ? 0 : left.isDefault ? 1 : 2;
         const rightPriority = right.current ? 0 : right.isDefault ? 1 : 2;
@@ -5846,7 +5898,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       ),
     );
 
-  const requireJjRoot = Effect.fn("GitVcsDriver.requireJjRoot")(function* (cwd: string) {
+  const requireJjRoot = Effect.fn("GitVcsDriver.requireJjRoot")(function* (
+    cwd: string,
+    jjCommand: string | undefined,
+  ) {
     const operation = "GitVcsDriver.createWorktree";
     const root = yield* resolveJjRoot(cwd);
     if (root === null) {
@@ -5858,7 +5913,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           "Jujutsu workspaces are on for this project, but its repository has no .jj folder beside .git. Run `jj git init --colocate` in the repository, or turn the setting off.",
       });
     }
-    yield* jj.requireSupportedVersion(operation, root);
+    yield* jj.requireSupportedVersion(operation, jjCommand ?? "jj", root);
     return root;
   });
 
@@ -5870,6 +5925,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     readonly root: string;
     readonly worktreePath: string;
     readonly checkoutRef: string;
+    readonly jjCommand: string | undefined;
   }) {
     const operation = "GitVcsDriver.createWorktree";
     const ref = input.checkoutRef === "-" ? "@{-1}" : input.checkoutRef;
@@ -5885,15 +5941,30 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       .pipe(Effect.orElseSucceed(() => true));
 
     yield* Effect.gen(function* () {
-      const commit = (yield* runGitStdout(operation, input.cwd, [
-        "rev-parse",
-        "--verify",
-        `${localBranch ? `refs/heads/${ref}` : ref}^{commit}`,
-      ])).trim();
+      // A local branch keeps git's view of it; any other ref resolves through jj first.
+      const commit =
+        (localBranch
+          ? null
+          : yield* jj.resolveCommit({
+              operation,
+              jjCommand: input.jjCommand,
+              cwd: input.root,
+              ref,
+            })) ??
+        (yield* runGitStdout(operation, input.cwd, [
+          "rev-parse",
+          "--verify",
+          `${localBranch ? `refs/heads/${ref}` : ref}^{commit}`,
+        ])).trim();
+      const host = JjWorkspaces.jjWorkspaceHost(
+        yield* HostProcess.Hostname,
+        yield* HostProcess.Environment,
+      );
       yield* jj.add({
         operation,
+        jjCommand: input.jjCommand,
         cwd: input.root,
-        name: path.basename(input.worktreePath),
+        name: `${host}/${path.basename(input.worktreePath)}`,
         path: input.worktreePath,
         commit,
       });
@@ -5909,7 +5980,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           ? Effect.void
           : Effect.gen(function* () {
               yield* jj
-                .forgetAt({ operation, cwd: input.root, path: input.worktreePath })
+                .forgetAt({
+                  operation,
+                  jjCommand: input.jjCommand,
+                  cwd: input.root,
+                  path: input.worktreePath,
+                })
                 .pipe(Effect.ignore);
               yield* fileSystem.remove(input.worktreePath, { recursive: true }).pipe(Effect.ignore);
               yield* runGit(operation, input.cwd, ["worktree", "prune"]).pipe(Effect.ignore);
@@ -5963,7 +6039,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     }
     // Later steps run git inside the worktree, so resolve a relative path the way worktree add does.
     worktreePath = path.resolve(input.cwd, worktreePath);
-    const jjRoot = options?.jujutsu ? yield* requireJjRoot(input.cwd) : null;
+    const jjCommand = options?.jujutsuCommand;
+    const jjRoot = options?.jujutsu ? yield* requireJjRoot(input.cwd, jjCommand) : null;
     // Read before the branch exists, so a missing pattern file leaves nothing behind.
     // A jj workspace checks out every file, and jj adds it without a lock.
     const sparsePatterns =
@@ -5985,10 +6062,21 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         : undefined;
 
     if (newRefName) {
+      // Agent Tick shares jj bookmarks across hosts but not git branches, so in
+      // a jj repository git may lack the base or hold a stale copy of it.
+      const jjBase =
+        jjRoot === null
+          ? null
+          : yield* jj.resolveCommit({
+              operation: "GitVcsDriver.createWorktree",
+              jjCommand,
+              cwd: jjRoot,
+              ref: input.refName,
+            });
       // Kept apart from the checkout so the shared-config lock only covers the tracking write.
       yield* createBranchAt(
         "GitVcsDriver.createWorktree.createBranch",
-        { cwd: input.cwd, branch: newRefName, startPoint: input.refName },
+        { cwd: input.cwd, branch: newRefName, startPoint: jjBase ?? input.refName },
         "git branch failed",
       );
     }
@@ -6090,7 +6178,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const onWorktreeClaimed = progress?.onWorktreeClaimed;
     yield* (
       jjRoot !== null
-        ? addJjWorktree({ cwd: input.cwd, root: jjRoot, worktreePath, checkoutRef })
+        ? addJjWorktree({ cwd: input.cwd, root: jjRoot, worktreePath, checkoutRef, jjCommand })
         : fastCheckout
           ? checkoutCache
               .create({
@@ -6729,7 +6817,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
   const removeWorktree: GitVcsDriver.GitVcsDriver["Service"]["removeWorktree"] = Effect.fn(
     "removeWorktree",
-  )(function* (input) {
+  )(function* (input, options) {
     // Git also matches a worktree by its short name, which can name a different
     // folder than this path. Resolving it once keeps Git, the Windows deletion
     // in removeLinkedWorktree, and the leftover cleanup below on one directory.
@@ -6740,7 +6828,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       Effect.flatMap((root) =>
         root === null
           ? Effect.void
-          : jj.forgetAt({ operation: "GitVcsDriver.removeWorktree", cwd: root, path: target }),
+          : jj.forgetAt({
+              operation: "GitVcsDriver.removeWorktree",
+              jjCommand: options?.jujutsuCommand,
+              cwd: root,
+              path: target,
+            }),
       ),
       Effect.catch((cause) =>
         Effect.logWarning("GitVcsDriver.removeWorktree: could not forget the jj workspace", {
@@ -7207,8 +7300,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       return yield* withListRefsInvalidation(input.cwd, createBranch(input));
     }),
     writeConfigValue,
-    removeWorktree: Effect.fnUntraced(function* (input) {
-      return yield* withListRefsInvalidation(input.cwd, removeWorktree(input));
+    removeWorktree: Effect.fnUntraced(function* (input, options) {
+      return yield* withListRefsInvalidation(input.cwd, removeWorktree(input, options));
     }),
     pruneWorktrees: Effect.fnUntraced(function* (input) {
       return yield* withListRefsInvalidation(input.cwd, pruneWorktrees(input));
