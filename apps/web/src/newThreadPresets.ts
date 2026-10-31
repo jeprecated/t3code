@@ -159,7 +159,10 @@ function findSameRepositoryProject(
   candidates: ReadonlyArray<PresetProject>,
 ): PresetProject | undefined {
   for (const groupingMode of ["repository_path", "repository"] as const) {
-    const settings = { sidebarProjectGroupingMode: groupingMode, sidebarProjectGroupingOverrides: {} };
+    const settings = {
+      sidebarProjectGroupingMode: groupingMode,
+      sidebarProjectGroupingOverrides: {},
+    };
     const key = deriveLogicalProjectKeyFromSettings(project, settings);
     const match = candidates.find(
       (candidate) => deriveLogicalProjectKeyFromSettings(candidate, settings) === key,

@@ -52,8 +52,7 @@ export function installCommandPaletteCommands(
           ).terminalOpen
         : false,
       previewOpen: threadRef
-        ? selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef) ===
-          "preview"
+        ? selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef) === "preview"
         : false,
       usagePageOpen: router.state.location.pathname === "/usage",
     };
