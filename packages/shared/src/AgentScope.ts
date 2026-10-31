@@ -34,6 +34,11 @@ export interface AgentScopeShape {
    * it, even when the next session runs without one (Cursor, OpenCode).
    */
   readonly clear: (threadId: string) => Effect.Effect<void>;
+  /**
+   * Puts `directory` first on PATH for what `wrap` launches for the thread
+   * from now on, or stops when it is undefined. Not on Windows.
+   */
+  readonly setPathPrefix: (threadId: string, directory: string | undefined) => Effect.Effect<void>;
 }
 
 export interface AgentScopeCommand {
@@ -50,6 +55,7 @@ export const AgentScope = Context.Reference<AgentScopeShape>("@t3tools/shared/Ag
     stop: () => Effect.void,
     kill: () => Effect.succeed(false),
     clear: () => Effect.void,
+    setPathPrefix: () => Effect.void,
   }),
 });
 
@@ -72,6 +78,24 @@ const SCOPED_LAUNCH_SCRIPT = [
   "shift",
   'exec "$@"',
 ].join("\n");
+
+// The directory is an argument, not part of the script, so it needs no quoting.
+const PATH_PREFIX_SCRIPT = ['PATH="$1${PATH:+:$PATH}"', "export PATH", "shift", 'exec "$@"'].join(
+  "\n",
+);
+
+export function withPathPrefix(
+  launch: AgentScopeCommand,
+  directory: string | undefined,
+): AgentScopeCommand {
+  if (directory === undefined) return launch;
+  // The systemd scope still runs inside, so `stop` keeps its unit.
+  return {
+    ...launch,
+    command: "/bin/sh",
+    args: ["-c", PATH_PREFIX_SCRIPT, "t3-path", directory, launch.command, ...launch.args],
+  };
+}
 
 export interface AgentSystemdScope {
   readonly systemdRun: string;
