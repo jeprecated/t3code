@@ -189,6 +189,31 @@ export function backgroundWorkNowItem(input: {
   // A command line shows only where it says more than the label.
   const rowLabel = (row: (typeof rows)[number]) =>
     row.task.command ? `${row.task.label} (${row.task.command})` : row.task.label;
+  // Each task keeps its own action: a command opens its live output, a subagent its thread.
+  const rowAction = (row: (typeof rows)[number]) => {
+    if (input.canShowOutput(row.task)) {
+      return (
+        <BackgroundCommandOutput
+          environmentId={input.environmentId}
+          threadId={input.threadId}
+          item={row.task}
+        >
+          {rowLabel(row)}
+        </BackgroundCommandOutput>
+      );
+    }
+    const childThreadId = row.childThreadId;
+    if (childThreadId === undefined) return rowLabel(row);
+    return (
+      <InlineButton
+        tone="muted"
+        aria-label={`Open subagent ${row.task.label}`}
+        onClick={() => onOpenThread(childThreadId)}
+      >
+        {rowLabel(row)}
+      </InlineButton>
+    );
+  };
   const verb = presentation.waiting ? "Waiting on" : "Running";
   const onlyThreadId = only?.childThreadId;
   const startedAtMs = only?.startedAtMs ?? null;
@@ -215,24 +240,13 @@ export function backgroundWorkNowItem(input: {
       ) : only.task.command ? (
         <span className="font-mono">{only.task.command}</span>
       ) : null))
-    ) : newest ? (
-      `${newest.task.label}: ${newest.activity}`
     ) : (
       <span className={cn(rows.every(isCommand) && "font-mono")}>
         {rows.map((row, index) => (
           <Fragment key={row.task.taskId}>
             {index > 0 ? ", " : null}
-            {input.canShowOutput(row.task) ? (
-              <BackgroundCommandOutput
-                environmentId={input.environmentId}
-                threadId={input.threadId}
-                item={row.task}
-              >
-                {rowLabel(row)}
-              </BackgroundCommandOutput>
-            ) : (
-              rowLabel(row)
-            )}
+            {rowAction(row)}
+            {row === newest ? `: ${row.activity}` : null}
           </Fragment>
         ))}
       </span>
