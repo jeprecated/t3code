@@ -1300,6 +1300,11 @@ export const ServerSettings = Schema.Struct({
    * in jj as well as git. Needs a colocated jj repository and jj 0.46+.
    */
   jujutsuWorkspaces: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
+   * The program, plus any leading arguments, that runs jj, such as `tick jj`
+   * for Agent Tick repositories, where the system jj refuses to run.
+   */
+  jujutsuCommand: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("jj"))),
   /** Null inherits t3.json, then recursive; unknown values decode to null for older clients. */
   worktreeSubmodules: ForwardCompatibleNullable(WorktreeSubmodules).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -1639,6 +1644,7 @@ export const ServerSettingsPatch = Schema.Struct({
   defaultThreadEnvMode: Schema.optionalKey(Schema.NullOr(ThreadEnvMode)),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   jujutsuWorkspaces: Schema.optionalKey(Schema.Boolean),
+  jujutsuCommand: Schema.optionalKey(TrimmedString),
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),

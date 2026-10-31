@@ -10,7 +10,14 @@ import * as Path from "effect/Path";
 
 import * as ServerConfig from "../config.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
-import { isSupportedJjVersion, parseJjVersion, parseJjWorkspaceList } from "./JjWorkspaces.ts";
+import {
+  isSupportedJjVersion,
+  jjSymbolRevset,
+  jjWorkspaceHost,
+  parseJjCommand,
+  parseJjVersion,
+  parseJjWorkspaceList,
+} from "./JjWorkspaces.ts";
 
 const layerTest = GitVcsDriver.layer.pipe(
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-jj-workspaces-test-" })),
@@ -27,6 +34,7 @@ const hasSupportedJj = installedJj !== null && isSupportedJjVersion(installedJj)
 process.env.JJ_CONFIG = NodeOS.devNull;
 process.env.JJ_USER = "Test";
 process.env.JJ_EMAIL = "test@test.com";
+process.env.TICK_HOST = "testhost";
 
 describe("jj output parsing", () => {
   it("reads the version from jj --version", () => {
@@ -40,6 +48,24 @@ describe("jj output parsing", () => {
     assert.equal(isSupportedJjVersion([0, 46, 0]), true);
     assert.equal(isSupportedJjVersion([0, 100, 0]), true);
     assert.equal(isSupportedJjVersion([1, 0, 0]), true);
+  });
+
+  it("splits the jj command setting into a program and leading arguments", () => {
+    assert.deepEqual(parseJjCommand("jj"), { program: "jj", args: [] });
+    assert.deepEqual(parseJjCommand("  tick   jj "), { program: "tick", args: ["jj"] });
+    assert.deepEqual(parseJjCommand(""), { program: "jj", args: [] });
+  });
+
+  it("names workspaces after TICK_HOST or the hostname's first label", () => {
+    assert.equal(jjWorkspaceHost("Prism.tail1234.ts.net", {}), "prism");
+    assert.equal(jjWorkspaceHost("Prism", { TICK_HOST: "quartz" }), "quartz");
+    assert.equal(jjWorkspaceHost("Prism.local", { TICK_HOST: " " }), "prism");
+  });
+
+  it("quotes a ref as a single revset symbol", () => {
+    assert.equal(jjSymbolRevset("feat/a-b"), '"feat/a-b"');
+    assert.equal(jjSymbolRevset('x") | all() | ("'), '"x\\") | all() | (\\""');
+    assert.equal(jjSymbolRevset("a\\b"), '"a\\\\b"');
   });
 
   it("lists named workspaces and skips ones jj cannot locate", () => {
@@ -127,7 +153,7 @@ it.layer(layerTest)("jj workspaces", (it) => {
         assert.equal(created.worktree.path, worktreePath);
         assert.equal(yield* git(worktreePath, ["branch", "--show-current"]), "t3/feature");
         assert.include(yield* git(cwd, ["worktree", "list"]), worktreePath);
-        assert.include(workspaceNames(jj), "t3-feature");
+        assert.include(workspaceNames(jj), "testhost/t3-feature");
 
         // Git commits in the workspace land on the branch jj sees.
         yield* fileSystem.writeFileString(path.join(worktreePath, "agent.txt"), "work\n");
@@ -142,7 +168,7 @@ it.layer(layerTest)("jj workspaces", (it) => {
 
         assert.equal(yield* fileSystem.exists(worktreePath), false);
         assert.notInclude(yield* git(cwd, ["worktree", "list"]), worktreePath);
-        assert.notInclude(workspaceNames(jj), "t3-feature");
+        assert.notInclude(workspaceNames(jj), "testhost/t3-feature");
       }),
   );
 
@@ -161,7 +187,7 @@ it.layer(layerTest)("jj workspaces", (it) => {
         );
         // Storage cleanup and users remove worktrees with plain git.
         yield* git(cwd, ["worktree", "remove", worktreePath]);
-        assert.include(workspaceNames(jj), "t3-resume");
+        assert.include(workspaceNames(jj), "testhost/t3-resume");
 
         yield* driver.createWorktree(
           { cwd, path: worktreePath, refName: "t3/resume" },
@@ -169,7 +195,32 @@ it.layer(layerTest)("jj workspaces", (it) => {
         );
 
         assert.equal(yield* git(worktreePath, ["branch", "--show-current"]), "t3/resume");
-        assert.include(workspaceNames(jj), "t3-resume");
+        assert.include(workspaceNames(jj), "testhost/t3-resume");
+      }),
+  );
+
+  it.effect.skipIf(!hasSupportedJj)(
+    "bases a worktree on a ref only jj resolves, through a jj command with leading arguments",
+    () =>
+      Effect.gen(function* () {
+        const { cwd, worktrees, jj } = yield* makeRepo({ jj: true });
+        const path = yield* Path.Path;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const worktreePath = path.join(worktrees, "t3-change");
+        // A change id names a commit for jj but not for git.
+        const changeId = jj(["log", "--no-graph", "-r", "@-", "-T", "change_id"]).trim();
+
+        yield* driver.createWorktree(
+          { cwd, path: worktreePath, refName: changeId, newRefName: "t3/change" },
+          { jujutsu: true, jujutsuCommand: "env jj" },
+        );
+
+        assert.equal(yield* git(worktreePath, ["branch", "--show-current"]), "t3/change");
+        assert.equal(
+          yield* git(cwd, ["rev-parse", "t3/change"]),
+          jj(["log", "--no-graph", "-r", "@-", "-T", "commit_id"]).trim(),
+        );
+        assert.include(workspaceNames(jj), "testhost/t3-change");
       }),
   );
 });

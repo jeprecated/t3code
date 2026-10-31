@@ -1044,6 +1044,7 @@ const make = Effect.gen(function* () {
         yield* jj
           .forgetAt({
             operation: "StorageCleanup.forgetJjWorkspace",
+            jjCommand: serverSettings.jujutsuCommand,
             cwd: project.workspaceRoot,
             path: worktreePath,
           })
