@@ -5214,23 +5214,35 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     );
 
   const requireJjRoot = Effect.fn("GitVcsDriver.requireJjRoot")(function* (
+    operation: string,
+    command: string,
     cwd: string,
-    jjCommand: string | undefined,
   ) {
-    const operation = "GitVcsDriver.createWorktree";
     const root = yield* resolveJjRoot(cwd);
     if (root === null) {
       return yield* new GitCommandError({
         operation,
-        command: "jj workspace add",
+        command,
         cwd,
         detail:
           "Jujutsu workspaces are on for this project, but its repository has no .jj folder beside .git. Run `jj git init --colocate` in the repository, or turn the setting off.",
       });
     }
-    yield* jj.requireSupportedVersion(operation, jjCommand ?? "jj", root);
     return root;
   });
+
+  const fetchJjBase: GitVcsDriver.GitVcsDriver["Service"]["fetchJjBase"] = Effect.fn("fetchJjBase")(
+    function* (input) {
+      const operation = "GitVcsDriver.fetchJjBase";
+      const root = yield* requireJjRoot(operation, "jj git fetch", input.cwd);
+      const query = { operation, jjCommand: input.jujutsuCommand, cwd: root, ref: input.refName };
+      yield* jj.gitFetch(query);
+      return (
+        (yield* jj.resolveCommit({ ...query, remote: "origin" })) ??
+        (yield* jj.resolveCommit(query))
+      );
+    },
+  );
 
   // Creates the worktree as a colocated jj workspace, then leaves git where
   // `git worktree add` would: on `checkoutRef` when that is a local branch,
@@ -5355,7 +5367,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     // Later steps run git inside the worktree, so resolve a relative path the way worktree add does.
     worktreePath = path.resolve(input.cwd, worktreePath);
     const jjCommand = options?.jujutsuCommand;
-    const jjRoot = options?.jujutsu ? yield* requireJjRoot(input.cwd, jjCommand) : null;
+    const jjRoot = options?.jujutsu
+      ? yield* requireJjRoot("GitVcsDriver.createWorktree", "jj workspace add", input.cwd)
+      : null;
+    if (jjRoot !== null) {
+      yield* jj.requireSupportedVersion("GitVcsDriver.createWorktree", jjCommand ?? "jj", jjRoot);
+    }
     // Read before the branch exists, so a missing pattern file leaves nothing behind.
     // A jj workspace checks out every file, and jj adds it without a lock.
     const sparsePatterns =
@@ -6516,6 +6533,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     readBranchBase,
     resolveBranchName,
     listRefs,
+    fetchJjBase: Effect.fnUntraced(function* (input) {
+      return yield* withListRefsInvalidation(input.cwd, fetchJjBase(input));
+    }),
     createWorktree: Effect.fnUntraced(function* (input, options) {
       return yield* createWorktree(input, options).pipe(
         Effect.ensuring(invalidateWorktreeCreationCaches(input.cwd)),

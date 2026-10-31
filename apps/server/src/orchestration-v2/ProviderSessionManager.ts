@@ -29,8 +29,10 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FiberSet from "effect/FiberSet";
 import * as FileSystem from "effect/FileSystem";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
@@ -52,6 +54,8 @@ import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ServerConfig from "../config.ts";
+import * as JjShim from "../vcs/JjShim.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as EventSink from "./EventSink.ts";
 import * as CommandOutputHub from "./CommandOutputHub.ts";
@@ -416,6 +420,7 @@ export const layerWithOptions = (
   | IdAllocator.IdAllocatorV2
   | McpProviderSessions.McpProviderSessions
   | McpSessionRegistry.McpSessionRegistry
+  | Path.Path
   | ProjectionStore.ProjectionStoreV2
   | ProviderEventIngestor.ProviderEventIngestorV2
   | ProviderAdapterRegistry.ProviderAdapterRegistryV2
@@ -431,6 +436,8 @@ export const layerWithOptions = (
       /** Unreadable settings must preserve explicit browser-access opt-outs. */
       const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
       const projectService = yield* Effect.serviceOption(ProjectService.ProjectService);
+      const serverConfig = yield* Effect.serviceOption(ServerConfig.ServerConfig);
+      const path = yield* Path.Path;
       const eventSink = yield* EventSink.EventSinkV2;
       const commandOutput = yield* CommandOutputHub.CommandOutputHub;
       const promptSuggestionStore = yield* SubscriptionRef.make<
@@ -449,6 +456,35 @@ export const layerWithOptions = (
             Effect.map((settings) => settings.promptSuggestionsEnabled),
             Effect.orElseSucceed(() => false),
           );
+      /**
+       * The jj shim directory for a session working in `cwd`, when that is a
+       * jj workspace and `jujutsuCommand` is not plain `jj`. Best effort: the
+       * agent then just meets the system jj.
+       */
+      const jjShimDirectory = Effect.fn("ProviderSessionManagerV2.jjShimDirectory")(
+        function* (cwd: string | null) {
+          if (cwd === null || Option.isNone(serverSettings) || Option.isNone(serverConfig))
+            return undefined;
+          if ((yield* HostProcess.Platform) === "win32") return undefined;
+          const { jujutsuCommand } = yield* serverSettings.value.getSettings;
+          if (!JjShim.needsJjShim(jujutsuCommand)) return undefined;
+          if (!(yield* fileSystem.exists(path.join(cwd, ".jj")))) return undefined;
+          return (
+            (yield* JjShim.ensureJjShim(serverConfig.value.stateDir, jujutsuCommand)) ?? undefined
+          );
+        },
+        (effect, cwd) =>
+          effect.pipe(
+            Effect.provideService(Path.Path, path),
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.catch((cause) =>
+              Effect.logWarning("orchestration-v2.driver-session.jj-shim-failed", {
+                cwd,
+                cause,
+              }).pipe(Effect.as(undefined)),
+            ),
+          ),
+      );
       const agentAccessSettings = Effect.fn("ProviderSessionManagerV2.agentAccessSettings")(
         function* (threadId: ThreadId) {
           if (Option.isNone(serverSettings)) return { browser: true, device: false };
@@ -3044,6 +3080,10 @@ export const layerWithOptions = (
               });
               const sessionScope = yield* Scope.fork(sessionScopes);
               yield* agentScope.clear(input.threadId);
+              yield* agentScope.setPathPrefix(
+                input.threadId,
+                yield* jjShimDirectory(input.runtimePolicy.cwd),
+              );
               const runtime = yield* installationGate
                 .execute(
                   input.modelSelection.instanceId,
