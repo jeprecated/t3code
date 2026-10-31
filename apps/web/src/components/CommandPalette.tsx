@@ -1701,11 +1701,11 @@ function OpenCommandPaletteDialog(props: {
           ? newThreadInGroups
           : currentView?.groups[0]?.value === NEW_THREAD_PRESET_GROUP
             ? [{ value: NEW_THREAD_PRESET_GROUP, label: "Presets", items: newThreadPresetItems }]
-          : currentView?.groups[0]?.value === "themes"
-            ? changeThemeItem.groups
-            : currentView?.groups[0]?.value === "appearance"
-              ? changeAppearanceItem.groups
-              : (currentView?.groups ?? rootGroups);
+            : currentView?.groups[0]?.value === "themes"
+              ? changeThemeItem.groups
+              : currentView?.groups[0]?.value === "appearance"
+                ? changeAppearanceItem.groups
+                : (currentView?.groups ?? rootGroups);
 
   const isLinkedThreadSearch =
     linkedThreadSearch?.linkedThreads !== undefined && deferredQuery === linkedThreadSearch.query;

@@ -15,16 +15,14 @@ import { Kbd, KbdGroup } from "./ui/kbd";
 
 // Each command names a time, so it means the same one whatever the snooze menu holds:
 // the defaults these names had before snooze options became settings.
-const SNOOZE_PRESET_FOR_COMMAND: Record<
-  ThreadSnoozePresetKeybindingCommand,
-  SnoozePresetSetting
-> = {
-  "thread.snooze.hour": { kind: "after", minutes: 60 },
-  "thread.snooze.threeHours": { kind: "after", minutes: 180 },
-  "thread.snooze.evening": { kind: "at", day: "today", time: "18:00" },
-  "thread.snooze.tomorrow": { kind: "at", day: "tomorrow", time: "09:00" },
-  "thread.snooze.nextWeek": { kind: "at", day: "monday", time: "09:00" },
-};
+const SNOOZE_PRESET_FOR_COMMAND: Record<ThreadSnoozePresetKeybindingCommand, SnoozePresetSetting> =
+  {
+    "thread.snooze.hour": { kind: "after", minutes: 60 },
+    "thread.snooze.threeHours": { kind: "after", minutes: 180 },
+    "thread.snooze.evening": { kind: "at", day: "today", time: "18:00" },
+    "thread.snooze.tomorrow": { kind: "at", day: "tomorrow", time: "09:00" },
+    "thread.snooze.nextWeek": { kind: "at", day: "monday", time: "09:00" },
+  };
 
 /** The preset a direct snooze command picks, skipping the picker. */
 export function snoozePresetForCommand(command: string): SnoozePresetSetting | null {
