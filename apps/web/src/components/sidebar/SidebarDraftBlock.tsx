@@ -8,11 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type {
-  EnvironmentId,
-  OrchestrationV2ThreadCategories,
-  ProjectId,
-} from "@t3tools/contracts";
+import type { EnvironmentId, OrchestrationV2ThreadCategories, ProjectId } from "@t3tools/contracts";
 import { cn } from "~/lib/utils";
 import { resolveSidebarRowAccessibility } from "../Sidebar.logic";
 import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";

@@ -150,11 +150,16 @@ export const make = Effect.gen(function* () {
         service.generateReviewGuide({ ...input, modelSelection }),
       );
     }),
-    generateThreadCategories: Effect.fn("TextGeneration.generateThreadCategories")(function (input) {
-      return generate("generateThreadCategories", input.modelSelection, (service, modelSelection) =>
-        service.generateThreadCategories({ ...input, modelSelection }),
-      );
-    }),
+    generateThreadCategories: Effect.fn("TextGeneration.generateThreadCategories")(
+      function (input) {
+        return generate(
+          "generateThreadCategories",
+          input.modelSelection,
+          (service, modelSelection) =>
+            service.generateThreadCategories({ ...input, modelSelection }),
+        );
+      },
+    ),
     generateThreadTitle: Effect.fn("TextGeneration.generateThreadTitle")(function (input) {
       return generate(
         "generateThreadTitle",

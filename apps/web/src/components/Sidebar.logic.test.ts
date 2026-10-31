@@ -588,7 +588,6 @@ describe("resolveThreadStatusPill", () => {
       }),
     ).toBeNull();
   });
-
 });
 
 describe("resolveProjectStatusIndicator", () => {
