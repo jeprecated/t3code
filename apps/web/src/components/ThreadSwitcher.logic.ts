@@ -4,6 +4,8 @@ import {
 } from "@t3tools/client-runtime/state/thread-settled";
 import { normalizeSearchQuery, scoreQueryMatch } from "@t3tools/shared/searchRanking";
 
+import type { EnvironmentId } from "@t3tools/contracts";
+
 import type { SidebarThreadSummary } from "../types";
 import { isSidebarSubagentThread } from "./Sidebar.logic";
 
@@ -26,6 +28,23 @@ export type ThreadSwitcherThread = ThreadSnoozeShell &
     | "title"
     | "worktreePath"
   >;
+
+/**
+ * The environments to search for older settled threads, which shells leave out: every connected
+ * one while settled threads show, none otherwise.
+ */
+export function threadSwitcherSearchEnvironmentIds(
+  environments: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly connection: { readonly phase: string };
+  }>,
+  includeSettled: boolean,
+): EnvironmentId[] {
+  if (!includeSettled) return [];
+  return environments
+    .filter((environment) => environment.connection.phase === "connected")
+    .map((environment) => environment.environmentId);
+}
 
 function worktreeName(path: string | null): string | null {
   if (!path) return null;
