@@ -6,9 +6,8 @@ import { useState } from "react";
 
 import { useClientSettings } from "~/hooks/useSettings";
 import { sortThreads } from "@t3tools/client-runtime/state/thread-sort";
-import { useProjects, useThreadShells } from "~/state/entities";
-import { useEnvironments } from "~/state/environments";
-import { useThreadSearch } from "~/state/queries";
+import { useProjects, useServerConfigs, useThreadShells } from "~/state/entities";
+import { useOlderSettledShelf, useOlderSettledShelfGrowth } from "~/state/olderSettledShelf";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "~/threadRoutes";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
@@ -18,11 +17,10 @@ import { CommandPaletteContent } from "./CommandPaletteContent";
 import { CommandPaletteResults } from "./CommandPaletteResults";
 import { ThreadCommandSubtitle } from "./ThreadCommandSubtitle";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
-import {
-  rankThreadSwitcherThreads,
-  threadSwitcherSearchEnvironmentIds,
-} from "./ThreadSwitcher.logic";
+import { rankThreadSwitcherThreads, threadSwitcherOlderSettledShelf } from "./ThreadSwitcher.logic";
 import { Kbd, KbdGroup } from "./ui/kbd";
+
+const NO_LISTED_THREADS: ReadonlyArray<never> = [];
 
 export function ThreadSwitcher(props: { readonly setOpen: (open: boolean) => void }) {
   const navigate = useNavigate();
@@ -31,12 +29,13 @@ export function ThreadSwitcher(props: { readonly setOpen: (open: boolean) => voi
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
   const [now] = useState(() => new Date().toISOString());
   const threads = useThreadShells();
-  const { environments } = useEnvironments();
-  // Mounts older settled threads matching the query, which shells leave out, so the ranking below
-  // finds them too.
-  useThreadSearch(threadSwitcherSearchEnvironmentIds(environments, includeSettled), query, {
-    titlesOnly: true,
-  });
+  const serverConfigs = useServerConfigs();
+  // Mounts every older settled thread, which shells leave out, into the shells while settled
+  // threads show, so the ranking below sees every thread.
+  const olderSettled = useOlderSettledShelf(
+    threadSwitcherOlderSettledShelf([...serverConfigs.keys()], includeSettled),
+  );
+  useOlderSettledShelfGrowth(olderSettled, NO_LISTED_THREADS);
   const projects = useProjects();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const sortOrder = useClientSettings((settings) => settings.sidebarThreadSortOrder);
@@ -97,7 +96,9 @@ export function ThreadSwitcher(props: { readonly setOpen: (open: boolean) => voi
   const emptyStateMessage =
     query.trim().length > 0
       ? includeSettled
-        ? "No matching threads."
+        ? olderSettled.loading
+          ? "Loading older threads…"
+          : "No matching threads."
         : "No matching active threads. Press Tab to include settled threads."
       : includeSettled
         ? "No threads."

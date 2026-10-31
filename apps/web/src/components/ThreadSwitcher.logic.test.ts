@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
+import {
+  wantedOlderSettledPages,
+  type OlderSettled,
+  type OlderSettledPages,
+} from "@t3tools/client-runtime/state/threads";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { makeThreadFixture } from "../test-fixtures";
 import type { Thread } from "../types";
-import {
-  rankThreadSwitcherThreads,
-  threadSwitcherSearchEnvironmentIds,
-} from "./ThreadSwitcher.logic";
+import { rankThreadSwitcherThreads, threadSwitcherOlderSettledShelf } from "./ThreadSwitcher.logic";
 
 const NOW = "2026-03-01T12:00:00.000Z";
 
@@ -104,18 +106,88 @@ describe("rankThreadSwitcherThreads", () => {
   });
 });
 
-describe("threadSwitcherSearchEnvironmentIds", () => {
-  const environments = [
-    { environmentId: EnvironmentId.make("local"), connection: { phase: "connected" } },
-    { environmentId: EnvironmentId.make("remote"), connection: { phase: "connecting" } },
-    { environmentId: EnvironmentId.make("desk"), connection: { phase: "connected" } },
-  ];
+describe("threadSwitcherOlderSettledShelf", () => {
+  const environmentId = EnvironmentId.make("environment-test");
+  const PAGE_SIZE = 25;
+  const at = (index: number) => new Date(Date.UTC(2026, 0, 1) - index * 60_000).toISOString();
 
-  it("searches every connected environment for older settled threads once they show", () => {
-    expect(threadSwitcherSearchEnvironmentIds(environments, true)).toEqual(["local", "desk"]);
+  // Shells hold the active threads and the newest settled ones; the server pages the older
+  // settled ones, newest first, 25 at a time.
+  const shellThreads = [
+    makeThread("active", { title: "Release notes" }),
+    makeThread("recent-settled", { title: "Thread switcher polish", settledOverride: "settled" }),
+  ];
+  const olderThreads = Array.from({ length: 130 }, (_, index) => {
+    if (index === 80) return makeThread("older-switcher", { title: "Thread switcher" });
+    if (index === 110) {
+      return makeThread("older-worktree", {
+        title: "Fix the build",
+        worktreePath: "/home/me/worktrees/t3-f31ecf88",
+      });
+    }
+    return makeThread(`older-${index}`, {
+      title: `Older thread ${index}`,
+      worktreePath: `/home/me/worktrees/t3-${index.toString(16).padStart(8, "0")}`,
+    });
+  }).map((thread) => ({ ...thread, settledOverride: "settled" as const }));
+  const older: OlderSettled = {
+    before: at(-1),
+    beforeMs: Date.parse(at(-1)),
+    counts: new Map([[olderThreads[0]!.projectId, olderThreads.length]]),
+  };
+
+  // Drives upstream's page loading as useOlderSettledShelfGrowth does, over the switcher's shelf,
+  // until it asks for no more pages, and returns the rows those pages mount.
+  function loadedOlderThreads(includeSettled: boolean): Thread[] {
+    const shelf = threadSwitcherOlderSettledShelf([environmentId], includeSettled);
+    const pagesOf = (count: number): OlderSettledPages => ({
+      reads: [],
+      frontier:
+        count * PAGE_SIZE >= olderThreads.length
+          ? null
+          : count === 0
+            ? { settledAt: older.before }
+            : { settledAt: at(count * PAGE_SIZE - 1), threadId: ThreadId.make("t") },
+      status: "ready",
+    });
+    let requested: ReadonlyMap<EnvironmentId, number> = new Map();
+    for (;;) {
+      const next = wantedOlderSettledPages({
+        requested,
+        environments: new Map(
+          shelf.scopes.map((scope) => [
+            scope.environmentId,
+            { older, pages: pagesOf(requested.get(scope.environmentId) ?? 0) },
+          ]),
+        ),
+        listedCount: 0,
+        // useOlderSettledShelf shows nothing while the shelf is collapsed.
+        visibleCount: shelf.expanded ? shelf.visibleCount : 0,
+      });
+      if (next === requested) break;
+      requested = next;
+    }
+    return olderThreads.slice(0, (requested.get(environmentId) ?? 0) * PAGE_SIZE);
+  }
+
+  const queries = ["thsw", "f31ecf", "older thread", ""];
+
+  it("finds older settled threads the shells leave out, as if every thread were loaded", () => {
+    expect(rank(shellThreads, { query: "thsw", includeSettled: true })).toEqual(["recent-settled"]);
+    expect(rank(shellThreads, { query: "f31ecf", includeSettled: true })).toEqual([]);
+
+    const loaded = [...shellThreads, ...loadedOlderThreads(true)];
+    expect(loaded).toHaveLength(shellThreads.length + olderThreads.length);
+    expect(rank(loaded, { query: "thsw", includeSettled: true })).toContain("older-switcher");
+    expect(rank(loaded, { query: "f31ecf", includeSettled: true })).toEqual(["older-worktree"]);
+    for (const query of queries) {
+      expect(rank(loaded, { query, includeSettled: true })).toEqual(
+        rank([...shellThreads, ...olderThreads], { query, includeSettled: true }),
+      );
+    }
   });
 
-  it("searches nothing while settled threads are hidden", () => {
-    expect(threadSwitcherSearchEnvironmentIds(environments, false)).toEqual([]);
+  it("loads nothing while settled threads are hidden", () => {
+    expect(loadedOlderThreads(false)).toEqual([]);
   });
 });

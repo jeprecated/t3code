@@ -2,6 +2,7 @@ import {
   effectiveSnoozed,
   type ThreadSnoozeShell,
 } from "@t3tools/client-runtime/state/thread-settled";
+import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 import { normalizeSearchQuery, scoreQueryMatch } from "@t3tools/shared/searchRanking";
 
 import type { EnvironmentId } from "@t3tools/contracts";
@@ -30,20 +31,23 @@ export type ThreadSwitcherThread = ThreadSnoozeShell &
   >;
 
 /**
- * The environments to search for older settled threads, which shells leave out: every connected
- * one while settled threads show, none otherwise.
+ * The Settled shelf the switcher reads while settled threads show: every page of older settled
+ * threads (which shells leave out) in every environment, so a search matches the threads it would
+ * if every thread were loaded. Nothing loads while settled threads are hidden.
  */
-export function threadSwitcherSearchEnvironmentIds(
-  environments: ReadonlyArray<{
-    readonly environmentId: EnvironmentId;
-    readonly connection: { readonly phase: string };
-  }>,
+export function threadSwitcherOlderSettledShelf(
+  environmentIds: ReadonlyArray<EnvironmentId>,
   includeSettled: boolean,
-): EnvironmentId[] {
-  if (!includeSettled) return [];
-  return environments
-    .filter((environment) => environment.connection.phase === "connected")
-    .map((environment) => environment.environmentId);
+): {
+  readonly scopes: ReadonlyArray<OlderSettledScope>;
+  readonly expanded: boolean;
+  readonly visibleCount: number;
+} {
+  return {
+    scopes: environmentIds.map((environmentId) => ({ environmentId, projectIds: null })),
+    expanded: includeSettled,
+    visibleCount: Number.POSITIVE_INFINITY,
+  };
 }
 
 function worktreeName(path: string | null): string | null {
