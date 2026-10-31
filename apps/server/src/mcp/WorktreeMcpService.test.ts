@@ -307,6 +307,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
           listLocalBranchNames,
           localStatus,
           fetchWorktreeBaseCommit,
+          jujutsuCommandFor: () => Effect.succeed(null),
           createWorktree,
           removeWorktree,
           deleteLocalBranch,

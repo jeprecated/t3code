@@ -84,6 +84,8 @@ export class GitWorkflowService extends Context.Service<
       readonly remoteName: string;
       readonly refName?: string;
     }) => Effect.Effect<void, GitCommandError>;
+    readonly jujutsuCommandFor: GitManager.GitManager["Service"]["jujutsuCommandFor"];
+    readonly fetchJjBase: GitVcsDriver.GitVcsDriver["Service"]["fetchJjBase"];
     readonly remoteExists: (input: {
       readonly cwd: string;
       readonly remoteName: string;
@@ -422,6 +424,12 @@ export const make = Effect.gen(function* () {
     fetchRemote: Effect.fn("GitWorkflowService.fetchRemote")(function (input) {
       return ensureGitCommand("GitWorkflowService.fetchRemote", input.cwd).pipe(
         Effect.andThen(git.fetchRemote(input)),
+      );
+    }),
+    jujutsuCommandFor: gitManager.jujutsuCommandFor,
+    fetchJjBase: Effect.fn("GitWorkflowService.fetchJjBase")(function (input) {
+      return ensureGitCommand("GitWorkflowService.fetchJjBase", input.cwd).pipe(
+        Effect.andThen(git.fetchJjBase(input)),
       );
     }),
     remoteExists: Effect.fn("GitWorkflowService.remoteExists")(function (input) {
