@@ -9,6 +9,8 @@ import {
   archiveSelectedThreadEntries,
   countSidebarThreadsNeedingUserOutsideScope,
   deleteSelectedThreadEntries,
+  filterSidebarV2VisibleThreads,
+  sidebarOlderSettledCountedThreads,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
   resolveSidebarRowThreadId,
@@ -45,6 +47,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-sort";
 import { resolveProjectExpanded } from "../uiStateStore";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+import { unloadedOlderSettledCount } from "@t3tools/client-runtime/state/threads";
 import { EnvironmentId, ProjectId, ProviderInstanceId, RunId, ThreadId } from "@t3tools/contracts";
 
 import {
@@ -1689,6 +1692,58 @@ describe("resolveSidebarFolderDot", () => {
     expect(resolveSidebarFolderDot([idle, working])).toBe("working");
     expect(resolveSidebarFolderDot([working, unread])).toBe("unread");
     expect(resolveSidebarFolderDot([unread, limited])).toBe("attention");
+  });
+});
+
+describe("sidebarOlderSettledCountedThreads", () => {
+  const environmentId = EnvironmentId.make("environment-test");
+  const projectId = ProjectId.make("project-test");
+  const olderSettled = (id: string) =>
+    makeThreadFixture({
+      id: ThreadId.make(id),
+      settledOverride: "settled",
+      settledAt: "2026-01-01T00:00:00.000Z",
+    });
+  // Two older settled threads in one project: one in the category, one outside it.
+  const inCategory = olderSettled("in-category");
+  const outsideCategory = olderSettled("outside-category");
+  const threads = [inCategory, outsideCategory];
+  const inScope = (thread: (typeof threads)[number]) => thread.id === inCategory.id;
+  const unloaded = (held: ReadonlyArray<(typeof threads)[number]>) =>
+    unloadedOlderSettledCount({
+      olderSettled: () => ({
+        before: "2026-02-01T00:00:00.000Z",
+        beforeMs: Date.parse("2026-02-01T00:00:00.000Z"),
+        counts: new Map([[projectId, 2]]),
+      }),
+      scopes: [{ environmentId, projectIds: null }],
+      threads: held,
+    });
+
+  it("leaves nothing unloaded under a category once every page has loaded", () => {
+    const visibleThreads = filterSidebarV2VisibleThreads(threads, inScope, new Set());
+    expect(unloaded(visibleThreads)).toBe(1);
+    const counted = sidebarOlderSettledCountedThreads({
+      threads,
+      visibleThreads,
+      inScope,
+      pagesEveryProject: true,
+      delegatedUnderParent: new Set(),
+    });
+    expect(unloaded(counted)).toBe(0);
+  });
+
+  it("keeps the scope's own threads when pages follow a project scope", () => {
+    const visibleThreads = filterSidebarV2VisibleThreads(threads, inScope, new Set());
+    expect(
+      sidebarOlderSettledCountedThreads({
+        threads,
+        visibleThreads,
+        inScope,
+        pagesEveryProject: false,
+        delegatedUnderParent: new Set(),
+      }),
+    ).toBe(visibleThreads);
   });
 });
 

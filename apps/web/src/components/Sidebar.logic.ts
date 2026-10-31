@@ -637,6 +637,27 @@ export function filterSidebarV2VisibleThreads<
   );
 }
 
+/**
+ * The held threads the server's older settled counts cover, to subtract from them. The counts are
+ * per project, so under a category, whose pages read every project, they cover every visible
+ * thread, not only the category's; subtracting only those would count the rest as unloaded even
+ * once every page has loaded.
+ */
+export function sidebarOlderSettledCountedThreads<
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage">,
+>(input: {
+  readonly threads: readonly T[];
+  readonly visibleThreads: readonly T[];
+  readonly inScope: ((thread: T) => boolean) | null;
+  /** Older settled pages read every project: no project scope applies. */
+  readonly pagesEveryProject: boolean;
+  readonly delegatedUnderParent: ReadonlySet<string>;
+}): readonly T[] {
+  return input.pagesEveryProject && input.inScope !== null
+    ? filterSidebarV2VisibleThreads(input.threads, null, input.delegatedUnderParent)
+    : input.visibleThreads;
+}
+
 /** Threads a scope hides that are blocked on the user, so a focus never buries them. */
 export function countSidebarThreadsNeedingUserOutsideScope<
   T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & SidebarThreadStatusInput,
