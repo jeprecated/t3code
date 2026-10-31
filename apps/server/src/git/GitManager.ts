@@ -46,6 +46,9 @@ import {
   type ThreadPullRequestKey,
   type VcsCreateWorktreeInput,
   type VcsCreateWorktreeResult,
+  type VcsListRefsInput,
+  type VcsListRefsResult,
+  type VcsRemoveWorktreeInput,
 } from "@t3tools/contracts";
 import {
   hasProjectSettingsOverrides,
@@ -152,6 +155,12 @@ export class GitManager extends Context.Service<
       input: VcsCreateWorktreeInput,
       options?: GitVcsDriver.CreateWorktreeOptions,
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
+    readonly listRefs: (
+      input: VcsListRefsInput,
+    ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
+    readonly removeWorktree: (
+      input: VcsRemoveWorktreeInput,
+    ) => Effect.Effect<void, GitCommandError>;
     readonly status: (
       input: VcsStatusInput,
     ) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
@@ -973,6 +982,7 @@ export const make = Effect.gen(function* () {
     const result = yield* gitCore.createWorktree(input, {
       ...(yield* readWorktreeCreationSettings),
       jujutsu: settings?.jujutsuWorkspaces ?? false,
+      ...(settings ? { jujutsuCommand: settings.jujutsuCommand } : {}),
       ...options,
       submodules:
         options?.submodules !== undefined
@@ -984,6 +994,25 @@ export const make = Effect.gen(function* () {
     }
     return result;
   });
+
+  const listRefs: GitManager["Service"]["listRefs"] = (input) =>
+    projectSettingsFor(input).pipe(
+      Effect.map(({ settings }) =>
+        settings.jujutsuWorkspaces ? { jujutsuCommand: settings.jujutsuCommand } : {},
+      ),
+      // Best effort, like createWorktree: without settings, list git refs only.
+      Effect.orElseSucceed(() => ({})),
+      Effect.flatMap((options) => gitCore.listRefs(input, options)),
+    );
+
+  // Forgets the jj workspace whatever `jujutsuWorkspaces` says now, so turning
+  // the setting off strands nothing.
+  const removeWorktree: GitManager["Service"]["removeWorktree"] = (input) =>
+    serverSettingsService.getSettings.pipe(
+      Effect.map((settings) => ({ jujutsuCommand: settings.jujutsuCommand })),
+      Effect.orElseSucceed(() => ({})),
+      Effect.flatMap((options) => gitCore.removeWorktree(input, options)),
+    );
 
   const readRepositoryInstructions = Effect.fn("GitManager.readRepositoryInstructions")(
     function* (cwd: string, fileName: string) {
@@ -3943,6 +3972,7 @@ export const make = Effect.gen(function* () {
               Effect.map(({ settings }) => ({
                 submodules: settings.worktreeSubmodules,
                 jujutsu: settings.jujutsuWorkspaces,
+                jujutsuCommand: settings.jujutsuCommand,
               })),
               Effect.orElseSucceed(() => ({ submodules: null, jujutsu: false })),
             )),
@@ -4316,6 +4346,8 @@ export const make = Effect.gen(function* () {
 
   return GitManager.of({
     createWorktree,
+    listRefs,
+    removeWorktree,
     localStatus,
     remoteStatus,
     status,
