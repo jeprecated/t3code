@@ -2716,6 +2716,7 @@
   "fc2c9a91f498ad6b": "{count, plural, one {{count} processus de terminal en cours. Ouvrir le terminal} other {{count} processus de terminal en cours. Ouvrir le terminal}}",
   "56f37ff8ca568059": "pile",
   "6831e9a46cbd8939": "chaîne",
+  "0dc81224bed5a64c": "Chargement des fils plus anciens…",
   "d34dce937c4ba5b9": "Aucun fil correspondant.",
   "1273165d616173e5": "Aucun fil actif correspondant. Appuyez sur Tab pour inclure les fils clos.",
   "ea634f411e69995a": "Aucun fil.",

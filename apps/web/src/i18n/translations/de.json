@@ -2717,6 +2717,7 @@
   "fc2c9a91f498ad6b": "{count, plural, one {{count} Terminal-Prozess läuft. Terminal öffnen} other {{count} Terminal-Prozesse laufen. Terminal öffnen}}",
   "56f37ff8ca568059": "Stack",
   "6831e9a46cbd8939": "Kette",
+  "0dc81224bed5a64c": "Ältere Threads werden geladen…",
   "d34dce937c4ba5b9": "Keine passenden Threads.",
   "1273165d616173e5": "Keine passenden aktiven Threads. Drücke Tab, um erledigte Threads einzubeziehen.",
   "ea634f411e69995a": "Keine Threads.",
