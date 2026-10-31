@@ -205,6 +205,7 @@ import {
   applySidebarThreadDrop,
   countSidebarThreadsNeedingUserOutsideScope,
   filterSidebarV2VisibleThreads,
+  sidebarOlderSettledCountedThreads,
   groupSidebarThreadsByProject,
   sidebarFolderExpansionKeys,
   buildBulkTitleRegenerationContextMenuItem,
@@ -537,7 +538,16 @@ function useSidebarThreads(input: {
   const listedSettledThreads = settledThreads.filter(olderSettledShelf.isListed);
   useOlderSettledShelfGrowth(olderSettledShelf, listedSettledThreads);
   const settledCount =
-    settledThreads.length + olderSettledShelf.unloadedCount(partition.visibleThreads);
+    settledThreads.length +
+    olderSettledShelf.unloadedCount(
+      sidebarOlderSettledCountedThreads({
+        threads,
+        visibleThreads: partition.visibleThreads,
+        inScope,
+        pagesEveryProject: scopedProjectKeys === null,
+        delegatedUnderParent,
+      }),
+    );
   const visibleSettledThreads = (() => {
     const visible = listedSettledThreads.slice(0, settledVisibleCount);
     if (
