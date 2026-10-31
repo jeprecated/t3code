@@ -156,9 +156,25 @@ export interface CreateWorktreeOptions {
    * worktree as a colocated jj workspace instead of with `git worktree add`.
    */
   readonly jujutsu?: boolean;
+  /** The `jujutsuCommand` setting, which runs jj for a jj workspace. */
+  readonly jujutsuCommand?: string;
   readonly worktreesDirectory?: string;
   /** Clone the checkout from the macOS worktree checkout cache. */
   readonly fastCheckout?: boolean;
+}
+
+export interface RemoveWorktreeOptions {
+  /** The `jujutsuCommand` setting, which forgets the worktree's jj workspace. */
+  readonly jujutsuCommand?: string;
+}
+
+export interface ListRefsOptions {
+  /**
+   * The `jujutsuCommand` setting, set when the project creates jj workspaces:
+   * the repository's jj bookmarks are then offered as bases too, since a
+   * workspace jj leaves at a detached HEAD may have no git branch to offer.
+   */
+  readonly jujutsuCommand?: string;
 }
 
 export interface GitCommitProgress {
@@ -398,6 +414,7 @@ export class GitVcsDriver extends Context.Service<
     ) => Effect.Effect<string | null, GitCommandError>;
     readonly listRefs: (
       input: VcsListRefsInput,
+      options?: ListRefsOptions,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
     readonly pullCurrentBranch: (cwd: string) => Effect.Effect<VcsPullResult, GitCommandError>;
     readonly createWorktree: (
@@ -459,6 +476,7 @@ export class GitVcsDriver extends Context.Service<
     ) => Effect.Effect<void, GitCommandError>;
     readonly removeWorktree: (
       input: VcsRemoveWorktreeInput,
+      options?: RemoveWorktreeOptions,
     ) => Effect.Effect<void, GitCommandError>;
     readonly pruneWorktrees: (input: {
       readonly cwd: string;
