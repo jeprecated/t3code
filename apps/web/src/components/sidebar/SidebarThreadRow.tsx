@@ -352,7 +352,10 @@ function SidebarThreadTooltip({
         {backgroundWork ? (
           <div className="flex min-w-0 items-center gap-2">
             {backgroundWork.waiting ? (
-              <CircleDotDashedIcon aria-hidden className="size-3 shrink-0 stroke-muted-foreground" />
+              <CircleDotDashedIcon
+                aria-hidden
+                className="size-3 shrink-0 stroke-muted-foreground"
+              />
             ) : (
               <SquareTerminalIcon aria-hidden className="size-3 shrink-0 stroke-muted-foreground" />
             )}

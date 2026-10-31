@@ -235,7 +235,11 @@ export function backgroundWorkNowItem(input: {
           threadId={input.threadId}
           item={only.task}
         >
-          {only.task.command ? <span className="font-mono">{only.task.command}</span> : "Show output"}
+          {only.task.command ? (
+            <span className="font-mono">{only.task.command}</span>
+          ) : (
+            "Show output"
+          )}
         </BackgroundCommandOutput>
       ) : only.task.command ? (
         <span className="font-mono">{only.task.command}</span>
