@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { makeThreadFixture } from "../test-fixtures";
 import type { Thread } from "../types";
-import { rankThreadSwitcherThreads } from "./ThreadSwitcher.logic";
+import {
+  rankThreadSwitcherThreads,
+  threadSwitcherSearchEnvironmentIds,
+} from "./ThreadSwitcher.logic";
 
 const NOW = "2026-03-01T12:00:00.000Z";
 
@@ -98,5 +101,21 @@ describe("rankThreadSwitcherThreads", () => {
 
     expect(rank(threads, { currentThreadKey })).toEqual(["next", "current"]);
     expect(rank(threads, { query: "current", currentThreadKey })).toEqual(["current"]);
+  });
+});
+
+describe("threadSwitcherSearchEnvironmentIds", () => {
+  const environments = [
+    { environmentId: EnvironmentId.make("local"), connection: { phase: "connected" } },
+    { environmentId: EnvironmentId.make("remote"), connection: { phase: "connecting" } },
+    { environmentId: EnvironmentId.make("desk"), connection: { phase: "connected" } },
+  ];
+
+  it("searches every connected environment for older settled threads once they show", () => {
+    expect(threadSwitcherSearchEnvironmentIds(environments, true)).toEqual(["local", "desk"]);
+  });
+
+  it("searches nothing while settled threads are hidden", () => {
+    expect(threadSwitcherSearchEnvironmentIds(environments, false)).toEqual([]);
   });
 });
