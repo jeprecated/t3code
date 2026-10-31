@@ -8,6 +8,8 @@ import { useState } from "react";
 import { useClientSettings } from "~/hooks/useSettings";
 import { sortThreads } from "@t3tools/client-runtime/state/thread-sort";
 import { useDelegatedUnderParent, useProjects, useThreadShells } from "~/state/entities";
+import { useEnvironments } from "~/state/environments";
+import { useThreadSearch } from "~/state/queries";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "~/threadRoutes";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
@@ -17,7 +19,10 @@ import { CommandPaletteContent } from "./CommandPaletteContent";
 import { CommandPaletteResults } from "./CommandPaletteResults";
 import { ThreadCommandSubtitle } from "./ThreadCommandSubtitle";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
-import { rankThreadSwitcherThreads } from "./ThreadSwitcher.logic";
+import {
+  rankThreadSwitcherThreads,
+  threadSwitcherSearchEnvironmentIds,
+} from "./ThreadSwitcher.logic";
 import { Kbd, KbdGroup } from "./ui/kbd";
 
 export function ThreadSwitcher(props: { readonly setOpen: (open: boolean) => void }) {
@@ -28,6 +33,12 @@ export function ThreadSwitcher(props: { readonly setOpen: (open: boolean) => voi
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
   const [now] = useState(() => new Date().toISOString());
   const threads = useThreadShells();
+  const { environments } = useEnvironments();
+  // Mounts older settled threads matching the query, which shells leave out, so the ranking below
+  // finds them too.
+  useThreadSearch(threadSwitcherSearchEnvironmentIds(environments, includeSettled), query, {
+    titlesOnly: true,
+  });
   const projects = useProjects();
   const delegatedUnderParent = useDelegatedUnderParent();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
