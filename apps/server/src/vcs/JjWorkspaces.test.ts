@@ -223,4 +223,55 @@ it.layer(layerTest)("jj workspaces", (it) => {
         assert.include(workspaceNames(jj), "testhost/t3-change");
       }),
   );
+
+  it.effect.skipIf(!hasSupportedJj)(
+    "starts a jj base from origin after jj git fetch, else from the local bookmark",
+    () =>
+      Effect.gen(function* () {
+        const { cwd: origin } = yield* makeRepo({ jj: false });
+        const path = yield* Path.Path;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const clone = path.join(path.dirname(origin), "clone");
+        yield* git(path.dirname(origin), ["clone", "--quiet", origin, clone]);
+        const jj = (args: ReadonlyArray<string>) => {
+          const result = NodeChildProcess.spawnSync("jj", ["--no-pager", ...args], {
+            cwd: clone,
+            encoding: "utf8",
+          });
+          assert.equal(result.status, 0, result.stderr);
+          return result.stdout.trim();
+        };
+        jj(["git", "init", "--colocate"]);
+        jj(["bookmark", "create", "local-only", "-r", "@-"]);
+        const branch = yield* git(origin, ["branch", "--show-current"]);
+        // origin moves on after the clone, so only a fetch can see this commit.
+        yield* fileSystem.writeFileString(path.join(origin, "upstream.txt"), "new\n");
+        yield* git(origin, ["add", "."]);
+        yield* git(origin, ["commit", "-m", "upstream"]);
+        const fetchBase = (refName: string) =>
+          driver.fetchJjBase({ cwd: clone, refName, jujutsuCommand: "jj" });
+
+        assert.equal(yield* fetchBase(branch), yield* git(origin, ["rev-parse", "HEAD"]));
+        assert.equal(
+          yield* fetchBase("local-only"),
+          jj(["log", "--no-graph", "-r", "local-only", "-T", "commit_id"]),
+        );
+        assert.equal(yield* fetchBase("missing"), null);
+      }),
+  );
+
+  it.effect.skipIf(!hasSupportedJj)("fails a jj base fetch with jj's error", () =>
+    Effect.gen(function* () {
+      const { cwd } = yield* makeRepo({ jj: true });
+      const driver = yield* GitVcsDriver.GitVcsDriver;
+
+      const error = yield* driver
+        .fetchJjBase({ cwd, refName: "main", jujutsuCommand: "jj" })
+        .pipe(Effect.flip);
+
+      assert.equal(error.command, "jj git fetch");
+      assert.match(error.detail, /^Error: /);
+    }),
+  );
 });

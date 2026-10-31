@@ -4162,6 +4162,37 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       ),
     );
 
+  const requireJjRoot = Effect.fn("GitVcsDriver.requireJjRoot")(function* (
+    operation: string,
+    command: string,
+    cwd: string,
+  ) {
+    const root = yield* resolveJjRoot(cwd);
+    if (root === null) {
+      return yield* new GitCommandError({
+        operation,
+        command,
+        cwd,
+        detail:
+          "Jujutsu workspaces are on for this project, but its repository has no .jj folder beside .git. Run `jj git init --colocate` in the repository, or turn the setting off.",
+      });
+    }
+    return root;
+  });
+
+  const fetchJjBase: GitVcsDriver.GitVcsDriver["Service"]["fetchJjBase"] = Effect.fn("fetchJjBase")(
+    function* (input) {
+      const operation = "GitVcsDriver.fetchJjBase";
+      const root = yield* requireJjRoot(operation, "jj git fetch", input.cwd);
+      const query = { operation, jjCommand: input.jujutsuCommand, cwd: root, ref: input.refName };
+      yield* jj.gitFetch(query);
+      return (
+        (yield* jj.resolveCommit({ ...query, remote: "origin" })) ??
+        (yield* jj.resolveCommit(query))
+      );
+    },
+  );
+
   // Creates the worktree as a colocated jj workspace, then leaves git where
   // `git worktree add` would: on the new branch, on `refName` when that is a
   // local branch, and otherwise detached at `refName`.
@@ -4171,16 +4202,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     jjCommand: string | undefined,
   ) {
     const operation = "GitVcsDriver.createWorktree";
-    const root = yield* resolveJjRoot(input.cwd);
-    if (root === null) {
-      return yield* new GitCommandError({
-        operation,
-        command: "jj workspace add",
-        cwd: input.cwd,
-        detail:
-          "Jujutsu workspaces are on for this project, but its repository has no .jj folder beside .git. Run `jj git init --colocate` in the repository, or turn the setting off.",
-      });
-    }
+    const root = yield* requireJjRoot(operation, "jj workspace add", input.cwd);
     yield* jj.requireSupportedVersion(operation, jjCommand ?? "jj", root);
 
     const branch =
@@ -5136,6 +5158,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     readBranchBase,
     resolveBranchName,
     listRefs,
+    fetchJjBase: Effect.fnUntraced(function* (input) {
+      return yield* withListRefsInvalidation(input.cwd, fetchJjBase(input));
+    }),
     createWorktree: Effect.fnUntraced(function* (input, options) {
       return yield* createWorktree(input, options).pipe(
         Effect.ensuring(invalidateWorktreeCreationCaches(input.cwd)),

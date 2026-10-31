@@ -129,6 +129,11 @@ export class GitManager extends Context.Service<
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
+    /**
+     * The `jujutsuCommand` setting when the project at `cwd` creates jj
+     * workspaces, else null. Best effort: unreadable settings mean null.
+     */
+    readonly jujutsuCommandFor: (input: { readonly cwd: string }) => Effect.Effect<string | null>;
     readonly removeWorktree: (
       input: VcsRemoveWorktreeInput,
     ) => Effect.Effect<void, GitCommandError>;
@@ -781,14 +786,17 @@ export const make = Effect.gen(function* () {
     return result;
   });
 
-  const listRefs: GitManager["Service"]["listRefs"] = (input) =>
+  const jujutsuCommandFor: GitManager["Service"]["jujutsuCommandFor"] = (input) =>
     projectSettingsFor(input).pipe(
-      Effect.map(({ settings }) =>
-        settings.jujutsuWorkspaces ? { jujutsuCommand: settings.jujutsuCommand } : {},
+      Effect.map(({ settings }) => (settings.jujutsuWorkspaces ? settings.jujutsuCommand : null)),
+      Effect.orElseSucceed(() => null),
+    );
+
+  const listRefs: GitManager["Service"]["listRefs"] = (input) =>
+    jujutsuCommandFor(input).pipe(
+      Effect.flatMap((jujutsuCommand) =>
+        gitCore.listRefs(input, jujutsuCommand === null ? {} : { jujutsuCommand }),
       ),
-      // Best effort, like createWorktree: without settings, list git refs only.
-      Effect.orElseSucceed(() => ({})),
-      Effect.flatMap((options) => gitCore.listRefs(input, options)),
     );
 
   // Forgets the jj workspace whatever `jujutsuWorkspaces` says now, so turning
@@ -3268,6 +3276,7 @@ export const make = Effect.gen(function* () {
   return GitManager.of({
     createWorktree,
     listRefs,
+    jujutsuCommandFor,
     removeWorktree,
     localStatus,
     remoteStatus,
