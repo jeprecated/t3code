@@ -19,6 +19,7 @@ import {
   orchestrationV2RunWorkStartedAt,
   type RunId,
   type ThreadId,
+  type TurnItemId,
 } from "@t3tools/contracts";
 import {
   backgroundWorkHoldsCompletion,
@@ -365,6 +366,10 @@ export interface PendingBackgroundWorkItem {
   readonly kind: BackgroundWorkKind;
   readonly label: string;
   readonly childThreadId: ThreadId | undefined;
+  /** The command line, omitted when the label already is the command. */
+  readonly command: string | undefined;
+  /** The command row streaming this command's output; absent for a provider-listed task. */
+  readonly itemId: TurnItemId | undefined;
 }
 
 export interface PendingBackgroundWorkPresentation {
@@ -394,6 +399,11 @@ export function presentPendingBackgroundWork(
             : task.kind === "command" || task.kind === "monitor"
               ? commandDisplayText(description)
               : description;
+      // Shown as the label is, so a shell wrapper alone doesn't count as adding to it.
+      const command =
+        task.kind === "command" && task.command !== undefined
+          ? commandDisplayText(task.command)
+          : undefined;
       return {
         taskId: task.taskId,
         kind: task.kind,
@@ -402,6 +412,9 @@ export function presentPendingBackgroundWork(
             ? BACKGROUND_WORK_KINDS[task.kind].singular
             : label,
         childThreadId: task.kind === "subagent" ? task.childThreadId : undefined,
+        command:
+          command === undefined || command.length === 0 || command === label ? undefined : command,
+        itemId: task.kind === "command" ? task.itemId : undefined,
       };
     })
     // `map` returned a new array; Hermes has no `toSorted`.

@@ -5,8 +5,10 @@ import * as NodeOS from "node:os";
 import {
   AgentScope,
   agentScopeCommand,
+  type AgentScopeCommand,
   type AgentScopeShape,
   type AgentSystemdScope,
+  withPathPrefix,
 } from "@t3tools/shared/AgentScope";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveCommandPath } from "@t3tools/shared/shell";
@@ -99,7 +101,22 @@ const MAX_TRACKED_THREADS = 500;
 
 export const make = Effect.gen(function* () {
   const platform = yield* HostProcess.Platform;
-  if (platform !== "linux") return AgentScope.defaultValue();
+  const pathPrefixByThread = new Map<string, string>();
+  const setPathPrefix: AgentScopeShape["setPathPrefix"] = (threadId, directory) =>
+    Effect.sync(() => {
+      if (directory === undefined) pathPrefixByThread.delete(threadId);
+      else pathPrefixByThread.set(threadId, directory);
+    });
+  const prefixed = (threadId: string | undefined) => (launch: AgentScopeCommand) =>
+    withPathPrefix(launch, threadId === undefined ? undefined : pathPrefixByThread.get(threadId));
+  if (platform !== "linux") {
+    const unscoped = AgentScope.defaultValue();
+    return {
+      ...unscoped,
+      wrap: (input) => unscoped.wrap(input).pipe(Effect.map(prefixed(input.threadId))),
+      setPathPrefix,
+    } satisfies AgentScopeShape;
+  }
 
   const runner = yield* ProcessRunner.ProcessRunner;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -382,48 +399,51 @@ export const make = Effect.gen(function* () {
     if (scope !== undefined) yield* track(scope.systemctl, threadId, undefined);
   });
 
+  const scoped = Effect.fn("AgentScope.wrap")(function* ({
+    command,
+    args,
+    name,
+    threadId,
+    env,
+    survivesRestart,
+    shared,
+  }: Parameters<AgentScopeShape["wrap"]>[0]) {
+    const resolved = yield* resolve(command, env ?? hostEnvironment);
+    if (resolved === null) return { command, args };
+    const scope = yield* systemd;
+    if (scope === undefined) return agentScopeCommand({ command: resolved, args });
+    const unit = `t3code-${name}-${NodeCrypto.randomUUID().slice(0, 8)}.scope`;
+    // A continuing shared scope cannot attribute a tool's OOM to one thread.
+    // Clear the launch thread's previous scope instead.
+    const continuing = shared === true && scope.supportsOomPolicy;
+    const owned = threadId !== undefined && !continuing;
+    if (threadId !== undefined)
+      yield* track(scope.systemctl, threadId, owned ? unit : undefined, shared === true);
+    const systemdScope: AgentSystemdScope = {
+      systemdRun: scope.systemdRun,
+      runtimeDir: scope.runtimeDir,
+      slice: survivesRestart === true ? AGENT_SLICE : ownedSlice,
+      unit,
+      // Without an owning thread nothing reads the result, so let systemd
+      // unload the unit even when it fails.
+      options: [
+        ...SCOPE_OPTIONS,
+        ...(scope.supportsOomPolicy
+          ? [`--property=OOMPolicy=${continuing ? "continue" : "stop"}`]
+          : []),
+        ...(owned ? [] : ["--collect"]),
+      ],
+    };
+    return { ...agentScopeCommand({ command: resolved, args, scope: systemdScope }), unit };
+  });
+
   return {
-    wrap: Effect.fn("AgentScope.wrap")(function* ({
-      command,
-      args,
-      name,
-      threadId,
-      env,
-      survivesRestart,
-      shared,
-    }) {
-      const resolved = yield* resolve(command, env ?? hostEnvironment);
-      if (resolved === null) return { command, args };
-      const scope = yield* systemd;
-      if (scope === undefined) return agentScopeCommand({ command: resolved, args });
-      const unit = `t3code-${name}-${NodeCrypto.randomUUID().slice(0, 8)}.scope`;
-      // A continuing shared scope cannot attribute a tool's OOM to one thread.
-      // Clear the launch thread's previous scope instead.
-      const continuing = shared === true && scope.supportsOomPolicy;
-      const owned = threadId !== undefined && !continuing;
-      if (threadId !== undefined)
-        yield* track(scope.systemctl, threadId, owned ? unit : undefined, shared === true);
-      const systemdScope: AgentSystemdScope = {
-        systemdRun: scope.systemdRun,
-        runtimeDir: scope.runtimeDir,
-        slice: survivesRestart === true ? AGENT_SLICE : ownedSlice,
-        unit,
-        // Without an owning thread nothing reads the result, so let systemd
-        // unload the unit even when it fails.
-        options: [
-          ...SCOPE_OPTIONS,
-          ...(scope.supportsOomPolicy
-            ? [`--property=OOMPolicy=${continuing ? "continue" : "stop"}`]
-            : []),
-          ...(owned ? [] : ["--collect"]),
-        ],
-      };
-      return { ...agentScopeCommand({ command: resolved, args, scope: systemdScope }), unit };
-    }),
+    wrap: (input) => scoped(input).pipe(Effect.map(prefixed(input.threadId))),
     oomKilled,
     stop,
     kill,
     clear,
+    setPathPrefix,
   } satisfies AgentScopeShape;
 });
 

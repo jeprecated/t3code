@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 
-import { ResolvedKeybindingsConfig } from "./keybindings.ts";
+import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings.ts";
 
 const decode = <S extends Schema.Top>(
   schema: S,
@@ -48,5 +48,33 @@ it.effect("drops malformed resolved rule entries", () =>
       parsed.map((rule) => rule.command),
       ["terminal.toggle"],
     );
+  }),
+);
+
+it.effect("accepts the snooze commands", () =>
+  Effect.gen(function* () {
+    const parsedThreadSnooze = yield* decode(KeybindingRule, {
+      key: "mod+alt+shift+z",
+      command: "thread.snooze",
+      when: "!terminalFocus",
+    });
+    assert.strictEqual(parsedThreadSnooze.command, "thread.snooze");
+
+    const parsedThreadSnoozePreset = yield* decode(KeybindingRule, {
+      key: "mod+alt+t",
+      command: "thread.snooze.tomorrow",
+    });
+    assert.strictEqual(parsedThreadSnoozePreset.command, "thread.snooze.tomorrow");
+  }),
+);
+
+it.effect("accepts new-thread preset commands and rejects malformed preset ids", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decode(KeybindingRule, { key: "mod+1", command: "preset.quick.new" });
+    assert.strictEqual(parsed.command, "preset.quick.new");
+    const invalid = yield* Effect.exit(
+      decode(KeybindingRule, { key: "mod+1", command: "preset.Quick.new" }),
+    );
+    assert.strictEqual(invalid._tag, "Failure");
   }),
 );

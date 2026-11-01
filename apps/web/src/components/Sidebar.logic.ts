@@ -1,8 +1,11 @@
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
+import {
+  backgroundWorkHoldsCompletion,
+  hasRunningBackgroundCommand,
+} from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
-import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
 import {
@@ -648,12 +651,10 @@ export function resolveSidebarRowThreadId(
  * the sidebar lists, by thread key; they show under that thread, as subagents do.
  */
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage"> & {
-    projectId: string;
-  },
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage">,
 >(
   threads: readonly T[],
-  scopedProjectKeys: ReadonlySet<string> | null,
+  inScope: ((thread: T) => boolean) | null,
   delegatedUnderParent: ReadonlySet<string>,
 ): T[] {
   return threads.filter(
@@ -664,9 +665,43 @@ export function filterSidebarV2VisibleThreads<
         thread.lineage,
         delegatedUnderParent,
       ) &&
-      (scopedProjectKeys === null ||
-        scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+      (inScope === null || inScope(thread)),
   );
+}
+
+/**
+ * The held threads the server's older settled counts cover, to subtract from them. The counts are
+ * per project, so under a category, whose pages read every project, they cover every visible
+ * thread, not only the category's; subtracting only those would count the rest as unloaded even
+ * once every page has loaded.
+ */
+export function sidebarOlderSettledCountedThreads<
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage">,
+>(input: {
+  readonly threads: readonly T[];
+  readonly visibleThreads: readonly T[];
+  readonly inScope: ((thread: T) => boolean) | null;
+  /** Older settled pages read every project: no project scope applies. */
+  readonly pagesEveryProject: boolean;
+  readonly delegatedUnderParent: ReadonlySet<string>;
+}): readonly T[] {
+  return input.pagesEveryProject && input.inScope !== null
+    ? filterSidebarV2VisibleThreads(input.threads, null, input.delegatedUnderParent)
+    : input.visibleThreads;
+}
+
+/** Threads a scope hides that are blocked on the user, so a focus never buries them. */
+export function countSidebarThreadsNeedingUserOutsideScope<
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & SidebarThreadStatusInput,
+>(threads: readonly T[], inScope: ((thread: T) => boolean) | null): number {
+  if (inScope === null) return 0;
+  let count = 0;
+  for (const thread of threads) {
+    if (thread.archivedAt !== null || isSidebarHiddenThread(thread) || inScope(thread)) continue;
+    const status = resolveSidebarThreadStatus(thread);
+    if (status === "approval" || status === "input") count += 1;
+  }
+  return count;
 }
 
 export function buildBulkTitleRegenerationContextMenuItem(input: {
@@ -704,7 +739,8 @@ export interface ThreadStatusPill {
     | "Awaiting Input"
     | "Guest Request"
     | "Waiting"
-    | "Plan Ready";
+    | "Plan Ready"
+    | "Running";
   colorClass: string;
   dotClass: string;
   pulse: boolean;
@@ -720,6 +756,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Waiting: 2.5,
   "Plan Ready": 2,
   Completed: 1,
+  Running: 0.5,
 };
 
 type ThreadStatusInput = Pick<
@@ -1247,6 +1284,15 @@ export function resolveThreadStatusPill(input: {
       label: "Completed",
       colorClass: "text-emerald-600 dark:text-emerald-300/90",
       dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+      pulse: false,
+    };
+  }
+
+  if (hasRunningBackgroundCommand(thread.pendingBackgroundTasks ?? [])) {
+    return {
+      label: "Running",
+      colorClass: "text-sidebar-muted-foreground",
+      dotClass: "bg-sidebar-muted-foreground",
       pulse: false,
     };
   }

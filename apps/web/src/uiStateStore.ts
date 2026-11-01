@@ -1,5 +1,6 @@
 import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@t3tools/contracts";
+import type { SidebarCategoryScope } from "@t3tools/client-runtime/state/sidebar-categories";
 import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "@t3tools/client-runtime/state/projects";
 
@@ -28,6 +29,7 @@ export interface PersistedUiState {
   defaultAdvertisedEndpointKey?: string | null;
   sidebarProjectScopeKey?: string | null;
   sidebarProjectScopeKeys?: string[];
+  sidebarCategoryScope?: SidebarCategoryScope | null;
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
@@ -37,6 +39,8 @@ export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
   sidebarProjectScopeKeys: string[];
+  // At most one of the project scope and the category scope is set.
+  sidebarCategoryScope: SidebarCategoryScope | null;
 }
 
 export interface UiThreadState {
@@ -59,6 +63,7 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   sidebarProjectScopeKeys: [],
+  sidebarCategoryScope: null,
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
@@ -99,6 +104,17 @@ function sanitizeOptionalKey(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+function sanitizeCategoryScope(value: unknown): SidebarCategoryScope | null {
+  if (!value || typeof value !== "object" || !("type" in value)) return null;
+  if (value.type === "uncategorized") return { type: "uncategorized" };
+  return value.type === "category" &&
+    "categoryId" in value &&
+    typeof value.categoryId === "string" &&
+    value.categoryId.length > 0
+    ? { type: "category", categoryId: value.categoryId }
+    : null;
+}
+
 function sanitizeTimestampRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object") {
     return {};
@@ -119,6 +135,9 @@ function isPullRequestMergeMethod(value: unknown): value is PullRequestMergeMeth
 }
 
 export function parsePersistedState(parsed: PersistedUiState): UiState {
+  const projectScopeKeys = sanitizeStringArray(
+    parsed.sidebarProjectScopeKeys ?? [parsed.sidebarProjectScopeKey],
+  );
   const projectExpandedById =
     parsed.projectExpandedById === undefined
       ? (() => {
@@ -151,9 +170,9 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
         ? sanitizePersistedThreadChangedFilesExpanded(parsed.threadChangedFilesExpandedById)
         : {},
     defaultAdvertisedEndpointKey: sanitizeOptionalKey(parsed.defaultAdvertisedEndpointKey),
-    sidebarProjectScopeKeys: sanitizeStringArray(
-      parsed.sidebarProjectScopeKeys ?? [parsed.sidebarProjectScopeKey],
-    ),
+    sidebarProjectScopeKeys: projectScopeKeys,
+    sidebarCategoryScope:
+      projectScopeKeys.length > 0 ? null : sanitizeCategoryScope(parsed.sidebarCategoryScope),
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
@@ -233,6 +252,7 @@ export function persistState(state: UiState): void {
           state.sidebarProjectScopeKeys.length === 1
             ? (state.sidebarProjectScopeKeys[0] ?? null)
             : null,
+        sidebarCategoryScope: state.sidebarCategoryScope,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
@@ -333,15 +353,42 @@ function setDefaultAdvertisedEndpointKey(state: UiState, key: string | null): Ui
 
 function setSidebarProjectScopeKeys(state: UiState, projectKeys: readonly string[]): UiState {
   const nextKeys = sanitizeStringArray(projectKeys);
+  const nextCategoryScope = nextKeys.length === 0 ? state.sidebarCategoryScope : null;
   if (
     nextKeys.length === state.sidebarProjectScopeKeys.length &&
-    nextKeys.every((key, index) => key === state.sidebarProjectScopeKeys[index])
+    nextKeys.every((key, index) => key === state.sidebarProjectScopeKeys[index]) &&
+    state.sidebarCategoryScope === nextCategoryScope
   ) {
     return state;
   }
   return {
     ...state,
     sidebarProjectScopeKeys: nextKeys,
+    sidebarCategoryScope: nextCategoryScope,
+  };
+}
+
+export function setSidebarCategoryScope(
+  state: UiState,
+  scope: SidebarCategoryScope | null,
+): UiState {
+  const nextScope = sanitizeCategoryScope(scope);
+  const keepsProjectKeys = nextScope === null || state.sidebarProjectScopeKeys.length === 0;
+  const current = state.sidebarCategoryScope;
+  const sameScope =
+    current === nextScope ||
+    (current !== null &&
+      nextScope !== null &&
+      current.type === nextScope.type &&
+      (current.type === "uncategorized" ||
+        (nextScope.type === "category" && current.categoryId === nextScope.categoryId)));
+  if (sameScope && keepsProjectKeys) {
+    return state;
+  }
+  return {
+    ...state,
+    sidebarProjectScopeKeys: keepsProjectKeys ? state.sidebarProjectScopeKeys : [],
+    sidebarCategoryScope: nextScope,
   };
 }
 
@@ -434,6 +481,7 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKeys: (projectKeys: readonly string[]) => void;
+  setSidebarCategoryScope: (scope: SidebarCategoryScope | null) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
@@ -455,6 +503,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setSidebarProjectScopeKeys: (projectKeys) =>
     set((state) => setSidebarProjectScopeKeys(state, projectKeys)),
+  setSidebarCategoryScope: (scope) => set((state) => setSidebarCategoryScope(state, scope)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),

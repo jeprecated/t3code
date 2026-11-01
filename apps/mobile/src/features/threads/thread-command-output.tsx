@@ -17,18 +17,35 @@ export function useCommandOutputStreaming(environmentId: EnvironmentId): boolean
   );
 }
 
-/** Mount only while useCommandOutputStreaming holds; unmount to stop subscriptions for collapsed rows or other threads. */
-export function ThreadCommandOutput(props: {
-  readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
-  readonly itemId: TurnItemId;
-  readonly themeAppearance: "light" | "dark";
-}) {
+/** True when the environment streams the output of background commands its providers list. */
+export function useBackgroundTaskOutput(environmentId: EnvironmentId): boolean {
+  return (
+    useServerConfigs().get(environmentId)?.environment.capabilities.backgroundTaskOutput === true
+  );
+}
+
+/**
+ * A command row's output, or a background command's by `taskId`. Mount only while
+ * useCommandOutputStreaming (for a task, useBackgroundTaskOutput) holds; unmount to stop
+ * subscriptions for collapsed rows or other threads.
+ */
+export function ThreadCommandOutput(
+  props: {
+    readonly environmentId: EnvironmentId;
+    readonly threadId: ThreadId;
+    readonly themeAppearance: "light" | "dark";
+  } & ({ readonly itemId: TurnItemId } | { readonly taskId: string }),
+) {
   const { data, error } = useEnvironmentQuery(
-    orchestrationEnvironment.v2.commandOutput({
-      environmentId: props.environmentId,
-      input: { threadId: props.threadId, itemId: props.itemId },
-    }),
+    "itemId" in props
+      ? orchestrationEnvironment.v2.commandOutput({
+          environmentId: props.environmentId,
+          input: { threadId: props.threadId, itemId: props.itemId },
+        })
+      : orchestrationEnvironment.v2.backgroundTaskOutput({
+          environmentId: props.environmentId,
+          input: { threadId: props.threadId, taskId: props.taskId },
+        }),
   );
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const followRef = useRef(true);

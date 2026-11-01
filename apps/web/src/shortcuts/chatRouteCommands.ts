@@ -1,4 +1,8 @@
-import { AuthPreviewOperateScope, type EnvironmentId } from "@t3tools/contracts";
+import {
+  AuthPreviewOperateScope,
+  type EnvironmentId,
+  type KeybindingCommand,
+} from "@t3tools/contracts";
 import type { AnyRouter } from "@tanstack/react-router";
 
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
@@ -10,6 +14,8 @@ import { isAppModalPage } from "../components/sidebar/mainAppLocation";
 import { shouldCreateNewThreadInCurrentProject } from "../components/Sidebar.logic";
 import { createNewThreadHandler, resolveDefaultProjectRef } from "../hooks/useHandleNewThread";
 import { createScratchProjectActions } from "../hooks/useScratchProject";
+import { createStartNewThreadPreset } from "../hooks/useStartNewThreadPreset";
+import { newThreadPresetIdFromCommand } from "../newThreadPresets";
 import { getClientSettings } from "../hooks/useSettings";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { selectProjectGroupingSettings } from "@t3tools/client-runtime/state/project-grouping";
@@ -19,6 +25,7 @@ import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { readProjects, readThreadShell } from "../state/entities";
 import { environmentPresentations } from "../state/presentation";
 import { primaryEnvironmentIdAtom } from "../state/primaryEnvironment";
+import { primaryServerSettingsAtom } from "../state/server";
 import { readEnvironmentScope } from "../state/session";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
@@ -89,6 +96,32 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
   const canOperatePreview = (environmentId: EnvironmentId) =>
     readEnvironmentScope(environmentId, AuthPreviewOperateScope);
 
+  const startNewThreadPreset = createStartNewThreadPreset({
+    context: readThreadContext,
+    scratch,
+    primaryEnvironmentId: () => appAtomRegistry.get(primaryEnvironmentIdAtom),
+    environments: () =>
+      [...appAtomRegistry.get(environmentPresentations.presentationsAtom)].map(
+        ([environmentId, presentation]) => ({
+          environmentId,
+          label: presentation.entry.target.label,
+          connection: presentation.connection,
+        }),
+      ),
+  });
+  const presetCommand = (command: KeybindingCommand): CommandHandler | undefined => {
+    const presetId = newThreadPresetIdFromCommand(command);
+    if (presetId === null) return undefined;
+    return (event) => {
+      const preset = appAtomRegistry
+        .get(primaryServerSettingsAtom)
+        .newThreadPresets.find((candidate) => candidate.id === presetId);
+      if (!preset) return false;
+      claim(event);
+      if (!event.repeat) void startNewThreadPreset(preset);
+    };
+  };
+
   const claim = (event: KeyboardEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -121,6 +154,10 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
         if (environmentId === null) return;
         claim(event);
         void scratch.startScratchThread(environmentId);
+      },
+      "chat.newFromPreset": (event) => {
+        claim(event);
+        openCommandPalette({ open: "new-thread-preset" });
       },
       "chat.new": (event) => {
         // The boring sidebar's folders already show the context, so it starts in
@@ -183,6 +220,7 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
           previewOpen: readPreviewOpen(),
         };
       },
+      fallback: presetCommand,
       onKeyDown: (event) => {
         if (event.key !== "Escape") return false;
         const selection = useThreadSelectionStore.getState();

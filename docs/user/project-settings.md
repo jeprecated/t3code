@@ -165,9 +165,9 @@ than** on the task.
 ## Defaults and inheritance
 
 Threads contains the model and workspace for new threads. Browser controls agent browser
-access. Source control contains automatic pull, the default pull request merge method and text
-generation. The same rows edit environment defaults or project overrides depending on the
-project crumb.
+access. Source control contains automatic pull, Jujutsu workspaces, the default pull request merge
+method and text generation. The same rows edit environment defaults or project overrides depending
+on the project crumb.
 
 The Projects category, under Code, holds the project's name, icon, actions,
 checkouts and removal. Actions belong to a project: editing them creates the project's own list
@@ -192,6 +192,16 @@ New worktrees go in the `worktrees` folder of the T3 home directory. To put them
 such as another drive, set **Settings → Worktrees → Worktree location** to an absolute path like
 `D:\worktrees` or `~/worktrees`. The setting is per machine. Existing worktrees stay where they
 are, and cleanup covers both the default folder and the custom one.
+
+## Jujutsu workspaces
+
+If you use [Jujutsu](https://jj-vcs.github.io/jj/) in a colocated repository (`.jj` beside
+`.git`), turn on **Jujutsu workspaces** in **Settings → Source Control**, with the project selected to
+turn it on for one project only. New worktrees are then created with `jj workspace add`, so they
+appear in `jj workspace list` and `jj log` as well as `git worktree list`. Everything else in the
+worktree still runs git. It needs jj 0.46 or newer on the machine running T3 Code; without it, or
+in a repository that is not colocated, creating the worktree fails with a message saying why.
+Removing a worktree also removes jj's workspace, whether or not the setting is still on.
 
 ## Storage cleanup
 

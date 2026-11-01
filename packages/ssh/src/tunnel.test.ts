@@ -1,11 +1,17 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeNet from "node:net";
+
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Result from "effect/Result";
 import * as Sink from "effect/Sink";
@@ -446,3 +452,330 @@ describe("ssh tunnel scripts", () => {
 // desktop app with network access on) listens on *:<port>. Linux refuses that
 // bind unless both sockets set SO_REUSEPORT, so on Linux the preload adds it to
 // the picker's probe and the holder sets it too.
+
+const runScript = (home: string, args: ReadonlyArray<string>, path = process.env.PATH ?? "") =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const child = yield* spawner.spawn(
+      ChildProcess.make("sh", args, {
+        env: { PATH: path, HOME: home },
+        extendEnv: false,
+      }),
+    );
+    const [stdout, stderr, exitCode] = yield* Effect.all(
+      [
+        child.stdout.pipe(
+          Stream.decodeText(),
+          Stream.runFold(
+            () => "",
+            (acc, chunk) => acc + chunk,
+          ),
+        ),
+        child.stderr.pipe(
+          Stream.decodeText(),
+          Stream.runFold(
+            () => "",
+            (acc, chunk) => acc + chunk,
+          ),
+        ),
+        child.exitCode.pipe(Effect.map(Number)),
+      ],
+      { concurrency: "unbounded" },
+    );
+    return { stdout, stderr, exitCode };
+  });
+
+describe("archive runner script", () => {
+  const hostPlatform = HostProcess.Platform.defaultValue();
+  const hostArch = HostProcess.Architecture.defaultValue();
+  const windowsHost = hostPlatform === "win32";
+  const archiveVersion = "1.2.3-preview.20260911.4";
+  // The runner runs a t3 it finds on PATH, so hide any the test machine has.
+  const pathWithoutT3 = Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const directories = yield* Effect.forEach((process.env.PATH ?? "").split(":"), (directory) =>
+      fs.exists(`${directory}/t3`).pipe(Effect.map((hasT3) => (hasT3 ? [] : [directory]))),
+    );
+    return directories.flat().join(":");
+  });
+
+  const runRunner = (home: string, runner: string, path: string) =>
+    runScript(home, [runner, "--version"], path);
+
+  const makeMirror = Effect.fn("makeMirror")(function* (root: string) {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const platform = hostPlatform === "darwin" ? "darwin" : "linux";
+    const arch = hostArch === "arm64" ? "arm64" : "x64";
+    const stem = `t3-${archiveVersion}-${platform}-${arch}`;
+    const stage = `${root}/stage/${stem}`;
+    const release = `${root}/mirror/v${archiveVersion}`;
+    const script = [
+      "set -eu",
+      `mkdir -p '${stage}' '${release}'`,
+      `printf '#!/bin/sh\\necho t3 v${archiveVersion}\\n' > '${stage}/t3'`,
+      `chmod +x '${stage}/t3'`,
+      `tar -czf '${release}/${stem}.tar.gz' -C '${root}/stage' '${stem}'`,
+      `cd '${release}' && (sha256sum '${stem}.tar.gz' 2>/dev/null || shasum -a 256 '${stem}.tar.gz') > SHA256SUMS`,
+    ].join("\n");
+    const child = yield* spawner.spawn(ChildProcess.make("sh", ["-c", script]));
+    assert.equal(Number(yield* child.exitCode), 0);
+    return `file://${root}/mirror`;
+  });
+
+  // A host's own t3 stands in for a version it lacks, so hosts running
+  // different builds still connect; the exact version still wins.
+  it.effect.skipIf(windowsHost)(
+    "runs the host's own t3 instead of downloading a missing version",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-host-runner-" });
+        const runner = `${root}/run-t3.sh`;
+        yield* fs.writeFileString(
+          runner,
+          SshTunnel.buildRemoteT3RunnerScript({
+            archiveVersion,
+            releaseBaseUrl: `file://${root}/no-mirror`,
+          }),
+        );
+        const home = `${root}/home`;
+        yield* fs.makeDirectory(`${root}/bin`, { recursive: true });
+        yield* fs.makeDirectory(home, { recursive: true });
+        yield* fs.writeFileString(`${root}/bin/t3`, '#!/bin/sh\necho "host t3 $*"\n');
+        yield* fs.chmod(`${root}/bin/t3`, 0o755);
+        const path = `${root}/bin:${yield* pathWithoutT3}`;
+
+        const fallback = yield* runRunner(home, runner, path);
+        assert.equal(fallback.exitCode, 0, fallback.stderr);
+        assert.equal(fallback.stdout, "host t3 --version\n");
+        assert.isFalse(yield* fs.exists(`${home}/.t3/runtime/versions`));
+
+        const installed = `${home}/.t3/runtime/versions/${archiveVersion}`;
+        yield* fs.makeDirectory(installed, { recursive: true });
+        yield* fs.writeFileString(`${installed}/t3`, '#!/bin/sh\necho "installed t3"\n');
+        yield* fs.chmod(`${installed}/t3`, 0o755);
+        yield* fs.writeFileString(`${installed}/.install-complete`, `${archiveVersion}\n`);
+        const exact = yield* runRunner(home, runner, path);
+        assert.equal(exact.exitCode, 0, exact.stderr);
+        assert.equal(exact.stdout, "installed t3\n");
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+  it.effect.skipIf(windowsHost)("names the release file it could not download", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-archive-runner-" });
+      const releaseBaseUrl = yield* makeMirror(root);
+      const path = yield* pathWithoutT3;
+      const home = `${root}/home`;
+      yield* fs.makeDirectory(home, { recursive: true });
+      const versionsDir = `${home}/.t3/runtime/versions`;
+
+      const missingRelease = `${root}/run-missing-release.sh`;
+      yield* fs.writeFileString(
+        missingRelease,
+        SshTunnel.buildRemoteT3RunnerScript({ archiveVersion: "9.9.9", releaseBaseUrl }),
+      );
+      const noRelease = yield* runRunner(home, missingRelease, path);
+      assert.equal(noRelease.exitCode, 1);
+      assert.include(
+        noRelease.stderr,
+        `Could not download SHA256SUMS for t3 9.9.9 from ${releaseBaseUrl}/v9.9.9.`,
+      );
+
+      const tarball = (yield* fs.readDirectory(`${root}/mirror/v${archiveVersion}`)).find((name) =>
+        name.endsWith(".tar.gz"),
+      );
+      assert.isDefined(tarball);
+      yield* fs.remove(`${root}/mirror/v${archiveVersion}/${tarball}`);
+      const missingArchive = `${root}/run-missing-archive.sh`;
+      yield* fs.writeFileString(
+        missingArchive,
+        SshTunnel.buildRemoteT3RunnerScript({ archiveVersion, releaseBaseUrl }),
+      );
+      const noArchive = yield* runRunner(home, missingArchive, path);
+      assert.equal(noArchive.exitCode, 1);
+      assert.include(noArchive.stderr, `Could not download ${tarball} for t3 ${archiveVersion}`);
+      assert.isFalse(yield* fs.exists(`${versionsDir}/.${archiveVersion}.install.lock`));
+      assert.isFalse(yield* fs.exists(`${versionsDir}/${archiveVersion}`));
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("launch script", () => {
+  const windowsHost = HostProcess.Platform.defaultValue() === "win32";
+  const FAKE_SERVER = `const fs = require("node:fs");
+const http = require("node:http");
+const path = require("node:path");
+const args = process.argv.slice(2);
+const flag = (name) => args[args.indexOf(name) + 1];
+// --answer-once stalls every request after the first, like a busy server;
+// --exit-after-answer exits right after the first answer.
+const answerOnce = args.includes("--answer-once");
+const exitAfterAnswer = args.includes("--exit-after-answer");
+let answered = false;
+const server = http.createServer((_request, response) => {
+  if (answerOnce && answered) return;
+  answered = true;
+  response.end("ok", () => {
+    if (exitAfterAnswer) process.exit(0);
+  });
+});
+server.listen(Number(flag("--port")), "127.0.0.1", () => {
+  const port = server.address().port;
+  const userdata = path.join(flag("--base-dir"), "userdata");
+  fs.mkdirSync(userdata, { recursive: true });
+  fs.writeFileSync(
+    path.join(userdata, "server-runtime.json"),
+    JSON.stringify({ version: 1, pid: process.pid, port, origin: "http://127.0.0.1:" + port }),
+  );
+  console.log(port);
+});
+`;
+
+  const isAlive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const freeLoopbackPort = Effect.callback<number>((resume) => {
+    const server = NodeNet.createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      server.close(() =>
+        resume(Effect.succeed(typeof address === "object" && address ? address.port : 0)),
+      );
+    });
+  });
+
+  const launchResult = (stdout: string) => JSON.parse(stdout.trim().split("\n").at(-1) ?? "");
+
+  const prepareLaunch = Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-launch-script-" });
+    const home = `${root}/home`;
+    const stateDir = `${home}/.t3/ssh-launch/test-state`;
+    const fakeServer = `${root}/fake-t3.cjs`;
+    const launch = `${root}/launch.sh`;
+    yield* fs.makeDirectory(stateDir, { recursive: true });
+    yield* fs.writeFileString(`${stateDir}/port`, `${yield* freeLoopbackPort}\n`);
+    yield* fs.writeFileString(fakeServer, FAKE_SERVER);
+    yield* fs.writeFileString(
+      launch,
+      SshTunnel.buildRemoteLaunchScript({ nodeScriptPath: fakeServer }),
+    );
+    const readManagedPid = fs
+      .readFileString(`${stateDir}/pid`)
+      .pipe(Effect.map((pid) => Number(pid.trim())));
+    // Launched servers outlive the script, so stop each PID the script
+    // recorded, including one it recorded just before a failed assertion.
+    const launchedPids: Array<number> = [];
+    yield* Effect.addFinalizer(() =>
+      readManagedPid.pipe(
+        Effect.map((pid) => [...launchedPids, pid]),
+        Effect.orElseSucceed(() => launchedPids),
+        Effect.map((pids) => {
+          for (const pid of pids) {
+            if (isAlive(pid)) process.kill(pid, "SIGKILL");
+          }
+        }),
+      ),
+    );
+    const runLaunchScript = runScript(home, [launch, "test-state"]);
+    const runLaunch = runLaunchScript.pipe(
+      Effect.map((result) => {
+        assert.equal(result.exitCode, 0, result.stderr);
+        return launchResult(result.stdout);
+      }),
+    );
+    const launchManaged = Effect.gen(function* () {
+      const launched = yield* runLaunch;
+      const pid = yield* readManagedPid;
+      launchedPids.push(pid);
+      assert.equal(launched.serverKind, "managed");
+      return { launched, pid };
+    });
+    // An unreaped server runs under a parent that never waits on it, so once it
+    // exits it lingers as a zombie.
+    const startDefaultHomeServer = (
+      flags: ReadonlyArray<string>,
+      options?: { readonly unreaped?: boolean },
+    ) =>
+      Effect.gen(function* () {
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const args = [fakeServer, "serve", "--port", "0", "--base-dir", `${home}/.t3`, ...flags];
+        const server = yield* spawner.spawn(
+          options?.unreaped
+            ? ChildProcess.make("sh", ["-c", 'node "$@" & exec sleep 600', "sh", ...args])
+            : ChildProcess.make("node", args),
+        );
+        const port = yield* server.stdout.pipe(
+          Stream.decodeText(),
+          Stream.splitLines,
+          Stream.runHead,
+        );
+        return Number(Option.getOrThrow(port));
+      });
+    return {
+      home,
+      stateDir,
+      launch,
+      readManagedPid,
+      runLaunchScript,
+      runLaunch,
+      launchManaged,
+      startDefaultHomeServer,
+    };
+  });
+
+  it.effect.skipIf(windowsHost)(
+    "on an attach-only host, refuses to start a server or install a runner",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const { home, stateDir, runLaunchScript } = yield* prepareLaunch;
+        yield* fs.writeFileString(`${home}/.t3/${SshTunnel.REMOTE_ATTACH_ONLY_FILE}`, "");
+
+        const result = yield* runLaunchScript;
+        assert.equal(result.exitCode, 1);
+        assert.include(result.stderr, "only accepts connections to its own server");
+        assert.isFalse(yield* fs.exists(`${stateDir}/pid`));
+        assert.isFalse(yield* fs.exists(`${stateDir}/run-t3.sh`));
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect.skipIf(windowsHost)(
+    "on an attach-only host, tunnels to the host's running server",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const { home, stateDir, runLaunch, startDefaultHomeServer } = yield* prepareLaunch;
+        yield* fs.writeFileString(`${home}/.t3/${SshTunnel.REMOTE_ATTACH_ONLY_FILE}`, "");
+        const hostPort = yield* startDefaultHomeServer([]);
+
+        assert.deepEqual(yield* runLaunch, { remotePort: hostPort, serverKind: "external" });
+        assert.isFalse(yield* fs.exists(`${stateDir}/pid`));
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect.skipIf(windowsHost)(
+    "on an attach-only host, stopping leaves the host's servers running",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const { home, stateDir, launchManaged } = yield* prepareLaunch;
+        const { pid } = yield* launchManaged;
+        yield* fs.writeFileString(`${home}/.t3/${SshTunnel.REMOTE_ATTACH_ONLY_FILE}`, "");
+        const stop = `${stateDir}/../stop.sh`;
+        yield* fs.writeFileString(stop, SshTunnel.buildRemoteStopScript("test-state"));
+
+        const result = yield* runScript(home, [stop]);
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.isTrue(isAlive(pid));
+        assert.isFalse(yield* fs.exists(`${stateDir}/pid`));
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});

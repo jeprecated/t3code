@@ -438,6 +438,33 @@ const LenientThreadOpens = Schema.NullOr(OrchestrationV2ThreadOpens).pipe(
   Schema.catchDecoding(() => Effect.succeedSome(null)),
 );
 
+const CategoryIds = Schema.Array(Schema.String).pipe(
+  Schema.withDecodingDefault(Effect.succeed([])),
+);
+
+/**
+ * A thread's own changes to the categories its environment's rules give it,
+ * plus suggestion bookkeeping, so a dismissed or removed category is never
+ * offered again. Ids refer to `threadCategories` in server settings; unknown
+ * ids (a deleted category) are ignored rather than cleaned up.
+ */
+export const OrchestrationV2ThreadCategories = Schema.Struct({
+  included: CategoryIds,
+  excluded: CategoryIds,
+  suggested: CategoryIds,
+  dismissed: CategoryIds,
+  /** Substantive user messages the thread had when categories were last suggested. */
+  reviewedMessageCount: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+});
+export type OrchestrationV2ThreadCategories = typeof OrchestrationV2ThreadCategories.Type;
+
+/** `inherit` drops the thread's own choice, leaving the category to the rules. */
+export const OrchestrationV2ThreadCategoryChange = Schema.Struct({
+  categoryId: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  state: Schema.Literals(["include", "exclude", "inherit"]),
+});
+export type OrchestrationV2ThreadCategoryChange = typeof OrchestrationV2ThreadCategoryChange.Type;
+
 export const OrchestrationV2AppThread = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
@@ -483,6 +510,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   lastSnoozeWakeAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
   guestShare: Schema.optional(Schema.NullOr(ThreadGuestShare)),
+  categories: Schema.optional(Schema.NullOr(OrchestrationV2ThreadCategories)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -1018,7 +1046,17 @@ export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
       providerInstanceId: Schema.optional(ProviderInstanceId),
       childThreadId: Schema.optional(ThreadId),
     }),
-    Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("command") }),
+    Schema.Struct({
+      ...PendingBackgroundTaskFields,
+      kind: Schema.Literal("command"),
+      /** The shell command line, when the provider reports it apart from the description. */
+      command: Schema.optional(TrimmedNonEmptyString),
+      /**
+       * The still-running command row, whose output streams through subscribeCommandOutput.
+       * Absent for a provider-listed task: subscribeBackgroundTaskOutput reads that by taskId.
+       */
+      itemId: Schema.optional(TurnItemId),
+    }),
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("monitor") }),
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("background_task") }),
   ],
@@ -2117,6 +2155,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
+  categories: Schema.optional(Schema.NullOr(OrchestrationV2ThreadCategories)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -2980,6 +3019,16 @@ export const OrchestrationV2Command = Schema.Union([
     enabled: Schema.Boolean,
   }),
   Schema.Struct({
+    type: Schema.Literal("thread.categories.update"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    changes: Schema.optional(
+      Schema.Array(OrchestrationV2ThreadCategoryChange).check(Schema.isMaxLength(100)),
+    ),
+    /** Clears the pending suggestion; what it offered and `changes` did not include is dismissed. */
+    resolveSuggestion: Schema.optional(Schema.Boolean),
+  }),
+  Schema.Struct({
     type: Schema.Literal("thread.pin"),
     commandId: CommandId,
     threadId: ThreadId,
@@ -3474,6 +3523,13 @@ const OrchestrationV2InternalCommand = Schema.Union([
     providerTurnId: ProviderTurnId,
   }),
   Schema.Struct({
+    type: Schema.Literal("thread.categories.suggestion.record"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    suggested: Schema.Array(Schema.String).check(Schema.isMaxLength(100)),
+    reviewedMessageCount: NonNegativeInt,
+  }),
+  Schema.Struct({
     type: Schema.Literal("thread.background-work.settle"),
     commandId: CommandId,
     threadId: ThreadId,
@@ -3553,6 +3609,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   searchThreads: "orchestration.searchThreads",
   searchThread: "orchestration.searchThread",
   searchThreadStream: "orchestration.searchThreadStream",
+  suggestThreadCategories: "orchestration.suggestThreadCategories",
   getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
   getThreadFamily: "orchestration.getThreadFamily",
   getWorktreeThreadIds: "orchestration.getWorktreeThreadIds",
@@ -3566,6 +3623,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
   subscribeCommandOutput: "orchestration.subscribeCommandOutput",
+  subscribeBackgroundTaskOutput: "orchestration.subscribeBackgroundTaskOutput",
 } as const;
 
 export const OrchestrationV2SubscribeCommandOutputInput = Schema.Struct({
@@ -3574,6 +3632,13 @@ export const OrchestrationV2SubscribeCommandOutputInput = Schema.Struct({
 });
 export type OrchestrationV2SubscribeCommandOutputInput =
   typeof OrchestrationV2SubscribeCommandOutputInput.Type;
+
+export const OrchestrationV2SubscribeBackgroundTaskOutputInput = Schema.Struct({
+  threadId: ThreadId,
+  taskId: TrimmedNonEmptyString,
+});
+export type OrchestrationV2SubscribeBackgroundTaskOutputInput =
+  typeof OrchestrationV2SubscribeBackgroundTaskOutputInput.Type;
 
 /** Unpersisted stream for expanded rows: replace resets the bounded tail, append extends it, and running:false ends it.
  * Feed both through @t3tools/shared/terminalOutput appendTerminalOutput to preserve cursor and style escapes. */
@@ -4128,6 +4193,32 @@ export class OrchestrationV2SearchThreadError extends Schema.TaggedError<Orchest
   }
 }
 
+/**
+ * Asks the thread's environment to suggest from its `threadCategories`. The
+ * server decides whether a suggestion is due and stores the answer on the
+ * thread, so two clients asking at once still produce one model call.
+ */
+export const OrchestrationV2SuggestThreadCategoriesInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type OrchestrationV2SuggestThreadCategoriesInput =
+  typeof OrchestrationV2SuggestThreadCategoriesInput.Type;
+
+export const OrchestrationV2SuggestThreadCategoriesResult = Schema.Struct({
+  suggested: Schema.Array(Schema.String),
+});
+export type OrchestrationV2SuggestThreadCategoriesResult =
+  typeof OrchestrationV2SuggestThreadCategoriesResult.Type;
+
+export class OrchestrationV2SuggestThreadCategoriesError extends Schema.TaggedError<OrchestrationV2SuggestThreadCategoriesError>()(
+  "OrchestrationV2SuggestThreadCategoriesError",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not suggest categories for this thread.";
+  }
+}
+
 export const OrchestrationV2RpcSchemas = {
   searchThread: {
     input: OrchestrationV2SearchThreadInput,
@@ -4195,6 +4286,10 @@ export const OrchestrationV2RpcSchemas = {
   },
   subscribeCommandOutput: {
     input: OrchestrationV2SubscribeCommandOutputInput,
+    output: OrchestrationV2CommandOutputFrame,
+  },
+  subscribeBackgroundTaskOutput: {
+    input: OrchestrationV2SubscribeBackgroundTaskOutputInput,
     output: OrchestrationV2CommandOutputFrame,
   },
 } as const;
