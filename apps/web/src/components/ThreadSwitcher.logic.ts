@@ -8,7 +8,7 @@ import { normalizeSearchQuery, scoreQueryMatch } from "@t3tools/shared/searchRan
 import type { EnvironmentId } from "@t3tools/contracts";
 
 import type { SidebarThreadSummary } from "../types";
-import { isSidebarSubagentThread } from "./Sidebar.logic";
+import { isSidebarHiddenThread } from "./Sidebar.logic";
 
 export const THREAD_SWITCHER_RESULT_LIMIT = 50;
 
@@ -101,7 +101,7 @@ export function rankThreadSwitcherThreads<T extends ThreadSwitcherThread>(
   const ranked: Array<{ thread: T; score: number; index: number; current: boolean }> = [];
 
   for (const [index, thread] of threads.entries()) {
-    if (thread.archivedAt !== null || isSidebarSubagentThread(thread)) continue;
+    if (thread.archivedAt !== null || isSidebarHiddenThread(thread)) continue;
     if (
       !input.includeSettled &&
       (thread.settledOverride === "settled" || effectiveSnoozed(thread, { now: input.now }))
