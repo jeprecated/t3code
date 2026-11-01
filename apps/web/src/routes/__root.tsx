@@ -19,6 +19,8 @@ import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { GuestShareDialogHost } from "../components/chat/GuestShareControls";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
+import { SnoozePromptHost } from "../components/SnoozePrompt";
+import { NewThreadPresetNameDialogHost } from "../components/NewThreadPresetNameDialog";
 import { SidebarViewDialogHost } from "../components/SidebarViewDialog";
 import { ThreadCategoryDialogHost } from "../components/ThreadCategoryDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
@@ -170,6 +172,8 @@ function RootRouteBranch() {
     return (
       <>
         <CustomSnoozeDialogHost />
+        <SnoozePromptHost />
+        <NewThreadPresetNameDialogHost />
         <SidebarViewDialogHost />
         <ThreadCategoryDialogHost />
         <GuestShareDialogHost />
@@ -213,6 +217,8 @@ function RootRouteBranch() {
         <ReopenClosedViewShortcut />
         <ConfirmDialogHost />
         <CustomSnoozeDialogHost />
+        <SnoozePromptHost />
+        <NewThreadPresetNameDialogHost />
         <SidebarViewDialogHost />
         <ThreadCategoryDialogHost />
         <GuestShareDialogHost />

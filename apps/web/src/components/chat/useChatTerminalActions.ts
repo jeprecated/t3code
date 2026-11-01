@@ -40,7 +40,7 @@ import {
   focusActivePanelTerminal,
   focusTerminal,
 } from "../../lib/terminalFocus";
-import { useTerminalUiStateStore } from "../../terminalUiStateStore";
+import { type TerminalPlacement, useTerminalUiStateStore } from "../../terminalUiStateStore";
 import {
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
   LastInvokedScriptByProjectSchema,
@@ -112,6 +112,10 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     LastInvokedScriptByProjectSchema,
   );
   const storeSetTerminalOpen = useTerminalUiStateStore((s) => s.setTerminalOpen);
+  const terminalPlacement = useTerminalUiStateStore((s) => s.terminalPlacement);
+  const storeSetTerminalPlacement = useTerminalUiStateStore((s) => s.setTerminalPlacement);
+  const storeToggleTerminalPlacement = useTerminalUiStateStore((s) => s.toggleTerminalPlacement);
+  const storeCycleTerminalLayout = useTerminalUiStateStore((s) => s.cycleTerminalLayout);
   const storeEnsureTerminal = useTerminalUiStateStore((state) => state.ensureTerminal);
   const storeSplitTerminal = useTerminalUiStateStore((s) => s.splitTerminal);
   const storeSplitTerminalVertical = useTerminalUiStateStore((s) => s.splitTerminalVertical);
@@ -169,6 +173,34 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     setTerminalOpen(nextOpen);
   };
   const toggleTerminalVisibilityStable = useStableCallback(toggleTerminalVisibility);
+  const canShowTerminal =
+    activeProject !== null &&
+    (readEnvironmentScope(environmentId, AuthTerminalReadScope) || hasTerminalWriteAccess());
+  // Shows the terminal in the given placement, or hides it when it is already
+  // showing there. `terminal.toggle` instead shows and hides it wherever it was.
+  const toggleTerminalIn = (placement: TerminalPlacement) => {
+    if (!activeThreadRef) return;
+    if (terminalUiState.terminalOpen && terminalPlacement === placement) {
+      setTerminalOpen(false);
+      return;
+    }
+    // Placement is shared by every thread, so leave it alone when this
+    // thread cannot show a terminal.
+    if (!terminalUiState.terminalOpen && !canShowTerminal) return;
+    storeSetTerminalPlacement(placement);
+    if (terminalUiState.terminalOpen) {
+      focusActiveDrawerTerminal(activeThreadRef);
+      return;
+    }
+    toggleTerminalVisibility();
+  };
+  const toggleFloatingTerminalStable = useStableCallback(() => toggleTerminalIn("floating"));
+  const toggleDockedTerminalStable = useStableCallback(() => toggleTerminalIn("drawer"));
+  const swapTerminalPlacementStable = useStableCallback(() => {
+    if (!activeThreadRef) return;
+    storeToggleTerminalPlacement();
+    focusActiveDrawerTerminal(activeThreadRef);
+  });
   const splitTerminal = (direction: "horizontal" | "vertical" = "horizontal") => {
     if (!activeThreadRef || hasReachedSplitLimit) return;
     const launched = terminalActions.launchTerminal({
@@ -411,6 +443,19 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
         return false;
       toggleTerminalVisibility();
     },
+    "terminal.toggleFloating": ({ event }) => {
+      if (!terminalUiState.terminalOpen && !canShowTerminal) return false;
+      if (!event.repeat) toggleFloatingTerminalStable();
+    },
+    "terminal.cycleFloatingLayout": ({ event }) => {
+      // Only a visible terminal has a layout to change.
+      if (!terminalUiState.terminalOpen) return false;
+      if (!event.repeat) storeCycleTerminalLayout();
+    },
+    "terminal.toggleDocked": ({ event }) => {
+      if (!terminalUiState.terminalOpen) return false;
+      if (!event.repeat) swapTerminalPlacementStable();
+    },
     "terminal.split": ({ terminalFocusOwner }) => {
       if (!hasTerminalWriteAccess()) return false;
       if (terminalFocusOwner === "right-panel") return void splitPanelTerminal();
@@ -455,5 +500,7 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     splitPanelTerminalVerticalStable,
     splitTerminalStable,
     toggleTerminalVisibilityStable,
+    toggleDockedTerminalStable,
+    terminalPlacement,
   };
 }

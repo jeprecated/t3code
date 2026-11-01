@@ -6,7 +6,7 @@ import type {
   ThreadId,
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
-import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
+import { isOrchestrationV2WorkActive, TurnItemId } from "@t3tools/contracts";
 import * as Predicate from "effect/Predicate";
 
 import { resolveT3McpToolId } from "./t3McpToolPresentation.ts";
@@ -46,6 +46,15 @@ const SETTLED_FOR_BACKGROUND_WAIT_RUN_STATUSES = new Set<OrchestrationV2Run["sta
 void TERMINAL_RUN_STATUSES;
 
 export type PendingBackgroundWorkTask = OrchestrationV2PendingBackgroundTask;
+
+// The roster rides on every thread shell, so a long command line is cut rather than sent whole.
+const PENDING_BACKGROUND_COMMAND_MAX_LENGTH = 500;
+
+export function capPendingBackgroundCommand(command: string): string {
+  return command.length <= PENDING_BACKGROUND_COMMAND_MAX_LENGTH
+    ? command
+    : `${command.slice(0, PENDING_BACKGROUND_COMMAND_MAX_LENGTH - 1)}…`;
+}
 
 export function turnItemUpdateCanEndBackgroundWork(
   item: Pick<OrchestrationV2TurnItem, "type" | "status">,
@@ -92,6 +101,16 @@ export function backgroundWorkHoldsCompletion(
   return tasks.some(
     (task) => task.awaited === true || backgroundWorkKindHoldsCompletion(task.kind),
   );
+}
+
+/**
+ * A command left running, such as a dev server or an upload, does not hold completion, so the
+ * thread reads as finished. Thread lists still show it so the work is not invisible.
+ */
+export function hasRunningBackgroundCommand(
+  tasks: ReadonlyArray<Pick<PendingBackgroundWorkTask, "kind">>,
+): boolean {
+  return tasks.some((task) => task.kind === "command");
 }
 
 // Commands and monitors are as often a dev server or its watchdog as a wait, so they hold
@@ -191,8 +210,17 @@ function pendingTaskFromTurnItem(
           : { providerInstanceId: item.owningProviderInstanceId }),
         ...(item.childThreadId == null ? {} : { childThreadId: item.childThreadId }),
       };
-    case "command_execution":
-      return { ...named, kind: item.monitor === true ? "monitor" : "command" };
+    case "command_execution": {
+      const command = typeof item.input === "string" ? item.input.trim() : "";
+      return {
+        ...named,
+        kind: item.monitor === true ? "monitor" : "command",
+        ...(command.length === 0 || command === description
+          ? {}
+          : { command: capPendingBackgroundCommand(command) }),
+        itemId: TurnItemId.make(String(item.id)),
+      };
+    }
     default:
       return { ...named, kind: "background_task" };
   }

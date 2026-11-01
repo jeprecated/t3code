@@ -43,6 +43,27 @@ moves and the agent keeps working in the same place. Other threads in that folde
 move with it. Rename the project in its settings, and use **Initialize Git** to
 get branch and diff controls.
 
+### Start from a preset
+
+A preset saves a new thread's model, effort, and workspace, plus where it starts:
+a specific project on its machine, whichever project you are in, or no project.
+Set up a new thread the way you want it, open the command palette, and choose
+**Save draft as new-thread preset…**, then pick the project option. Saving under
+an existing name replaces that preset.
+
+A preset that follows your current project, or starts without one, can be tied to
+one machine, for example when its model's provider only exists there. Started
+from a project on another machine, it opens the same repository on the pinned
+machine, or no project there when that machine lacks the repository. It never
+starts elsewhere: while the pinned machine is disconnected, it shows a warning.
+Choose the machine when saving, or change it later in Settings → Threads.
+
+To pick a preset, bind **Chat: New From Preset** in Settings → Keybindings; it
+opens a list of your presets. They also appear at the top of **New thread in…**
+and under **New thread from preset…** in the command palette. To start one
+directly, bind its `preset.{id}.new` command. Presets are saved on each machine,
+and you can rename, re-pin, or delete them in Settings → Threads.
+
 ### Start in the background
 
 In a desktop browser or the desktop app, press `Cmd+Enter` on macOS or `Ctrl+Enter`
@@ -380,3 +401,5 @@ several selected threads together. Choose **Wake thread** to bring a thread back
 A snoozed thread keeps working and stays hidden until its wake time, even while
 its agent wakes itself for background work. It comes back early only when it needs
 an approval or answer from you, when a run fails, or when you send it a message.
+To snooze from the keyboard, bind `thread.snooze`; see
+[keybindings](./keybindings.md#commands-with-special-behavior).

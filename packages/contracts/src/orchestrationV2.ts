@@ -1046,7 +1046,17 @@ export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
       providerInstanceId: Schema.optional(ProviderInstanceId),
       childThreadId: Schema.optional(ThreadId),
     }),
-    Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("command") }),
+    Schema.Struct({
+      ...PendingBackgroundTaskFields,
+      kind: Schema.Literal("command"),
+      /** The shell command line, when the provider reports it apart from the description. */
+      command: Schema.optional(TrimmedNonEmptyString),
+      /**
+       * The still-running command row, whose output streams through subscribeCommandOutput.
+       * Absent for a provider-listed task: subscribeBackgroundTaskOutput reads that by taskId.
+       */
+      itemId: Schema.optional(TurnItemId),
+    }),
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("monitor") }),
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("background_task") }),
   ],
@@ -3613,6 +3623,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
   subscribeCommandOutput: "orchestration.subscribeCommandOutput",
+  subscribeBackgroundTaskOutput: "orchestration.subscribeBackgroundTaskOutput",
 } as const;
 
 export const OrchestrationV2SubscribeCommandOutputInput = Schema.Struct({
@@ -3621,6 +3632,13 @@ export const OrchestrationV2SubscribeCommandOutputInput = Schema.Struct({
 });
 export type OrchestrationV2SubscribeCommandOutputInput =
   typeof OrchestrationV2SubscribeCommandOutputInput.Type;
+
+export const OrchestrationV2SubscribeBackgroundTaskOutputInput = Schema.Struct({
+  threadId: ThreadId,
+  taskId: TrimmedNonEmptyString,
+});
+export type OrchestrationV2SubscribeBackgroundTaskOutputInput =
+  typeof OrchestrationV2SubscribeBackgroundTaskOutputInput.Type;
 
 /** Unpersisted stream for expanded rows: replace resets the bounded tail, append extends it, and running:false ends it.
  * Feed both through @t3tools/shared/terminalOutput appendTerminalOutput to preserve cursor and style escapes. */
@@ -4268,6 +4286,10 @@ export const OrchestrationV2RpcSchemas = {
   },
   subscribeCommandOutput: {
     input: OrchestrationV2SubscribeCommandOutputInput,
+    output: OrchestrationV2CommandOutputFrame,
+  },
+  subscribeBackgroundTaskOutput: {
+    input: OrchestrationV2SubscribeBackgroundTaskOutputInput,
     output: OrchestrationV2CommandOutputFrame,
   },
 } as const;
