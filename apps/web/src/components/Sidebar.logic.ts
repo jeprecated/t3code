@@ -694,7 +694,7 @@ export function countSidebarThreadsNeedingUserOutsideScope<
   if (inScope === null) return 0;
   let count = 0;
   for (const thread of threads) {
-    if (thread.archivedAt !== null || isSidebarSubagentThread(thread) || inScope(thread)) continue;
+    if (thread.archivedAt !== null || isSidebarHiddenThread(thread) || inScope(thread)) continue;
     const status = resolveSidebarThreadStatus(thread);
     if (status === "approval" || status === "input") count += 1;
   }

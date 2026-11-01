@@ -99,6 +99,8 @@ function makeLayer(
               faviconPath: null,
               projectIcon: null,
               scripts: [],
+              pinnedAt: null,
+              archivedAt: null,
               createdAt: "2026-10-17T00:00:00.000Z",
               updatedAt: "2026-10-17T00:00:00.000Z",
               deletedAt: null,
