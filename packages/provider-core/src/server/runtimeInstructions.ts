@@ -6,6 +6,10 @@ Link each PR you create, take over, or push to: link_pull_request, or link_pull_
 If available, call link_issue for each issue you take on or file, even via CLI; skip issues you only read.
 </pull_request_linking>`;
 
+const WAITING_ON_USER_INSTRUCTIONS = `<waiting_on_user>
+Before ending a turn that hands back something you need from the user, such as a choice or a step only they can take, call set_waiting with every open need. Skip it when you need nothing. Their next message clears the list, so set it again at the end of any later turn that still waits; after a wake resolves a wait, set what remains, or []. Delegated children never call it.
+</waiting_on_user>`;
+
 /** Omit model and effort when the harness manages them dynamically. */
 export function buildRuntimeInstructions(runtime: {
   readonly harness: string;
@@ -30,6 +34,7 @@ export function buildRuntimeInstructions(runtime: {
     runtime.runtimePolicy === undefined ? "" : buildWorkspaceInstructions(runtime.runtimePolicy);
   return [
     runtimeInfo,
+    WAITING_ON_USER_INSTRUCTIONS,
     ...(runtime.pullRequestLinking === false ? [] : [PULL_REQUEST_LINKING_INSTRUCTIONS]),
     ...(workspace === "" ? [] : [workspace]),
   ].join("\n\n");

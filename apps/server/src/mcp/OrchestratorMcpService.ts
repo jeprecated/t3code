@@ -1016,6 +1016,7 @@ function listItemFromShell(
     ...threadSnooze(shell, nowMs),
     pinned: shell.pinnedAt != null,
     ...threadBackgroundWork(shell),
+    waiting: shell.waiting ?? null,
     parentThreadId: shell.lineage.parentThreadId,
     relationshipToParent: shell.lineage.relationshipToParent,
     ...(shell.delegatedFrom == null ? {} : { delegatedFrom: shell.delegatedFrom }),
@@ -1084,6 +1085,7 @@ function threadDetail(
     ...threadSnooze(shell, nowMs),
     pinned: shell.pinnedAt != null,
     ...threadBackgroundWork(shell),
+    waiting: shell.waiting ?? null,
     createdAt: DateTime.formatIso(projection.thread.createdAt),
     updatedAt: DateTime.formatIso(projection.thread.updatedAt),
   };
@@ -3492,15 +3494,18 @@ const make = Effect.gen(function* () {
       const limit = input.limit ?? DEFAULT_THREAD_LIST_LIMIT;
       let page: ReadonlyArray<OrchestrationV2ThreadShell>;
       let total: number;
-      if (statuses === null && input.snoozed === undefined) {
+      if (statuses === null && input.snoozed === undefined && input.waiting === undefined) {
         total = candidates.length;
         page = yield* shellsOf(candidates.slice(cursor, cursor + limit));
       } else {
-        // Status and snooze state are derived from the shell.
+        // Status, snooze and wait state are derived from the shell.
         const filtered = (yield* shellsOf(candidates))
           .filter((thread) => statuses === null || statuses.has(listedThreadStatus(thread)))
           .filter(
             (thread) => input.snoozed === undefined || isSnoozed(thread, nowMs) === input.snoozed,
+          )
+          .filter(
+            (thread) => input.waiting === undefined || (thread.waiting != null) === input.waiting,
           );
         total = filtered.length;
         page = filtered.slice(cursor, cursor + limit);

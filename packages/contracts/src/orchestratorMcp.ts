@@ -39,6 +39,7 @@ import {
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
   OrchestrationV2DelegatedFrom,
+  OrchestrationV2ThreadWaiting,
   OrchestrationV2RunStatus,
   OrchestrationV2TurnItemStatus,
 } from "./orchestrationV2.ts";
@@ -367,6 +368,9 @@ export const OrchestratorMcpThreadListInput = Schema.Struct({
   titleContains: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(256))),
   settled: Schema.optional(Schema.Boolean),
   snoozed: Schema.optional(Schema.Boolean),
+  waiting: Schema.optional(
+    Schema.Boolean.annotate({ description: "true: only threads waiting on the user." }),
+  ),
   includeSubagents: Schema.optional(Schema.Boolean),
   cursor: Schema.optional(NonNegativeInt),
   limit: Schema.optional(clampedPositiveInt(100)),
@@ -423,6 +427,8 @@ export const OrchestratorMcpThreadListItem = Schema.Struct({
   blockedOnThreadWait: Schema.optional(Schema.Boolean),
   /** Absent from linked environments that predate it. */
   pendingBackgroundTasks: Schema.optional(Schema.Array(OrchestratorMcpThreadBackgroundTask)),
+  /** What the agent handed back needing from the user; see `set_waiting`. Absent from older environments. */
+  waiting: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWaiting)),
   parentThreadId: Schema.NullOr(ThreadId),
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
   /** The linked environment's thread that delegated this one; absent otherwise. */
@@ -500,6 +506,8 @@ export const OrchestratorMcpThreadDetail = Schema.Struct({
   blockedOnThreadWait: Schema.optional(Schema.Boolean),
   /** Absent from linked environments that predate it. */
   pendingBackgroundTasks: Schema.optional(Schema.Array(OrchestratorMcpThreadBackgroundTask)),
+  /** What the agent handed back needing from the user; see `set_waiting`. Absent from older environments. */
+  waiting: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWaiting)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

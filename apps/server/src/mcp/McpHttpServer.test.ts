@@ -1720,7 +1720,7 @@ it.effect("hides tools for links and refuses another environment while the beta 
 );
 
 it.effect(
-  "lists watch tools only to threads that are not delegated children, and forge tools only where the project has a forge",
+  "lists watch tools and set_waiting only to threads that are not delegated children, and forge tools only where the project has a forge",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -1746,7 +1746,7 @@ it.effect(
           ["noForgeToken", scopeFor("noForgeToken", false)],
         ]);
         const serverLayer = McpHttpServer.layerMcpTransport(
-          McpHttpServer.layerPullRequestsToolkit,
+          Layer.mergeAll(McpHttpServer.layerPullRequestsToolkit, McpHttpServer.layerWaitingToolkit),
         ).pipe(
           Layer.provide(ServerSettings.layerTest()),
           Layer.provide(
@@ -1816,11 +1816,13 @@ it.effect(
             "link_pull_request",
             "watch_pull_request",
             "unwatch_pull_request",
+            "set_waiting",
           ]),
         );
         expect(childTools).toContain("link_pull_request");
         expect(childTools).not.toContain("watch_pull_request");
         expect(childTools).not.toContain("unwatch_pull_request");
+        expect(childTools).not.toContain("set_waiting");
         expect(parentTools).toEqual(
           expect.arrayContaining([
             "pull_request_read",
