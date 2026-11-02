@@ -656,6 +656,68 @@ it.effect(
     }).pipe(Effect.provide(layerTest)),
 );
 
+it.effect("sets and replaces waits, and settling, archiving or a user message clears them", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:waits");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-waits"),
+      threadId,
+      projectId: ProjectId.make("project:waits"),
+      title: "Waits",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const decision = { kind: "decision" as const, summary: "Pick A or B.", options: ["A", "B"] };
+    const step = { kind: "manual_step" as const, summary: "Run nix switch on Lattice." };
+    let commands = 0;
+    const next = () => ({ commandId: CommandId.make(`waits-${(commands += 1)}`), threadId });
+    const setWaits = (items: ReadonlyArray<typeof decision | typeof step>) =>
+      orchestrator.dispatch({ ...next(), type: "thread.waiting.set", items });
+    const shellWaits = projections
+      .getThreadShell(threadId)
+      .pipe(Effect.map((shell) => shell?.waiting?.items ?? null));
+
+    yield* setWaits([decision]);
+    assert.deepEqual(yield* shellWaits, [decision]);
+    yield* setWaits([step, decision]);
+    assert.deepEqual(yield* shellWaits, [step, decision]);
+    yield* setWaits([]);
+    assert.isNull(yield* shellWaits);
+
+    yield* setWaits([step]);
+    yield* orchestrator.dispatch({ ...next(), type: "thread.settle" });
+    assert.isNull((yield* projections.getThread(threadId)).waiting);
+    yield* orchestrator.dispatch({ ...next(), type: "thread.unsettle", reason: "user" });
+
+    yield* setWaits([step]);
+    yield* orchestrator.dispatch({ ...next(), type: "thread.archive" });
+    assert.isNull((yield* projections.getThread(threadId)).waiting);
+    yield* orchestrator.dispatch({ ...next(), type: "thread.unarchive" });
+
+    yield* setWaits([decision]);
+    yield* TestClock.adjust("1 second");
+    yield* orchestrator.dispatch({
+      ...next(),
+      type: "message.dispatch",
+      messageId: MessageId.make("message:waits-reply"),
+      text: "A",
+      attachments: [],
+      dispatchMode: { type: "defer_start" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    assert.isNull(yield* shellWaits);
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("implements a proposed plan that the command projection leaves out", () =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;

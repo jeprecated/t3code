@@ -326,6 +326,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_thread_transfers: tool(["Read", "Reading", "Read", "thread transfers"], "thread-transfers"),
   t3_thread_organize: tool(["Organize", "Organizing", "Organized", "a thread"], "thread-organize"),
   t3_thread_update: tool(["Update", "Updating", "Updated", "T3 thread metadata"], "thread-update"),
+  set_waiting: tool(["Set", "Setting", "Set", "what the thread waits on"], "thread-update"),
   t3_thread_categories: tool(
     ["List", "Listing", "Listed", "thread categories"],
     "thread-categories",

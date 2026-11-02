@@ -1178,7 +1178,7 @@ it.effect("hides tools for links and refuses another environment while the beta 
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("lists pull request watch tools only to threads that are not delegated children", () =>
+it.effect("lists watch tools and set_waiting only to threads that are not subagents", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const scopeFor = (
@@ -1201,7 +1201,10 @@ it.effect("lists pull request watch tools only to threads that are not delegated
         ["parentToken", scopeFor("parentToken", false)],
         ["childToken", scopeFor("childToken", true)],
       ]);
-      const serverLayer = McpHttpServer.layerPullRequestsToolkit.pipe(
+      const serverLayer = Layer.mergeAll(
+        McpHttpServer.layerPullRequestsToolkit,
+        McpHttpServer.layerWaitingToolkit,
+      ).pipe(
         Layer.provideMerge(
           McpHttpServer.layerMcpTransport.pipe(Layer.provide(ServerSettings.layerTest())),
         ),
@@ -1258,11 +1261,17 @@ it.effect("lists pull request watch tools only to threads that are not delegated
       const parentTools = yield* listedTools("parentToken");
       const childTools = yield* listedTools("childToken");
       expect(parentTools).toEqual(
-        expect.arrayContaining(["link_pull_request", "watch_pull_request", "unwatch_pull_request"]),
+        expect.arrayContaining([
+          "link_pull_request",
+          "watch_pull_request",
+          "unwatch_pull_request",
+          "set_waiting",
+        ]),
       );
       expect(childTools).toContain("link_pull_request");
       expect(childTools).not.toContain("watch_pull_request");
       expect(childTools).not.toContain("unwatch_pull_request");
+      expect(childTools).not.toContain("set_waiting");
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

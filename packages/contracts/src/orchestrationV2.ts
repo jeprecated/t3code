@@ -418,6 +418,54 @@ export const OrchestrationV2LimitRecoveryUpdate = Schema.Struct({
 );
 export type OrchestrationV2LimitRecoveryUpdate = typeof OrchestrationV2LimitRecoveryUpdate.Type;
 
+export const MAX_THREAD_WAITS = 10;
+
+export const OrchestrationV2ThreadWaitKind = Schema.Literals([
+  "decision",
+  "manual_step",
+  "blocked",
+]);
+export type OrchestrationV2ThreadWaitKind = typeof OrchestrationV2ThreadWaitKind.Type;
+
+/** What a thread's agent declared it needs before its next step; see `set_waiting`. */
+export const OrchestrationV2ThreadWait = Schema.Struct({
+  kind: OrchestrationV2ThreadWaitKind.annotate({
+    description:
+      "decision: they can answer anywhere, even by voice. manual_step: they must act at a computer. blocked: on something outside you both, such as CI or a third party, that T3 will not wake you for.",
+  }),
+  summary: TrimmedNonEmptyString.check(Schema.isMaxLength(200)).annotate({
+    description: "One short sentence that reads well aloud.",
+  }),
+  options: Schema.optional(
+    Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(100)))
+      .check(Schema.isMaxLength(8))
+      .annotate({ description: "The choices, for a decision." }),
+  ),
+  detail: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2000))),
+});
+export type OrchestrationV2ThreadWait = typeof OrchestrationV2ThreadWait.Type;
+
+export const OrchestrationV2ThreadWaiting = Schema.Struct({
+  items: Schema.Array(OrchestrationV2ThreadWait).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(MAX_THREAD_WAITS),
+  ),
+  setAt: IsoDateTime,
+});
+export type OrchestrationV2ThreadWaiting = typeof OrchestrationV2ThreadWaiting.Type;
+
+/** Waits stand until the user writes in the thread; wakes and agent messages leave them. */
+export function currentThreadWaiting(
+  waiting: OrchestrationV2ThreadWaiting | null | undefined,
+  latestUserAuthoredMessageAt: DateTime.Utc | null | undefined,
+): OrchestrationV2ThreadWaiting | null {
+  if (waiting == null) return null;
+  if (latestUserAuthoredMessageAt == null) return waiting;
+  return Date.parse(waiting.setAt) > DateTime.toEpochMillis(latestUserAuthoredMessageAt)
+    ? waiting
+    : null;
+}
+
 /**
  * `score` is an open count that halves every two weeks, as of `openedAt`.
  * `picks` stores lowercase palette queries, newest first.
@@ -509,6 +557,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   lastSnoozeWakeAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
+  /** Stored as last set; readers apply `currentThreadWaiting`. */
+  waiting: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWaiting)),
   guestShare: Schema.optional(Schema.NullOr(ThreadGuestShare)),
   categories: Schema.optional(Schema.NullOr(OrchestrationV2ThreadCategories)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
@@ -1904,6 +1954,7 @@ export const OrchestrationV2DomainEvent = Schema.Union([
       "thread.unsnoozed",
       "thread.pinned",
       "thread.auto-settle-set",
+      "thread.waiting-set",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",
@@ -2155,6 +2206,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
+  /** Null once the user has written since the agent set it. Absent from older servers. */
+  waiting: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWaiting)),
   categories: Schema.optional(Schema.NullOr(OrchestrationV2ThreadCategories)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
@@ -2785,6 +2838,7 @@ export const OrchestrationV2DomainEventJson = Schema.Union([
       "thread.unsnoozed",
       "thread.pinned",
       "thread.auto-settle-set",
+      "thread.waiting-set",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",
@@ -3422,6 +3476,13 @@ const OrchestrationV2InternalCommand = Schema.Union([
     guestMessageId: GuestMessageId,
     text: Schema.String,
     attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  }),
+  /** The agent's complete list of waits, replacing the last one; empty clears it. */
+  Schema.Struct({
+    type: Schema.Literal("thread.waiting.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    items: Schema.Array(OrchestrationV2ThreadWait).check(Schema.isMaxLength(MAX_THREAD_WAITS)),
   }),
   /** Moves a thread to a project rooted at the folder it already works in, so its cwd never changes. */
   Schema.Struct({

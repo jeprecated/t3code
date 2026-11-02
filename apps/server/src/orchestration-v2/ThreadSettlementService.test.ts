@@ -143,6 +143,22 @@ describe("isAutoSettlementCandidate", () => {
     ).toBe(true);
   });
 
+  it("never settles a thread whose agent waits on the user, until the user writes", () => {
+    const waiting = {
+      items: [{ kind: "decision" as const, summary: "Pick A or B." }],
+      setAt: DateTime.formatIso(at(-60 * 60 * 1_000)),
+    };
+    expect(ThreadSettlementService.isAutoSettlementCandidate(shell({ waiting }), NOW_MS)).toBe(
+      false,
+    );
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(
+        shell({ waiting, latestUserAuthoredMessageAt: at(-30 * 60 * 1_000) }),
+        NOW_MS,
+      ),
+    ).toBe(true);
+  });
+
   it("never settles, or keeps snoozed, a thread whose guest is waiting on the owner", () => {
     expect(
       ThreadSettlementService.isAutoSettlementCandidate(

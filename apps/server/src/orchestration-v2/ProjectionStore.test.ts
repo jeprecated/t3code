@@ -3646,6 +3646,87 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     }),
   );
 
+  it.effect("shows the agent's waits on the shell until the user writes, not after a wake", () =>
+    Effect.gen(function* () {
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const createdAt = yield* DateTime.now;
+      const threadId = ThreadId.make("thread:projection-waits");
+      const waiting = {
+        items: [{ kind: "decision" as const, summary: "Pick A or B.", options: ["A", "B"] }],
+        setAt: DateTime.formatIso(DateTime.add(createdAt, { seconds: 1 })),
+      };
+      const thread = {
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+        id: threadId,
+        projectId: ProjectId.make("project:projection-waits"),
+        title: "Projection waits",
+        providerInstanceId,
+        modelSelection,
+        runtimeMode: "full-access" as const,
+        interactionMode: "default" as const,
+        branch: null,
+        worktreePath: null,
+        activeProviderThreadId: null,
+        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+        forkedFrom: null,
+        createdAt,
+        updatedAt: createdAt,
+        archivedAt: null,
+        settledOverride: null,
+        settledAt: null,
+        lastVisitedAt: null,
+        deletedAt: null,
+        waiting,
+      };
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-waits:created"),
+        type: "thread.created",
+        threadId,
+        occurredAt: createdAt,
+        payload: thread,
+      });
+      const addMessage = (key: string, createdBy: "user" | "agent", seconds: number) => {
+        const at = DateTime.add(createdAt, { seconds });
+        return projectionStore.apply({
+          id: EventId.make(`event:projection-waits:${key}`),
+          type: "message.updated",
+          threadId,
+          occurredAt: at,
+          payload: {
+            id: MessageId.make(`message:projection-waits:${key}`),
+            threadId,
+            runId: null,
+            nodeId: null,
+            role: "user",
+            text: key,
+            attachments: [],
+            streaming: false,
+            createdBy,
+            creationSource: createdBy === "user" ? "web" : "provider",
+            createdAt: at,
+            updatedAt: at,
+          },
+        });
+      };
+      const shells = Effect.gen(function* () {
+        const sqlShell = yield* projectionStore.getThreadShell(threadId);
+        const memoryShell = ProjectionStore.threadShellFromProjection(
+          yield* projectionStore.getThreadProjection(threadId),
+        );
+        return [sqlShell?.waiting, memoryShell.waiting];
+      });
+
+      // A message from before the waits were set does not clear them.
+      yield* addMessage("prompt", "user", 0);
+      assert.deepEqual(yield* shells, [waiting, waiting]);
+      yield* addMessage("wake", "agent", 2);
+      assert.deepEqual(yield* shells, [waiting, waiting]);
+      yield* addMessage("reply", "user", 3);
+      assert.deepEqual(yield* shells, [null, null]);
+    }),
+  );
+
   it.effect("dates thread activity by a run event and leaves the rest of the thread alone", () =>
     Effect.gen(function* () {
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
