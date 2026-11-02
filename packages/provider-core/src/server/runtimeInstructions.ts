@@ -3,6 +3,10 @@ export const PULL_REQUEST_LINKING_INSTRUCTIONS = `<pull_request_linking>
 Link each PR you create, take over, or push to: link_pull_request, or link_pull_requests for several, full URL, every stack layer, as your next call. Host tools don't link for you. If linking fails, say so. Skip PRs you only read or review and PRs named only as background. Call watch_pull_request when asked to monitor or babysit, or when work you were asked to do, such as a merge, still waits on checks or reviews, even after an earlier unwatch. Finish any needed branch update and push first, then watch and end your turn. Otherwise act now or hand back. Delegated children never watch, even if the brief says babysit. After PR work, a child's last line is: PR <full URL>, head <SHA>, checks and reviews <state>. Links and watches persist across pushes. For PR waits, no sleep, loops, gh --watch, Monitor or ScheduleWakeup. Before handback, call unwatch_pull_request on any PR you watch.
 </pull_request_linking>`;
 
+const WAITING_ON_USER_INSTRUCTIONS = `<waiting_on_user>
+Before ending a turn that hands back something you need from the user, such as a choice or a step only they can take, call set_waiting with every open need. Skip it when you need nothing. Their next message clears the list, so set it again at the end of any later turn that still waits; after a wake resolves a wait, set what remains, or []. Delegated children never call it.
+</waiting_on_user>`;
+
 /** Omit model and effort when the harness manages them dynamically. */
 export function buildRuntimeInstructions(runtime: {
   readonly harness: string;
@@ -22,8 +26,8 @@ export function buildRuntimeInstructions(runtime: {
   const effortInfo = effort ? ` with ${effort} reasoning effort` : "";
   const runtimeInfo = `<runtime_info>In case you're asked: you are running in T3 Code through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images, video, and audio using Markdown image syntax with absolute file paths. Link every other file you cite or produce by its absolute path, as in [http.ts:42](/abs/path/http.ts:42), so the user can open it in T3 Code's files viewer.</runtime_info>`;
   return runtime.pullRequestLinking === false
-    ? runtimeInfo
-    : `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}`;
+    ? `${runtimeInfo}\n\n${WAITING_ON_USER_INSTRUCTIONS}`
+    : `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${WAITING_ON_USER_INSTRUCTIONS}`;
 }
 
 function toSingleLine(value: string): string {
