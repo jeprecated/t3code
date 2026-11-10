@@ -7,8 +7,10 @@ import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { promptLinkAppPath } from "@t3tools/shared/promptLinks";
 import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/remote";
+import { parseThreadLinkHref, type ThreadLink } from "@t3tools/shared/threadLinks";
 import { useRouter } from "@tanstack/react-router";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import { AtomRegistry } from "effect/reactivity";
 import * as Stream from "effect/Stream";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
@@ -20,17 +22,30 @@ import { connectPairing } from "../../connection/onboarding";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useThreadActions } from "../../hooks/useThreadActions";
 import { useScratchProject } from "../../hooks/useScratchProject";
 import { useClientSettings } from "../../hooks/useSettings";
 import { useOpenChangeRequestLink } from "../../lib/openPullRequestLink";
 import { selectActiveRightPanelSurface, useRightPanelStore } from "../../rightPanelStore";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
-import { resolveThreadRouteTarget } from "../../threadRoutes";
+import { buildThreadRouteParams, resolveThreadRouteTarget } from "../../threadRoutes";
+import { resolveThreadLinkTarget } from "../../threadLinkTarget";
 import { assetEnvironment } from "../../state/assets";
-import { readProject, readThreadShell } from "../../state/entities";
-import { useEnvironmentHttpBaseUrl, usePrimaryEnvironment } from "../../state/environments";
+import {
+  readProject,
+  readThreadShell,
+  readThreadShells,
+  waitForThreadShell,
+} from "../../state/entities";
+import {
+  readEnvironment,
+  readPrimaryEnvironmentId,
+  useEnvironmentHttpBaseUrl,
+  usePrimaryEnvironment,
+} from "../../state/environments";
 import { previewEnvironment } from "../../state/preview";
 import { allReachableShellsLiveAtom } from "../../state/shell";
+import { loadEnvironmentThreadState } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -85,6 +100,7 @@ export function DesktopWebLinkCoordinator() {
   const openChangeRequest = useOpenChangeRequestLink();
   const { scratchEnvironmentId, openScratchProject } = useScratchProject();
   const openThread = useNewThreadHandler();
+  const { unarchiveThread } = useThreadActions();
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,
@@ -200,10 +216,60 @@ export function DesktopWebLinkCoordinator() {
     }
   });
 
+  // A link from outside names a thread that may be archived, elsewhere, or gone; the route would just go home.
+  const openThreadLink = async (url: string, link: ThreadLink) => {
+    await projectsSettled();
+    const target = await resolveThreadLinkTarget(link, readPrimaryEnvironmentId(), {
+      environment: (environmentId) => {
+        const environment = readEnvironment(environmentId);
+        return (
+          environment && {
+            label: environment.label,
+            connected: environment.connection.phase === "connected",
+          }
+        );
+      },
+      listedRefs: () =>
+        readThreadShells().map((shell) => scopeThreadRef(shell.environmentId, shell.id)),
+      thread: async (ref) => {
+        if (readThreadShell(ref) !== null) return "open";
+        const state = await loadEnvironmentThreadState(ref);
+        const thread = Option.getOrNull(Option.flatMap(state, (loaded) => loaded.data))?.thread;
+        if (!thread || thread.deletedAt !== null) return "missing";
+        return thread.archivedAt === null ? "open" : "archived";
+      },
+    });
+    if (target.kind === "unavailable") {
+      reportFailure(url, target.reason);
+      return;
+    }
+    if (target.kind === "archived") {
+      const confirmed =
+        (await requestConfirmDialog("This thread is archived. Unarchive it to open it?")) ?? false;
+      if (!confirmed) return;
+      const result = await unarchiveThread(target.ref);
+      if (result._tag === "Failure") {
+        reportFailure(url, "Could not unarchive the thread.");
+        return;
+      }
+      // Until the list has it again, the route still reads the thread as archived and goes home.
+      await waitForThreadShell(target.ref);
+    }
+    await router.navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(target.ref),
+    });
+  };
+
   const openLink = useEffectEvent(async (url: string) => {
     const pairingUrl = readPairingAppLink(url);
     if (pairingUrl !== null) {
       await pairFromLink(pairingUrl);
+      return;
+    }
+    const threadLink = parseThreadLinkHref(url);
+    if (threadLink !== null) {
+      await openThreadLink(url, threadLink);
       return;
     }
     const appPath = promptLinkAppPath(url);

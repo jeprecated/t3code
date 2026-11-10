@@ -12,12 +12,20 @@ import {
   createThreadEnvironmentAtoms,
   createThreadFamilyAtoms,
 } from "@t3tools/client-runtime/state/threads";
-import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  OrchestrationV2ThreadShell,
+  ScopedThreadRef,
+  ThreadId,
+} from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { AsyncResult, Atom } from "effect/reactivity";
+import * as Stream from "effect/Stream";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 
 import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
+import { appAtomRegistry } from "../rpc/atomRegistry";
 import { serverEnvironment } from "./server";
 import { environmentShell } from "./shell";
 
@@ -62,6 +70,29 @@ export function useEnvironmentThread(
   );
   const state = AsyncResult.getOrElse(result, () => EMPTY_ENVIRONMENT_THREAD_STATE);
   return state;
+}
+
+/** The thread's state once its own load decides it (live, deleted or failed), or none if it never does. */
+export function loadEnvironmentThreadState(
+  ref: ScopedThreadRef,
+): Promise<Option.Option<EnvironmentThreadState>> {
+  return Effect.runPromise(
+    AtomRegistry.toStreamResult(
+      appAtomRegistry,
+      environmentThreads.stateAtom(ref.environmentId, ref.threadId),
+    ).pipe(
+      Stream.filter(
+        (state) =>
+          state.status === "deleted" ||
+          Option.isSome(state.error) ||
+          (state.status === "live" && Option.isSome(state.data)),
+      ),
+      Stream.runHead,
+      Effect.timeoutOption("20 seconds"),
+      Effect.map(Option.flatten),
+      Effect.orElseSucceed(() => Option.none()),
+    ),
+  );
 }
 
 const isRunning = (status: string) =>

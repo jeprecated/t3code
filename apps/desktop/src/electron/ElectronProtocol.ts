@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import * as Electron from "electron";
+import { THREAD_LINK_PROTOCOL } from "@t3tools/shared/threadLinks";
 
 export const DESKTOP_HOST = "app";
 const DESKTOP_PRODUCTION_SCHEME = "t3code";
@@ -18,6 +19,13 @@ const DESKTOP_DEVELOPMENT_SCHEME = "t3code-dev";
 
 export function getDesktopScheme(isDevelopment: boolean): string {
   return isDevelopment ? DESKTOP_DEVELOPMENT_SCHEME : DESKTOP_PRODUCTION_SCHEME;
+}
+
+/** The schemes the OS hands this app. Development keeps to its own, so it never takes an installed app's links. */
+export function getDesktopLinkSchemes(isDevelopment: boolean): ReadonlyArray<string> {
+  return isDevelopment
+    ? [DESKTOP_DEVELOPMENT_SCHEME]
+    : [DESKTOP_PRODUCTION_SCHEME, THREAD_LINK_PROTOCOL];
 }
 
 function getDesktopOrigin(isDevelopment: boolean): string {

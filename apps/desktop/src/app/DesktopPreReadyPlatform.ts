@@ -127,7 +127,7 @@ export const make = Effect.gen(function* () {
                   () => linuxDesktopEntryConfig.appImagePath,
                 ),
               ) ?? process.execPath,
-            scheme: ElectronProtocol.getDesktopScheme(linux.isDevelopment),
+            schemes: ElectronProtocol.getDesktopLinkSchemes(linux.isDevelopment),
             ...(iconPath === undefined ? {} : { iconPath }),
           }),
           "utf8",

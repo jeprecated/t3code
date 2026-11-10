@@ -31,6 +31,9 @@ vi.mock(import("@tanstack/react-router"), async (original) => ({
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
   usePrimaryEnvironmentId: () => "local" as EnvironmentId,
+  readPrimaryEnvironmentId: () => "local" as EnvironmentId,
+  readEnvironment: ((id: string) =>
+    id === "local" ? { label: "This Mac", connection: { phase: "connected" } } : null) as never,
   usePrimaryEnvironment: (() =>
     state.localEnvironmentDisabled
       ? null
@@ -201,6 +204,23 @@ it("holds a launch PR link until project discovery settles, then opens the PR vi
   });
   expect(state.navigate).toHaveBeenCalledExactlyOnceWith(pullRequestView);
   expect(state.openScratchProject).not.toHaveBeenCalled();
+});
+
+it("holds a launch thread link until discovery settles, then opens its thread route", async () => {
+  setup();
+  await using _coordinator = await mount("t3-thread://v2/local/thread");
+  expect(state.navigate).not.toHaveBeenCalled();
+  const navigated = new Promise<void>((resolve) => {
+    state.navigate.mockImplementationOnce(async () => resolve());
+  });
+  await act(async () => {
+    appAtomRegistry.set(discoverySettled, true);
+    await navigated;
+  });
+  expect(state.navigate).toHaveBeenCalledExactlyOnceWith({
+    to: "/$environmentId/$threadId",
+    params: { environmentId: "local", threadId: "thread" },
+  });
 });
 
 const sha = "a".repeat(40);

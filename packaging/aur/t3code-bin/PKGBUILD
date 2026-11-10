@@ -96,7 +96,7 @@ Type=Application
 Icon=t3code
 StartupWMClass=t3code
 Categories=Development;
-MimeType=x-scheme-handler/t3code;
+MimeType=x-scheme-handler/t3code;x-scheme-handler/t3-thread;
 EOF
 
   install -Dm644 "$srcdir/${pkgname}-${pkgver}-LICENSE" \

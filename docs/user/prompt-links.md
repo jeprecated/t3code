@@ -62,3 +62,7 @@ it anywhere, such as Slack, a GitHub comment, or your notes. On a phone with T3 
 opens the thread in the app. Elsewhere, opening it asks where to open it, like a prompt link, then
 opens the thread. Only someone connected to the machine that runs the thread can see it. In T3 Code,
 a thread link in a message opens the thread in the app.
+
+To open a thread straight in the desktop app from another tool, link to
+`t3-thread://v2/<environment>/<thread>`, with the thread id URL-encoded. A server reports its
+environment id at `/.well-known/t3/environment`. An archived thread asks to be unarchived first.
