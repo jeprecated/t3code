@@ -499,6 +499,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "thread-category-views",
+    title: msg("Sidebar views"),
+    to: "/settings/general",
+    searchTerms: [msg("filter sidebar categories combine several shortcut cycle order")],
+  },
+  {
     id: "snooze-limited-threads",
     title: msg("Snooze until limits reset"),
     to: "/settings/threads",

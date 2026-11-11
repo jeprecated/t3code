@@ -74,6 +74,8 @@ import {
   CircleAlertIcon,
   FolderIcon,
   FolderPlusIcon,
+  LayersIcon,
+  PencilIcon,
   PlusIcon,
   SettingsIcon,
   XIcon,
@@ -191,8 +193,12 @@ import {
   readThreadCategoryMembership,
   selectSidebarCategoryScope,
   useThreadCategories,
+  useThreadCategoriesEditable,
+  useThreadCategoryViews,
   useUpdateThreadCategories,
 } from "../threadCategories";
+import { openSidebarViewEditor } from "./SidebarViewDialog";
+import { openNewThreadCategoryDialog } from "./ThreadCategoryDialog";
 import { cn } from "~/lib/utils";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import { ProjectRowActions } from "./ProjectComboboxRow";
@@ -871,6 +877,8 @@ function useSidebarLookups() {
   const providerEntriesByEnvironment = useAtomValue(sidebarProviderEntriesAtom);
   const projectGroups = useSidebarProjectGroups();
   const threadCategories = useThreadCategories();
+  const threadCategoryViews = useThreadCategoryViews();
+  const threadCategoriesEditable = useThreadCategoriesEditable();
   const environmentLabelById = new Map(
     environments.map((environment) => [environment.environmentId, environment.label] as const),
   );
@@ -890,6 +898,11 @@ function useSidebarLookups() {
   const projectScopeItems: SidebarScopeItem[] = [
     { value: ADD_PROJECT_SCOPE_ITEM_VALUE, label: gt("Add project") },
     { value: "all", label: gt("All projects") },
+    ...(threadCategories.length > 0 ? threadCategoryViews : []).map((view) => ({
+      value: `view:${view.id}`,
+      label: view.name,
+      categoryScope: { type: "view" as const, viewId: view.id },
+    })),
     ...threadCategories.map((category) => ({
       value: `category:${category.id}`,
       label: threadCategoryLabel(category),
@@ -902,6 +915,16 @@ function useSidebarLookups() {
             value: "uncategorized",
             label: gt("Uncategorized"),
             categoryScope: { type: "uncategorized" as const },
+          },
+          { value: "action:new-view", label: gt("New view…"), action: "new-view" as const },
+        ]
+      : []),
+    ...(threadCategoriesEditable
+      ? [
+          {
+            value: "action:new-category",
+            label: gt("New category…"),
+            action: "new-category" as const,
           },
         ]
       : []),
@@ -935,6 +958,7 @@ function useSidebarLookups() {
     projectGroupByScopeKey,
     projectScopeItems,
     threadCategories,
+    threadCategoryViews,
     categoryIdsOf,
   };
 }
@@ -946,6 +970,7 @@ interface SidebarScopeItem {
   readonly label: string;
   readonly categoryScope?: SidebarCategoryScope;
   readonly color?: ProjectIconColor;
+  readonly action?: "new-view" | "new-category";
 }
 
 function ProjectScopeRowIcon(props: { isSelected: boolean; children: ReactNode }) {
@@ -1019,6 +1044,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     projectGroupByScopeKey,
     projectScopeItems: lookupProjectScopeItems,
     threadCategories,
+    threadCategoryViews,
     categoryIdsOf,
   } = useSidebarLookups();
   const updateThreadCategories = useUpdateThreadCategories();
@@ -1213,12 +1239,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         );
   // Unknown categories resolve to "everything" without being cleared from
   // storage, since server settings arrive after the first render.
-  const chosenCategoryScope = resolveSidebarCategoryScope(persistedCategoryScope, threadCategories);
+  const chosenCategoryScope = resolveSidebarCategoryScope(
+    persistedCategoryScope,
+    threadCategories,
+    threadCategoryViews,
+  );
   // A category scope and a project scope never apply together (uiStateStore clears one for the other).
   const chosenInScope =
     chosenCategoryScope !== null
       ? (subject: SidebarScopeSubject) =>
-          sidebarCategoryScopeIncludes(chosenCategoryScope, categoryIdsOf(subject))
+          sidebarCategoryScopeIncludes(
+            chosenCategoryScope,
+            categoryIdsOf(subject),
+            threadCategoryViews,
+          )
       : chosenScopeProjectKeys !== null
         ? (subject: SidebarScopeSubject) =>
             chosenScopeProjectKeys.has(`${subject.environmentId}:${subject.projectId}`)
@@ -1264,9 +1298,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const categoryScopeValue =
     categoryScope?.type === "category"
       ? `category:${categoryScope.categoryId}`
-      : categoryScope?.type === "uncategorized"
-        ? "uncategorized"
-        : null;
+      : categoryScope?.type === "view"
+        ? `view:${categoryScope.viewId}`
+        : categoryScope?.type === "uncategorized"
+          ? "uncategorized"
+          : null;
+  const focusedViewId = categoryScope?.type === "view" ? categoryScope.viewId : null;
+  const openViewEditor = (viewId?: string) => {
+    dispatchProjectScopeMenu({ type: "open-changed", open: false });
+    openSidebarViewEditor(viewId);
+  };
   const scopeKey =
     categoryScopeValue ?? (projectScopeKeys.length === 0 ? null : projectScopeKeys.join("\n"));
   const selectCategoryScope = (scope: SidebarCategoryScope | null) => {
@@ -3290,6 +3331,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     if (item.value === ADD_PROJECT_SCOPE_ITEM_VALUE) {
                       dispatchProjectScopeMenu({ type: "open-changed", open: false });
                       openAddProjectCommandPalette();
+                    } else if (item.action === "new-view") {
+                      openViewEditor();
+                    } else if (item.action === "new-category") {
+                      dispatchProjectScopeMenu({ type: "open-changed", open: false });
+                      openNewThreadCategoryDialog();
                     } else if (item.categoryScope || item.value === "all") {
                       selectCategoryScope(item.categoryScope ?? null);
                     } else if (
@@ -3323,7 +3369,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       />
                     }
                   >
-                    {categoryScope ? (
+                    {focusedViewId !== null ? (
+                      <LayersIcon className="size-4" />
+                    ) : categoryScope ? (
                       <CategorySwatch color={focusedCategory?.color ?? null} className="size-3" />
                     ) : scopedProjectGroups.length > 1 ? (
                       <span className="flex shrink-0">
@@ -3418,11 +3466,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           );
                         }
                         const project = projectGroupByScopeKey.get(item.value) ?? null;
+                        const viewId =
+                          item.categoryScope?.type === "view" ? item.categoryScope.viewId : null;
                         const isSelected = project
                           ? projectScopeKeys.includes(item.value)
-                          : item.categoryScope
-                            ? item.value === categoryScopeValue
-                            : projectScopeKeys.length === 0 && categoryScope === null;
+                          : item.action
+                            ? false
+                            : item.categoryScope
+                              ? item.value === categoryScopeValue
+                              : projectScopeKeys.length === 0 && categoryScope === null;
                         return (
                           <ComboboxItem
                             key={item.value}
@@ -3438,6 +3490,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             <ProjectScopeRowIcon isSelected={isSelected}>
                               {project ? (
                                 <ProjectFavicon project={project} className="size-4 shrink-0" />
+                              ) : item.action ? (
+                                <PlusIcon className="size-4 shrink-0" />
+                              ) : viewId !== null ? (
+                                <LayersIcon className="size-4 shrink-0" />
                               ) : item.categoryScope ? (
                                 <span className="flex size-4 shrink-0 items-center justify-center">
                                   <CategorySwatch color={item.color ?? null} className="size-3" />
@@ -3453,6 +3509,23 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 primaryEnvironmentId={primaryEnvironmentId}
                                 machineByEnvironmentId={environmentMachineById}
                               />
+                            ) : null}
+                            {viewId !== null ? (
+                              <Button
+                                size="icon-xs"
+                                variant="ghost-muted"
+                                tabIndex={-1}
+                                aria-hidden="true"
+                                title={gt("Edit view {name}", { name: item.label })}
+                                className="ml-auto"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openViewEditor(viewId);
+                                }}
+                              >
+                                <PencilIcon className="size-3.5" />
+                              </Button>
                             ) : null}
                             {project ? (
                               <ProjectRowActions
@@ -3523,7 +3596,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             />
             {categoryScope || scopedProjectGroups.length > 0 ? (
               <div className="mt-1 flex h-7 items-center gap-2 rounded-md bg-sidebar-row-hover pr-1 pl-2.5 text-xs font-medium text-sidebar-foreground">
-                {categoryScope ? (
+                {focusedViewId !== null ? (
+                  <LayersIcon className="size-3.5 shrink-0" />
+                ) : categoryScope ? (
                   <CategorySwatch color={focusedCategory?.color ?? null} className="size-3" />
                 ) : scopedProjectGroups[0] ? (
                   <ProjectFavicon project={scopedProjectGroups[0]} className="size-3.5 shrink-0" />
@@ -3533,6 +3608,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     ? selectedProjectScopeItem?.label
                     : scopedProjectGroups.map((project) => project.displayName).join(", ")}
                 </span>
+                {focusedViewId !== null ? (
+                  <Button
+                    type="button"
+                    size="icon-micro"
+                    variant="ghost-muted"
+                    aria-label={gt("Edit view")}
+                    title={gt("Edit view")}
+                    onClick={() => openViewEditor(focusedViewId)}
+                  >
+                    <PencilIcon className="size-3" />
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   size="icon-micro"
@@ -3678,14 +3765,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               ) : categoryScope ? (
                 <>
                   <span>
-                    {!focusedCategory
+                    {categoryScope.type === "uncategorized"
                       ? gt("Every thread has a category")
                       : settledCount > 0
                         ? gt("No active threads in {category}", {
-                            category: threadCategoryLabel(focusedCategory),
+                            category: selectedProjectScopeItem?.label ?? "",
                           })
                         : gt("No threads in {category} yet", {
-                            category: threadCategoryLabel(focusedCategory),
+                            category: selectedProjectScopeItem?.label ?? "",
                           })}
                   </span>
                   <button
