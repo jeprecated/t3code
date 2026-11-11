@@ -11,6 +11,7 @@ export interface ThreadCategorySubject {
   readonly providerInstanceId: string | null;
   readonly branch: string | null;
   readonly project: {
+    readonly title: string;
     readonly workspaceRoot: string;
     readonly repositoryIdentity?: RepositoryIdentity | null | undefined;
   } | null;
@@ -78,6 +79,7 @@ export function compileThreadCategoryRules(
         providerInstances: compileValues(rule.providerInstances),
         branches: compileGlobs(rule.branches),
         workspacePaths: compileGlobs(rule.workspacePaths),
+        projects: compileGlobs(rule.projects),
       }))
       .filter(
         (rule) =>
@@ -85,7 +87,8 @@ export function compileThreadCategoryRules(
           rule.environments.size > 0 ||
           rule.providerInstances.size > 0 ||
           rule.branches.length > 0 ||
-          rule.workspacePaths.length > 0,
+          rule.workspacePaths.length > 0 ||
+          rule.projects.length > 0,
       ),
   }));
   if (compiled.every((category) => category.rules.length === 0)) return () => NO_CATEGORIES;
@@ -99,6 +102,7 @@ export function compileThreadCategoryRules(
         : [identity.canonicalKey]
       : [];
     const workspaceRoots = subject.project ? [subject.project.workspaceRoot] : [];
+    const projectTitles = subject.project ? [subject.project.title.trim()] : [];
     const branches = subject.branch ? [subject.branch] : [];
     const matched: string[] = [];
     for (const category of compiled) {
@@ -110,7 +114,9 @@ export function compileThreadCategoryRules(
             (subject.providerInstanceId !== null &&
               rule.providerInstances.has(subject.providerInstanceId))) &&
           (rule.branches.length === 0 || anyGlobMatches(rule.branches, branches)) &&
-          (rule.workspacePaths.length === 0 || anyGlobMatches(rule.workspacePaths, workspaceRoots)),
+          (rule.workspacePaths.length === 0 ||
+            anyGlobMatches(rule.workspacePaths, workspaceRoots)) &&
+          (rule.projects.length === 0 || anyGlobMatches(rule.projects, projectTitles)),
       );
       if (matches) matched.push(category.id);
     }

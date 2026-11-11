@@ -21,6 +21,7 @@ function category(id: string, branch: string): ThreadCategory {
         providerInstances: [],
         branches: [branch],
         workspacePaths: [],
+        projects: [],
       },
     ],
   };
@@ -73,6 +74,40 @@ describe("sidebar category scope", () => {
         direction: 1,
       }),
     ).toEqual({ type: "view", viewId: "ab" });
+  });
+
+  it("passes over idle views, but steps on from one that went idle while showing", () => {
+    const viewIsIdle = (view: { id: string }) => view.id === "ab";
+    expect(
+      stepSidebarCategoryScope({ scope: null, categories, views, direction: 1, viewIsIdle }),
+    ).toEqual({ type: "view", viewId: "b" });
+    expect(
+      stepSidebarCategoryScope({
+        scope: { type: "view", viewId: "b" },
+        categories,
+        views,
+        direction: -1,
+        viewIsIdle,
+      }),
+    ).toBeNull();
+    expect(
+      stepSidebarCategoryScope({
+        scope: { type: "view", viewId: "ab" },
+        categories,
+        views,
+        direction: 1,
+        viewIsIdle,
+      }),
+    ).toEqual({ type: "view", viewId: "b" });
+    expect(
+      stepSidebarCategoryScope({
+        scope: null,
+        categories,
+        views,
+        direction: 1,
+        viewIsIdle: () => true,
+      }),
+    ).toBeNull();
   });
 
   it("stays on everything when there are no categories", () => {

@@ -55,18 +55,24 @@ export function resolveSidebarCategoryScope(
 }
 
 /**
- * Cycles everything → each saved view → everything. Without views it cycles
- * everything → each category in order → uncategorized threads → everything.
+ * Cycles everything → each saved view → everything, passing over views whose
+ * threads are all snoozed or settled. Without views it cycles everything →
+ * each category in order → uncategorized threads → everything.
  */
 export function stepSidebarCategoryScope(input: {
   readonly scope: SidebarCategoryScope | null;
   readonly categories: readonly ThreadCategory[];
   readonly views: readonly ThreadCategoryView[];
   readonly direction: 1 | -1;
+  readonly viewIsIdle?: (view: ThreadCategoryView) => boolean;
 }): SidebarCategoryScope | null {
   const steps: Array<SidebarCategoryScope | null> = [null];
   if (input.categories.length > 0 && input.views.length > 0) {
-    for (const view of input.views) steps.push({ type: "view", viewId: view.id });
+    for (const view of input.views) {
+      // The view being left keeps its place so stepping continues from it.
+      const current = input.scope?.type === "view" && input.scope.viewId === view.id;
+      if (current || !input.viewIsIdle?.(view)) steps.push({ type: "view", viewId: view.id });
+    }
   } else if (input.categories.length > 0) {
     for (const category of input.categories) {
       steps.push({ type: "category", categoryId: category.id });
