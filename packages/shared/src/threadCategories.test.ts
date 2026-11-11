@@ -28,6 +28,7 @@ const emptyRule = {
   providerInstances: [],
   branches: [],
   workspacePaths: [],
+  projects: [],
 };
 
 function category(id: string, rules: ReadonlyArray<Partial<ThreadCategoryRule>>): ThreadCategory {
@@ -46,6 +47,7 @@ function subject(overrides: Partial<ThreadCategorySubject> = {}): ThreadCategory
     providerInstanceId: "claudeAgent",
     branch: "main",
     project: {
+      title: "Intent Pal",
       workspaceRoot: "/Users/me/Development/screen-gate",
       repositoryIdentity: {
         canonicalKey: "github.com/me/screen-gate",
@@ -73,6 +75,7 @@ describe("compileThreadCategoryRules", () => {
   it("matches a fork by its own key or by its upstream", () => {
     const fork = subject({
       project: {
+        title: "t3code",
         workspaceRoot: "/src/t3code",
         repositoryIdentity: {
           canonicalKey: "github.com/me/t3code",
@@ -131,13 +134,28 @@ describe("compileThreadCategoryRules", () => {
     expect(match(subject({ branch: "t3/feature" }))).toEqual([]);
   });
 
-  it("needs a project for repository and path rules", () => {
+  it("needs a project for repository, path and project rules", () => {
     const match = compileThreadCategoryRules([
       category("repo", [{ repositories: ["*"] }]),
       category("path", [{ workspacePaths: ["*"] }]),
+      category("project", [{ projects: ["*"] }]),
     ]);
     expect(match(subject({ project: null }))).toEqual([]);
-    expect(match(subject({ project: { workspaceRoot: "/tmp/x" } }))).toEqual(["path"]);
+    expect(match(subject({ project: { title: "x", workspaceRoot: "/tmp/x" } }))).toEqual([
+      "path",
+      "project",
+    ]);
+  });
+
+  it("matches project names whole and case-insensitively, wherever the folder is", () => {
+    const match = compileThreadCategoryRules([category("pal", [{ projects: ["intent pal"] }])]);
+    expect(match(subject())).toEqual(["pal"]);
+    expect(
+      match(subject({ project: { title: " Intent Pal ", workspaceRoot: "/elsewhere" } })),
+    ).toEqual(["pal"]);
+    expect(
+      match(subject({ project: { title: "Intent Pal Web", workspaceRoot: "/elsewhere" } })),
+    ).toEqual([]);
   });
 });
 
