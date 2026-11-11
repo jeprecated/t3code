@@ -111,18 +111,18 @@ const make = Effect.gen(function* () {
     thread: OrchestrationV2AppThread,
   ) {
     if (categories.length === 0) return [];
-    const project = yield* projects.get(thread.projectId);
-    const workspaceRoot = Option.isSome(project) ? project.value.workspaceRoot : null;
+    const project = Option.getOrNull(yield* projects.get(thread.projectId));
     return compileThreadCategoryRules(categories)({
       environmentId: yield* environment.getEnvironmentId,
       providerInstanceId: thread.providerInstanceId,
       branch: thread.branch,
       project:
-        workspaceRoot === null
+        project === null
           ? null
           : {
-              workspaceRoot,
-              repositoryIdentity: yield* repositoryIdentities.resolve(workspaceRoot),
+              title: project.title,
+              workspaceRoot: project.workspaceRoot,
+              repositoryIdentity: yield* repositoryIdentities.resolve(project.workspaceRoot),
             },
     });
   });

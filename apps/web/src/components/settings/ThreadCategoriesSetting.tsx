@@ -58,6 +58,17 @@ import { openSidebarViewEditor } from "../SidebarViewDialog";
 import { openNewThreadCategoryDialog } from "../ThreadCategoryDialog";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
+import {
+  Combobox,
+  ComboboxChip,
+  ComboboxChips,
+  ComboboxChipsInput,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxValue,
+} from "../ui/combobox";
 import { DraftInput } from "../ui/draft-input";
 import {
   Menu,
@@ -78,6 +89,7 @@ const EMPTY_RULE: ThreadCategoryRule = {
   providerInstances: [],
   branches: [],
   workspacePaths: [],
+  projects: [],
 };
 
 type GlobField = "repositories" | "branches" | "workspacePaths";
@@ -117,6 +129,7 @@ function ruleSummary(
 ): string {
   const parts = new Set<string>();
   for (const rule of category.rules) {
+    for (const project of rule.projects) parts.add(project);
     for (const glob of [...rule.workspacePaths, ...rule.repositories]) {
       const label = globLabel(glob);
       if (label !== null) parts.add(label);
@@ -288,6 +301,65 @@ function ChoiceMenu(props: {
   );
 }
 
+/** Type a project's name to pick it; names no connected machine has can still be added. */
+function ProjectsField(props: {
+  choices: readonly string[];
+  selected: readonly string[];
+  disabled: boolean;
+  onChange: (selected: string[]) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const typed = query.trim();
+  const taken = (name: string) =>
+    props.selected.some((chosen) => chosen.toLowerCase() === name.toLowerCase());
+  // Chosen names leave the list, so Enter on a highlighted match never unpicks one.
+  const offered = props.choices.filter((name) => !taken(name));
+  const isNew =
+    typed.length > 0 &&
+    !taken(typed) &&
+    !offered.some((name) => name.toLowerCase() === typed.toLowerCase());
+  return (
+    <Combobox
+      multiple
+      autoHighlight
+      items={isNew ? [...offered, typed] : offered}
+      value={[...props.selected]}
+      onValueChange={(selected: string[]) => props.onChange(selected)}
+      inputValue={query}
+      onInputValueChange={setQuery}
+      disabled={props.disabled}
+    >
+      <ComboboxChips>
+        <ComboboxValue>
+          {(selected: string[]) =>
+            selected.map((name) => <ComboboxChip key={name}>{name}</ComboboxChip>)
+          }
+        </ComboboxValue>
+        <ComboboxChipsInput
+          aria-label="Projects"
+          placeholder={props.selected.length === 0 ? "Any project" : undefined}
+        />
+      </ComboboxChips>
+      <ComboboxPopup>
+        <ComboboxEmpty>
+          {typed.length > 0
+            ? "Already chosen"
+            : props.choices.length === 0
+              ? "Type a project name"
+              : "Every project is chosen"}
+        </ComboboxEmpty>
+        <ComboboxList>
+          {(name: string) => (
+            <ComboboxItem key={name} value={name}>
+              {isNew && name === typed ? `Add “${name}”` : name}
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxPopup>
+    </Combobox>
+  );
+}
+
 export function ThreadCategoriesSetting() {
   const categories = useThreadCategories();
   const updateSettings = useUpdatePrimarySettings();
@@ -314,6 +386,11 @@ export function ThreadCategoriesSetting() {
       return [...choices].map(([value, label]) => ({ value, label }));
     })(),
   };
+  const projectNames = [
+    ...new Set(
+      projects.filter((project) => project.archivedAt == null).map((project) => project.title),
+    ),
+  ].toSorted((a, b) => a.localeCompare(b));
   // A disconnected environment's id is unreadable, so its summary names a short prefix.
   const labelFor = (field: ChoiceField, value: string) =>
     choicesByField[field].find((choice) => choice.value === value)?.label ??
@@ -422,6 +499,7 @@ export function ThreadCategoriesSetting() {
               isFirst={index === 0}
               isLast={index === ordered.length - 1}
               choicesByField={choicesByField}
+              projectNames={projectNames}
               onUpdate={(update) => updateCategory(category.id, update)}
               onMove={(offset) => reorder(moveId(order, category.id, offset))}
               onDelete={() => void remove(category)}
@@ -441,6 +519,7 @@ function CategoryRow(props: {
   isFirst: boolean;
   isLast: boolean;
   choicesByField: Record<ChoiceField, readonly Choice[]>;
+  projectNames: readonly string[];
   onUpdate: (update: (category: ThreadCategory) => ThreadCategory) => void;
   onMove: (offset: -1 | 1) => void;
   onDelete: () => void;
@@ -575,6 +654,15 @@ function CategoryRow(props: {
                   </Button>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1 text-xs sm:col-span-2">
+                    <span className="text-muted-foreground">Projects</span>
+                    <ProjectsField
+                      choices={props.projectNames}
+                      selected={rule.projects}
+                      disabled={!editable}
+                      onChange={(projects) => updateRule(ruleIndex, { projects })}
+                    />
+                  </div>
                   {GLOB_FIELDS.map(({ field, label: fieldLabel, placeholder }) => (
                     <label key={field} className="flex flex-col gap-1 text-xs">
                       <span className="text-muted-foreground">{fieldLabel}</span>

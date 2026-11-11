@@ -7,7 +7,7 @@ import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
 
 const ComboboxContext = React.createContext<{
-  chipsRef: React.RefObject<Element | null> | null;
+  chipsRef: React.RefObject<HTMLDivElement | null> | null;
   multiple: boolean;
 }>({
   chipsRef: null,
@@ -17,7 +17,7 @@ const ComboboxContext = React.createContext<{
 function Combobox<Value, Multiple extends boolean | undefined = false>(
   props: ComboboxPrimitive.Root.Props<Value, Multiple>,
 ) {
-  const chipsRef = React.useRef<Element | null>(null);
+  const chipsRef = React.useRef<HTMLDivElement | null>(null);
   const value = { chipsRef, multiple: !!props.multiple };
   return (
     <ComboboxContext value={value}>
@@ -121,6 +121,57 @@ function ComboboxSearchInput(props: React.ComponentProps<typeof ComboboxInput>) 
         />
       </div>
     </div>
+  );
+}
+
+/** An input-styled box holding the chosen values as chips, followed by a `ComboboxChipsInput`. */
+function ComboboxChips({ className, ...props }: ComboboxPrimitive.Chips.Props) {
+  const { chipsRef } = React.use(ComboboxContext);
+  return (
+    <ComboboxPrimitive.Chips
+      ref={chipsRef ?? undefined}
+      className={cn(
+        "flex min-h-7.5 w-full flex-wrap items-center gap-1 rounded-lg border border-input bg-background p-0.5 text-base text-foreground shadow-xs/5 ring-ring/24 transition-shadow focus-within:border-ring focus-within:ring-[3px] focus-within:ring-inset has-disabled:opacity-64 sm:min-h-6.5 sm:text-sm dark:bg-input/32",
+        className,
+      )}
+      data-slot="combobox-chips"
+      {...props}
+    />
+  );
+}
+
+function ComboboxChip({ className, children, ...props }: ComboboxPrimitive.Chip.Props) {
+  return (
+    <ComboboxPrimitive.Chip
+      className={cn(
+        "flex h-6 items-center gap-0.5 rounded-md bg-foreground/[0.09] ps-2 pe-0.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:h-5",
+        className,
+      )}
+      data-slot="combobox-chip"
+      {...props}
+    >
+      {children}
+      <ComboboxPrimitive.ChipRemove
+        aria-label="Remove"
+        className="grid size-5 place-items-center rounded-sm opacity-70 outline-none hover:opacity-100 sm:size-4 [&_svg]:size-3"
+        data-slot="combobox-chip-remove"
+      >
+        <XIcon />
+      </ComboboxPrimitive.ChipRemove>
+    </ComboboxPrimitive.Chip>
+  );
+}
+
+function ComboboxChipsInput({ className, ...props }: ComboboxPrimitive.Input.Props) {
+  return (
+    <ComboboxPrimitive.Input
+      className={cn(
+        "h-6 min-w-16 flex-1 bg-transparent px-1.5 outline-none placeholder:text-placeholder sm:h-5",
+        className,
+      )}
+      data-slot="combobox-chips-input"
+      {...props}
+    />
   );
 }
 
@@ -266,11 +317,16 @@ function ComboboxStatus({ className, ...props }: ComboboxPrimitive.Status.Props)
 }
 
 const useComboboxFilter = ComboboxPrimitive.useFilter;
+const ComboboxValue = ComboboxPrimitive.Value;
 
 export {
   Combobox,
   ComboboxInput,
   ComboboxSearchInput,
+  ComboboxChips,
+  ComboboxChip,
+  ComboboxChipsInput,
+  ComboboxValue,
   ComboboxTrigger,
   ComboboxPopup,
   ComboboxItem,

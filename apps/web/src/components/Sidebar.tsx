@@ -62,6 +62,7 @@ import {
 import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 
 import {
+  AlarmClockIcon,
   CheckIcon,
   ChevronDownIcon,
   CircleAlertIcon,
@@ -184,11 +185,13 @@ import {
   threadCategoryChange,
   threadCategoryLabel,
 } from "@t3tools/shared/threadCategories";
-import type { ProjectIconColor } from "@t3tools/contracts";
+import type { ProjectIconColor, ThreadCategoryView } from "@t3tools/contracts";
 import { CategorySwatch } from "./CategorySwatch";
 import {
+  readSidebarViewLiveThreads,
   readThreadCategoryMembership,
   selectSidebarCategoryScope,
+  stepSidebarCategory,
   useThreadCategories,
   useThreadCategoriesEditable,
   useThreadCategoryViews,
@@ -1290,6 +1293,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ? "uncategorized"
           : null;
   const focusedViewId = categoryScope?.type === "view" ? categoryScope.viewId : null;
+  const focusedView =
+    focusedViewId === null
+      ? null
+      : (threadCategoryViews.find((view) => view.id === focusedViewId) ?? null);
   const openViewEditor = (viewId?: string) => {
     dispatchProjectScopeMenu({ type: "open-changed", open: false });
     openSidebarViewEditor(viewId);
@@ -2465,6 +2472,111 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     })();
   };
 
+  const snoozeThreadsTogether = async (
+    threadsToSnooze: ReadonlyArray<Pick<EnvironmentThreadShell, "environmentId" | "id">>,
+    preset: Pick<SnoozePreset, "snoozedUntil">,
+  ) => {
+    const coSnoozingKeys = new Set(threadsToSnooze.map(threadShellKey));
+    const outcomes = await Promise.all(
+      threadsToSnooze.map((thread) =>
+        performSnooze(scopeThreadRef(thread.environmentId, thread.id), preset, { coSnoozingKeys }),
+      ),
+    );
+    const failures = outcomes.flatMap((outcome) =>
+      outcome.status === "failure" ? [outcome.error] : [],
+    );
+    if (failures.length > 0) {
+      const firstError = failures[0];
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title:
+            failures.length < outcomes.length
+              ? `Failed to snooze ${failures.length} thread${failures.length === 1 ? "" : "s"}`
+              : "Failed to snooze threads",
+          description: firstError instanceof Error ? firstError.message : "An error occurred.",
+        }),
+      );
+    }
+    return outcomes.every((outcome) => outcome.status === "success");
+  };
+
+  // Snoozes what the view lists outside its shelves until one time, then moves on, since an
+  // all-snoozed view is one the next-category shortcut passes over.
+  const snoozeView = async (view: ThreadCategoryView, position: { x: number; y: number }) => {
+    const api = readLocalApi();
+    if (!api) return;
+    // oxlint-disable-next-line react/purity -- runs in an event handler (oxc#27309)
+    const menuOpenedAt = new Date();
+    const liveThreads = readSidebarViewLiveThreads(view);
+    const snoozable = liveThreads.filter(
+      (thread) =>
+        serverConfigs.has(thread.environmentId) &&
+        canSnooze(thread, { now: menuOpenedAt.toISOString() }),
+    );
+    const leftAlone = liveThreads.length - snoozable.length;
+    if (snoozable.length === 0) {
+      toastManager.add({
+        type: "info",
+        title: liveThreads.length === 0 ? "Nothing to snooze" : "Nothing can be snoozed",
+        description:
+          liveThreads.length === 0
+            ? `Every thread in ${view.name} is already snoozed or settled.`
+            : `The threads in ${view.name} are waiting on you or about to start a turn.`,
+      });
+      return;
+    }
+    const snoozePresets = resolveSnoozePresets(
+      menuOpenedAt,
+      timestampFormat,
+      snoozable[0]!.environmentId,
+    );
+    const disabled = !canOperateThreads(snoozable);
+    const clicked = await settlePromise(() =>
+      api.contextMenu.show(
+        [
+          ...snoozePresets.map((preset) => ({
+            id: `snooze:${preset.id}`,
+            label: `${preset.label} (${preset.whenLabel})`,
+            disabled,
+          })),
+          {
+            id: "snooze:custom",
+            label: "Custom…",
+            separatorBefore: snoozePresets.length > 0,
+            disabled,
+          },
+        ],
+        position,
+      ),
+    );
+    if (clicked._tag === "Failure" || clicked.value === null) return;
+    if (!checkThreadOperations(snoozable)) return;
+    const preset =
+      clicked.value === "snooze:custom"
+        ? await requestCustomSnooze()
+        : pickSnoozePreset(
+            snoozePresets,
+            clicked.value.slice("snooze:".length),
+            timestampFormat,
+            snoozable[0]!.environmentId,
+          );
+    if (!preset) return;
+    clearSelection();
+    const snoozedAll = await snoozeThreadsTogether(snoozable, preset);
+    if (leftAlone > 0) {
+      toastManager.add({
+        type: "info",
+        title: `${leftAlone} thread${leftAlone === 1 ? "" : "s"} in ${view.name} not snoozed`,
+        description:
+          "Threads waiting on your reply or approval, or about to start a turn, are left alone.",
+      });
+      return;
+    }
+    const scope = useUiStateStore.getState().sidebarCategoryScope;
+    if (snoozedAll && scope?.type === "view" && scope.viewId === view.id) stepSidebarCategory(1);
+  };
+
   const handleMultiSelectContextMenu = useStableCallback(
     async (position: { x: number; y: number }) => {
       const api = readLocalApi();
@@ -2594,36 +2706,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 selectedThreads[0]!.environmentId,
               );
         if (preset) {
-          const coSnoozingKeys = new Set(threadKeys);
           clearSelection();
-          const outcomes = await Promise.all(
-            selectedThreads.map(async (thread) => {
-              const threadRef = scopeThreadRef(thread.environmentId, thread.id);
-              const outcome = await performSnooze(threadRef, preset, { coSnoozingKeys });
-              return { outcome, threadRef };
-            }),
-          );
-          const snoozedThreadRefs = outcomes.flatMap(({ outcome, threadRef }) =>
-            outcome.status === "success" ? [threadRef] : [],
-          );
-          const failures = outcomes.flatMap(({ outcome }) =>
-            outcome.status === "failure" ? [outcome.error] : [],
-          );
-
-          if (failures.length > 0) {
-            const firstError = failures[0];
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title:
-                  snoozedThreadRefs.length > 0
-                    ? `Failed to snooze ${failures.length} thread${failures.length === 1 ? "" : "s"}`
-                    : "Failed to snooze threads",
-                description:
-                  firstError instanceof Error ? firstError.message : "An error occurred.",
-              }),
-            );
-          }
+          await snoozeThreadsTogether(selectedThreads, preset);
         }
         return;
       }
@@ -3472,17 +3556,32 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     ? selectedProjectScopeItem?.label
                     : scopedProjectGroups.map((project) => project.displayName).join(", ")}
                 </span>
-                {focusedViewId !== null ? (
-                  <Button
-                    type="button"
-                    size="icon-micro"
-                    variant="ghost-muted"
-                    aria-label="Edit view"
-                    title="Edit view"
-                    onClick={() => openViewEditor(focusedViewId)}
-                  >
-                    <PencilIcon className="size-3" />
-                  </Button>
+                {focusedView !== null ? (
+                  <>
+                    <Button
+                      type="button"
+                      size="icon-micro"
+                      variant="ghost-muted"
+                      aria-label="Snooze view"
+                      title="Snooze every thread in this view"
+                      onClick={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        void snoozeView(focusedView, { x: rect.left, y: rect.bottom + 4 });
+                      }}
+                    >
+                      <AlarmClockIcon className="size-3" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon-micro"
+                      variant="ghost-muted"
+                      aria-label="Edit view"
+                      title="Edit view"
+                      onClick={() => openViewEditor(focusedView.id)}
+                    >
+                      <PencilIcon className="size-3" />
+                    </Button>
+                  </>
                 ) : null}
                 <Button
                   type="button"

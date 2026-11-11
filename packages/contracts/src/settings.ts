@@ -84,6 +84,8 @@ export const ThreadCategoryRule = Schema.Struct({
   ),
   branches: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   workspacePaths: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  /** Project names rather than ids, so the same project on several machines matches once. */
+  projects: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type ThreadCategoryRule = typeof ThreadCategoryRule.Type;
 

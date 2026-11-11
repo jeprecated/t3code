@@ -59,6 +59,7 @@ const category = (id: string, name: string, repositories: string[] = []): Thread
             providerInstances: [],
             branches: [],
             workspacePaths: [],
+            projects: [],
           },
         ],
 });

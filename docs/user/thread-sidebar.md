@@ -243,9 +243,11 @@ the sidebar shows and expand one to edit its rules. They are saved on every
 connected environment, so agents there can see them too; an environment that was
 offline picks up the list on your next edit.
 
-A category's rules match on repository, environment, provider, branch, or project
-path. Repository, branch, and path fields take comma-separated patterns where `*`
-matches anything, for example `github.com/acme/*`. A thread joins a category when
+A category's rules match on project, repository, environment, provider, branch, or
+project path. Type in **Projects** to pick projects by name; a name matches that
+project on every machine, wherever its folder is, and stops matching if you rename
+the project. Repository, branch, and path fields take comma-separated patterns where
+`*` matches anything, for example `github.com/acme/*`. A thread joins a category when
 every field of any one rule matches. Repositories match by remote, so one rule
 covers the same repository on every connected environment.
 
@@ -274,12 +276,15 @@ approval, the top of the list says so; click it to show all threads.
 To show several categories at once, choose **New view…** in the filter menu, name the
 view, and tick its categories. Views are shared by every device connected to your
 machines. Edit or delete one with the pencil beside it, or with **Edit sidebar view…**
-in the command palette while it is showing.
+in the command palette while it is showing. The alarm clock beside the pencil snoozes
+every thread the view lists until the time you pick, then moves to the next view.
+Threads waiting on your reply or approval are left alone.
 
 To step through filters from the keyboard, assign `sidebar.nextCategory` and
 `sidebar.previousCategory` in **Settings → Keybindings**. Once you have views, the
-shortcut steps through All and each view; until then it steps through All, each
-category, and Uncategorized. The command palette also lists **Filter sidebar by
+shortcut steps through All and each view, passing over views whose threads are all
+snoozed or settled; until then it steps through All, each category, and
+Uncategorized. The command palette also lists **Filter sidebar by
 category…**.
 
 ## Inspect agent work

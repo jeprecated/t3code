@@ -5,6 +5,9 @@ import {
   type SidebarCategoryScope,
 } from "@t3tools/client-runtime/state/sidebar-categories";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
+import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   compileThreadCategoryRules,
   resolveThreadCategoryIds,
@@ -25,10 +28,15 @@ import { Atom } from "effect/reactivity";
 
 import { toastManager } from "./components/ui/toast";
 import { appAtomRegistry } from "./rpc/atomRegistry";
-import { readProject, readThreadShell } from "./state/entities";
+import {
+  readEnvironmentServerConfigLoaded,
+  readProject,
+  readThreadShell,
+  readThreadShells,
+} from "./state/entities";
 import { primaryEnvironmentIdAtom } from "./state/primaryEnvironment";
 import { environmentServerConfigsAtom } from "./state/server";
-import { threadEnvironment } from "./state/threads";
+import { environmentThreadShells, threadEnvironment } from "./state/threads";
 import { useOrchestrationCommand } from "./state/use-orchestration-command";
 import { useUiStateStore } from "./uiStateStore";
 
@@ -194,6 +202,49 @@ export function selectSidebarCategoryScope(scope: SidebarCategoryScope | null): 
   if (scope === null) store.setSidebarProjectScopeKeys([]);
 }
 
+/** The threads a view lists outside its Snoozed and Settled shelves, as the sidebar sorts them. */
+export function readSidebarViewLiveThreads(
+  view: ThreadCategoryView,
+): readonly EnvironmentThreadShell[] {
+  const categories = readThreadCategories();
+  const matchRules = compileThreadCategoryRules(categories);
+  const delegatedUnderParent = appAtomRegistry.get(
+    environmentThreadShells.delegatedUnderParentAtom,
+  );
+  const viewCategoryIds = new Set(view.categoryIds);
+  const now = new Date().toISOString();
+  return readThreadShells().filter((thread) => {
+    if (
+      thread.archivedAt !== null ||
+      isShownUnderParent(
+        { environmentId: thread.environmentId, threadId: thread.id },
+        thread.lineage,
+        delegatedUnderParent,
+      )
+    ) {
+      return false;
+    }
+    // The sidebar keeps a thread in its list until its environment's config loads.
+    if (
+      readEnvironmentServerConfigLoaded(thread.environmentId) &&
+      (thread.settledOverride === "settled" || effectiveSnoozed(thread, { now }))
+    ) {
+      return false;
+    }
+    const categoryIds = resolveThreadCategoryIds(
+      categories,
+      matchRules({
+        environmentId: thread.environmentId,
+        providerInstanceId: thread.providerInstanceId,
+        branch: thread.branch,
+        project: readProject(scopeProjectRef(thread.environmentId, thread.projectId)),
+      }),
+      thread.categories,
+    );
+    return categoryIds.some((id) => viewCategoryIds.has(id));
+  });
+}
+
 export function stepSidebarCategory(direction: 1 | -1): void {
   const categories = readThreadCategories();
   const views = readThreadCategoryViews();
@@ -211,6 +262,7 @@ export function stepSidebarCategory(direction: 1 | -1): void {
     categories,
     views,
     direction,
+    viewIsIdle: (view) => readSidebarViewLiveThreads(view).length === 0,
   });
   selectSidebarCategoryScope(scope);
   toastManager.add({
