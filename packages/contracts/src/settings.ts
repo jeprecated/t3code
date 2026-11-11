@@ -111,6 +111,14 @@ export const ThreadCategory = Schema.Struct({
 });
 export type ThreadCategory = typeof ThreadCategory.Type;
 
+/** A saved sidebar filter showing threads in any of its categories. */
+export const ThreadCategoryView = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  categoryIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type ThreadCategoryView = typeof ThreadCategoryView.Type;
+
 export const MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS = 1;
 export const MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS = 90;
 export const SidebarAutoSettleAfterDays = Schema.Number.check(
@@ -1560,6 +1568,9 @@ export const ServerSettings = Schema.Struct({
   threadCategories: Schema.Array(ThreadCategory).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  threadCategoryViews: Schema.Array(ThreadCategoryView).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -1971,6 +1982,7 @@ export const ServerSettingsPatch = Schema.Struct({
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   ghqCloneLayout: Schema.optionalKey(Schema.Boolean),
   threadCategories: Schema.optionalKey(Schema.Array(ThreadCategory)),
+  threadCategoryViews: Schema.optionalKey(Schema.Array(ThreadCategoryView)),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),

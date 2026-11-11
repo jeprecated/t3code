@@ -15,7 +15,7 @@ import { m } from "../i18n/messages";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { type CommandHandler, type CommandScopeOptions, registerCommands } from "./dispatcher";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
-import { readThreadCategories, stepSidebarCategory } from "../threadCategories";
+import { stepSidebarCategory } from "../threadCategories";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 
 function consume(event: KeyboardEvent): void {
@@ -69,7 +69,7 @@ export function installCommandPaletteCommands(
     (event) => {
       consume(event);
       if (event.repeat) return;
-      stepSidebarCategory(direction, readThreadCategories());
+      stepSidebarCategory(direction);
     };
   const disposeCategorySteps = registerCommands(
     {
