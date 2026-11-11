@@ -236,8 +236,10 @@ from its context menu, or **Copy thread** from its long-press menu on mobile.
 ### Group threads into categories
 
 On web and desktop, a category names a set of threads you want to see together,
-such as one client's repositories or everything about your mobile apps. Create
-categories in **Settings → General → Thread categories**. They are saved on every
+such as one client's repositories or everything about your mobile apps. Create one
+with **New category…** in the sidebar's filter menu or the command palette, or in
+**Settings → General → Thread categories**, where you drag categories into the order
+the sidebar shows and expand one to edit its rules. They are saved on every
 connected environment, so agents there can see them too; an environment that was
 offline picks up the list on your next edit.
 
@@ -269,9 +271,16 @@ Each thread is marked on its left edge with the colors of its categories, except
 one you are filtering by. When the filter hides a thread that needs your input or
 approval, the top of the list says so; click it to show all threads.
 
-To step through All, each category, and Uncategorized from the keyboard, assign
-`sidebar.nextCategory` and `sidebar.previousCategory` in **Settings → Keybindings**.
-The command palette also lists **Filter sidebar by category…**.
+To show several categories at once, choose **New view…** in the filter menu, name the
+view, and tick its categories. Views are shared by every device connected to your
+machines. Edit or delete one with the pencil beside it, or with **Edit sidebar view…**
+in the command palette while it is showing.
+
+To step through filters from the keyboard, assign `sidebar.nextCategory` and
+`sidebar.previousCategory` in **Settings → Keybindings**. Once you have views, the
+shortcut steps through All and each view; until then it steps through All, each
+category, and Uncategorized. The command palette also lists **Filter sidebar by
+category…**.
 
 ## Inspect agent work
 

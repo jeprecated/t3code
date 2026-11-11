@@ -1,6 +1,9 @@
 import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@t3tools/contracts";
-import type { SidebarCategoryScope } from "@t3tools/client-runtime/state/sidebar-categories";
+import {
+  sameSidebarCategoryScope,
+  type SidebarCategoryScope,
+} from "@t3tools/client-runtime/state/sidebar-categories";
 import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "@t3tools/client-runtime/state/projects";
 
@@ -107,12 +110,15 @@ function sanitizeOptionalKey(value: unknown): string | null {
 function sanitizeCategoryScope(value: unknown): SidebarCategoryScope | null {
   if (!value || typeof value !== "object" || !("type" in value)) return null;
   if (value.type === "uncategorized") return { type: "uncategorized" };
-  return value.type === "category" &&
-    "categoryId" in value &&
-    typeof value.categoryId === "string" &&
-    value.categoryId.length > 0
-    ? { type: "category", categoryId: value.categoryId }
-    : null;
+  if (value.type === "view") {
+    const viewId = "viewId" in value ? sanitizeOptionalKey(value.viewId) : null;
+    return viewId === null ? null : { type: "view", viewId };
+  }
+  const categoryId =
+    value.type === "category" && "categoryId" in value
+      ? sanitizeOptionalKey(value.categoryId)
+      : null;
+  return categoryId === null ? null : { type: "category", categoryId };
 }
 
 function sanitizeTimestampRecord(value: unknown): Record<string, string> {
@@ -374,15 +380,7 @@ export function setSidebarCategoryScope(
 ): UiState {
   const nextScope = sanitizeCategoryScope(scope);
   const keepsProjectKeys = nextScope === null || state.sidebarProjectScopeKeys.length === 0;
-  const current = state.sidebarCategoryScope;
-  const sameScope =
-    current === nextScope ||
-    (current !== null &&
-      nextScope !== null &&
-      current.type === nextScope.type &&
-      (current.type === "uncategorized" ||
-        (nextScope.type === "category" && current.categoryId === nextScope.categoryId)));
-  if (sameScope && keepsProjectKeys) {
+  if (sameSidebarCategoryScope(state.sidebarCategoryScope, nextScope) && keepsProjectKeys) {
     return state;
   }
   return {

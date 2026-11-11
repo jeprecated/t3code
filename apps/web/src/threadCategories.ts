@@ -17,7 +17,9 @@ import type {
   OrchestrationV2ThreadCategoryChange,
   ScopedThreadRef,
   ServerConfig,
+  ServerSettings,
   ThreadCategory,
+  ThreadCategoryView,
 } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
@@ -30,8 +32,6 @@ import { threadEnvironment } from "./state/threads";
 import { useOrchestrationCommand } from "./state/use-orchestration-command";
 import { useUiStateStore } from "./uiStateStore";
 
-const NO_CATEGORIES: readonly ThreadCategory[] = [];
-
 export function environmentSupportsThreadCategories(
   config: Pick<ServerConfig, "environment"> | undefined,
 ): boolean {
@@ -43,21 +43,49 @@ export function environmentSupportsThreadCategories(
  * environment's copy stands for all of them; the hosted app, which has no
  * primary, reads the first environment that supports categories.
  */
-function selectThreadCategories(
+function selectCategorySettings(
   configs: ReadonlyMap<EnvironmentId, ServerConfig>,
   primaryEnvironmentId: EnvironmentId | null,
-): readonly ThreadCategory[] {
+): ServerSettings | null {
   const primary = primaryEnvironmentId === null ? undefined : configs.get(primaryEnvironmentId);
-  if (environmentSupportsThreadCategories(primary)) return primary!.settings.threadCategories;
+  if (environmentSupportsThreadCategories(primary)) return primary!.settings;
   for (const config of configs.values()) {
-    if (environmentSupportsThreadCategories(config)) return config.settings.threadCategories;
+    if (environmentSupportsThreadCategories(config)) return config.settings;
   }
-  return NO_CATEGORIES;
+  return null;
 }
 
-const threadCategoriesAtom = Atom.make((get) =>
-  selectThreadCategories(get(environmentServerConfigsAtom), get(primaryEnvironmentIdAtom)),
+const categorySettingsAtom = Atom.make((get) =>
+  selectCategorySettings(get(environmentServerConfigsAtom), get(primaryEnvironmentIdAtom)),
+).pipe(Atom.withLabel("web:thread-category-settings"));
+
+const NO_CATEGORIES: readonly ThreadCategory[] = [];
+const NO_VIEWS: readonly ThreadCategoryView[] = [];
+
+const threadCategoriesAtom = Atom.make(
+  (get) => get(categorySettingsAtom)?.threadCategories ?? NO_CATEGORIES,
 ).pipe(Atom.withLabel("web:thread-categories"));
+
+const threadCategoryViewsAtom = Atom.make(
+  (get) => get(categorySettingsAtom)?.threadCategoryViews ?? NO_VIEWS,
+).pipe(Atom.withLabel("web:thread-category-views"));
+
+/** False until some connected environment can store categories. */
+const threadCategoriesEditableAtom = Atom.make((get) => get(categorySettingsAtom) !== null).pipe(
+  Atom.withLabel("web:thread-categories-editable"),
+);
+
+export function useThreadCategoriesEditable(): boolean {
+  return useAtomValue(threadCategoriesEditableAtom);
+}
+
+export function useThreadCategoryViews(): readonly ThreadCategoryView[] {
+  return useAtomValue(threadCategoryViewsAtom);
+}
+
+export function readThreadCategoryViews(): readonly ThreadCategoryView[] {
+  return appAtomRegistry.get(threadCategoryViewsAtom);
+}
 
 export function useThreadCategories(): readonly ThreadCategory[] {
   return useAtomValue(threadCategoriesAtom);
@@ -144,11 +172,19 @@ export function useUpdateThreadCategories() {
 function sidebarCategoryScopeLabel(
   scope: SidebarCategoryScope | null,
   categories: readonly ThreadCategory[],
+  views: readonly ThreadCategoryView[],
 ): string {
   if (scope === null) return "All projects";
-  if (scope.type === "uncategorized") return "Uncategorized";
-  const category = categories.find((candidate) => candidate.id === scope.categoryId);
-  return category ? threadCategoryLabel(category) : "All projects";
+  switch (scope.type) {
+    case "uncategorized":
+      return "Uncategorized";
+    case "view":
+      return views.find((view) => view.id === scope.viewId)?.name ?? "All projects";
+    case "category": {
+      const category = categories.find((candidate) => candidate.id === scope.categoryId);
+      return category ? threadCategoryLabel(category) : "All projects";
+    }
+  }
 }
 
 /** Choosing a category clears the project scope; choosing everything clears both. */
@@ -158,10 +194,9 @@ export function selectSidebarCategoryScope(scope: SidebarCategoryScope | null): 
   if (scope === null) store.setSidebarProjectScopeKeys([]);
 }
 
-export function stepSidebarCategory(
-  direction: 1 | -1,
-  categories: readonly ThreadCategory[],
-): void {
+export function stepSidebarCategory(direction: 1 | -1): void {
+  const categories = readThreadCategories();
+  const views = readThreadCategoryViews();
   if (categories.length === 0) {
     toastManager.add({
       id: "sidebar-category-step",
@@ -174,12 +209,13 @@ export function stepSidebarCategory(
   const scope = stepSidebarCategoryScope({
     scope: useUiStateStore.getState().sidebarCategoryScope,
     categories,
+    views,
     direction,
   });
   selectSidebarCategoryScope(scope);
   toastManager.add({
     id: "sidebar-category-step",
-    title: `Sidebar: ${sidebarCategoryScopeLabel(scope, categories)}`,
+    title: `Sidebar: ${sidebarCategoryScopeLabel(scope, categories, views)}`,
     timeout: 1500,
   });
 }

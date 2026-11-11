@@ -64,6 +64,8 @@ import {
   FolderPlusIcon,
   MessageSquareDashedIcon,
   LinkIcon,
+  LayersIcon,
+  PlusIcon,
   ListFilterIcon,
   MessageSquareIcon,
   PaletteIcon,
@@ -164,9 +166,13 @@ import {
   resolveThreadCategoryMembership,
   selectSidebarCategoryScope,
   useThreadCategories,
+  useThreadCategoriesEditable,
+  useThreadCategoryViews,
   useUpdateThreadCategories,
 } from "../threadCategories";
 import { useUiStateStore } from "../uiStateStore";
+import { editCurrentSidebarView, openSidebarViewEditor } from "./SidebarViewDialog";
+import { openNewThreadCategoryDialog } from "./ThreadCategoryDialog";
 import { CategorySwatch } from "./CategorySwatch";
 import { resolveSidebarCategoryScope } from "@t3tools/client-runtime/state/sidebar-categories";
 import { threadCategoryChange, threadCategoryLabel } from "@t3tools/shared/threadCategories";
@@ -430,10 +436,13 @@ function OpenCommandPaletteDialog(props: {
   const clientSettings = useClientSettings(selectCommandPaletteClientSettings);
   const sidebarProjectScoped = useUiStateStore((store) => store.sidebarProjectScopeKeys.length > 0);
   const threadCategories = useThreadCategories();
+  const threadCategoryViews = useThreadCategoryViews();
+  const threadCategoriesEditable = useThreadCategoriesEditable();
   const updateThreadCategories = useUpdateThreadCategories();
   const sidebarCategoryScope = resolveSidebarCategoryScope(
     useUiStateStore((store) => store.sidebarCategoryScope),
     threadCategories,
+    threadCategoryViews,
   );
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
@@ -1572,6 +1581,17 @@ function OpenCommandPaletteDialog(props: {
               ),
               run: async () => selectSidebarCategoryScope(null),
             },
+            ...threadCategoryViews.map((view): CommandPaletteActionItem => ({
+              kind: "action",
+              value: `sidebar-category:view:${view.id}`,
+              title: view.name,
+              searchTerms: [view.name, "view"],
+              icon: <LayersIcon className={ITEM_ICON_CLASS} />,
+              titleTrailingContent: scopeTrailing(
+                sidebarCategoryScope?.type === "view" && sidebarCategoryScope.viewId === view.id,
+              ),
+              run: async () => selectSidebarCategoryScope({ type: "view", viewId: view.id }),
+            })),
             ...threadCategories.map((category): CommandPaletteActionItem => ({
               kind: "action",
               value: `sidebar-category:${category.id}`,
@@ -1599,6 +1619,36 @@ function OpenCommandPaletteDialog(props: {
       ],
     };
     actionItems.push(sidebarCategoryItem);
+    const editingView = sidebarCategoryScope?.type === "view";
+    actionItems.push({
+      kind: "action",
+      value: "action:sidebar-view-edit",
+      searchTerms: ["view", "views", "sidebar", "filter", "categories", "new", "edit", "create"],
+      title: editingView ? "Edit sidebar view…" : "New sidebar view…",
+      icon: <LayersIcon className={ITEM_ICON_CLASS} />,
+      run: async () => editCurrentSidebarView(),
+    });
+    if (editingView) {
+      actionItems.push({
+        kind: "action",
+        value: "action:sidebar-view-new",
+        searchTerms: ["view", "views", "sidebar", "filter", "categories", "new", "create"],
+        title: "New sidebar view…",
+        icon: <LayersIcon className={ITEM_ICON_CLASS} />,
+        run: async () => openSidebarViewEditor(),
+      });
+    }
+  }
+
+  if (threadCategoriesEditable) {
+    actionItems.push({
+      kind: "action",
+      value: "action:thread-category-new",
+      searchTerms: ["category", "categories", "tag", "sidebar", "new", "create", "add"],
+      title: "New thread category…",
+      icon: <PlusIcon className={ITEM_ICON_CLASS} />,
+      run: async () => openNewThreadCategoryDialog(),
+    });
   }
 
   let threadCategoriesItem: CommandPaletteSubmenuItem | null = null;

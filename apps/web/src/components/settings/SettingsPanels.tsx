@@ -58,7 +58,7 @@ import { scopedIdleCompaction } from "./scopedSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { ThreadTitleInstructionsSettings } from "./ThreadTitleInstructionsSettings";
 import { SnoozePresetsRow } from "./SnoozePresetsSettings";
-import { ThreadCategoriesSetting } from "./ThreadCategoriesSetting";
+import { ThreadCategoriesSetting, ThreadCategoryViewsSetting } from "./ThreadCategoriesSetting";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import {
   getCustomModelOptionsByInstance,
@@ -814,6 +814,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <ThreadCategoriesSetting />
+        <ThreadCategoryViewsSetting />
         <SettingsRow
           {...searchableSetting("project-order")}
           description="Order of projects in the sidebar project picker and command palette."

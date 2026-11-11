@@ -306,5 +306,14 @@ describe("uiStateStore persistence", () => {
       parsePersistedState({ sidebarCategoryScope: { type: "category" } } as PersistedUiState)
         .sidebarCategoryScope,
     ).toBeNull();
+    expect(
+      parsePersistedState({
+        sidebarCategoryScope: { type: "view", viewId: "client" },
+      } as PersistedUiState).sidebarCategoryScope,
+    ).toEqual({ type: "view", viewId: "client" });
+    expect(
+      parsePersistedState({ sidebarCategoryScope: { type: "view" } } as PersistedUiState)
+        .sidebarCategoryScope,
+    ).toBeNull();
   });
 });
