@@ -5,6 +5,17 @@ export type SidebarCategoryScope =
   | { readonly type: "view"; readonly viewId: string }
   | { readonly type: "uncategorized" };
 
+/** In any included category (or anywhere, with none included) and in no excluded one. */
+export function threadCategoryViewIncludes(
+  view: ThreadCategoryView,
+  categoryIds: readonly string[],
+): boolean {
+  return (
+    (view.categoryIds.length === 0 || view.categoryIds.some((id) => categoryIds.includes(id))) &&
+    !view.excludedCategoryIds.some((id) => categoryIds.includes(id))
+  );
+}
+
 export function sidebarCategoryScopeIncludes(
   scope: SidebarCategoryScope,
   categoryIds: readonly string[],
@@ -17,7 +28,7 @@ export function sidebarCategoryScopeIncludes(
       return categoryIds.includes(scope.categoryId);
     case "view": {
       const view = views.find((candidate) => candidate.id === scope.viewId);
-      return view?.categoryIds.some((id) => categoryIds.includes(id)) ?? false;
+      return view ? threadCategoryViewIncludes(view, categoryIds) : false;
     }
   }
 }
