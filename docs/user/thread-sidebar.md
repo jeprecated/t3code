@@ -274,7 +274,9 @@ one you are filtering by. When the filter hides a thread that needs your input o
 approval, the top of the list says so; click it to show all threads.
 
 To show several categories at once, choose **New view…** in the filter menu, name the
-view, and tick its categories. Views are shared by every device connected to your
+view, and set each category to **Include** or **Exclude**. A view shows threads in any
+included category and in no excluded one; with nothing included, it shows every thread
+outside the excluded categories, uncategorized ones too. Views are shared by every device connected to your
 machines. Edit or delete one with the pencil beside it, or with **Edit sidebar view…**
 in the command palette while it is showing. The alarm clock beside the pencil snoozes
 every thread the view lists until the time you pick, then moves to the next view.

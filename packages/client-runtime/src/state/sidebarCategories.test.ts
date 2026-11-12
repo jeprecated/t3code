@@ -30,8 +30,8 @@ function category(id: string, branch: string): ThreadCategory {
 describe("sidebar category scope", () => {
   const categories = [category("a", "a"), category("b", "b")];
   const views = [
-    { id: "ab", name: "Both", categoryIds: ["a", "b"] },
-    { id: "b", name: "Just b", categoryIds: ["b"] },
+    { id: "ab", name: "Both", categoryIds: ["a", "b"], excludedCategoryIds: [] },
+    { id: "b", name: "Just b", categoryIds: ["b"], excludedCategoryIds: [] },
   ];
 
   it("steps through everything, each category, and uncategorized threads, in both directions", () => {
@@ -134,9 +134,13 @@ describe("sidebar category scope", () => {
     ).toEqual({ type: "category", categoryId: "a" });
   });
 
-  it("includes a thread when it belongs to the scope's category or any of its view's categories", () => {
+  it("includes a thread when it belongs to the scope's category, or to any of its view's categories and none it excludes", () => {
     const includes = (scope: SidebarCategoryScope, categoryIds: string[]) =>
-      sidebarCategoryScopeIncludes(scope, categoryIds, views);
+      sidebarCategoryScopeIncludes(scope, categoryIds, [
+        ...views,
+        { id: "b-not-a", name: "b but not a", categoryIds: ["b"], excludedCategoryIds: ["a"] },
+        { id: "not-a", name: "Not a", categoryIds: [], excludedCategoryIds: ["a"] },
+      ]);
     expect(includes({ type: "category", categoryId: "a" }, ["b", "a"])).toBe(true);
     expect(includes({ type: "category", categoryId: "a" }, ["b"])).toBe(false);
     expect(includes({ type: "uncategorized" }, [])).toBe(true);
@@ -145,5 +149,10 @@ describe("sidebar category scope", () => {
     expect(includes({ type: "view", viewId: "b" }, ["a"])).toBe(false);
     expect(includes({ type: "view", viewId: "b" }, [])).toBe(false);
     expect(includes({ type: "view", viewId: "gone" }, ["a"])).toBe(false);
+    expect(includes({ type: "view", viewId: "b-not-a" }, ["b"])).toBe(true);
+    expect(includes({ type: "view", viewId: "b-not-a" }, ["b", "a"])).toBe(false);
+    expect(includes({ type: "view", viewId: "not-a" }, [])).toBe(true);
+    expect(includes({ type: "view", viewId: "not-a" }, ["b"])).toBe(true);
+    expect(includes({ type: "view", viewId: "not-a" }, ["a", "b"])).toBe(false);
   });
 });

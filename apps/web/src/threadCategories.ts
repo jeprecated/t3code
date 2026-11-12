@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
   stepSidebarCategoryScope,
+  threadCategoryViewIncludes,
   type SidebarCategoryScope,
 } from "@t3tools/client-runtime/state/sidebar-categories";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -211,7 +212,6 @@ export function readSidebarViewLiveThreads(
   const delegatedUnderParent = appAtomRegistry.get(
     environmentThreadShells.delegatedUnderParentAtom,
   );
-  const viewCategoryIds = new Set(view.categoryIds);
   const now = new Date().toISOString();
   return readThreadShells().filter((thread) => {
     if (
@@ -241,7 +241,7 @@ export function readSidebarViewLiveThreads(
       }),
       thread.categories,
     );
-    return categoryIds.some((id) => viewCategoryIds.has(id));
+    return threadCategoryViewIncludes(view, categoryIds);
   });
 }
 

@@ -748,7 +748,7 @@ export function ThreadCategoryViewsSetting() {
       description={
         categories.length === 0
           ? "Views show several categories at once. Create a category first."
-          : "Views show threads from several categories at once. The sidebar's next-category shortcut steps through them in this order."
+          : "Views show threads from several categories at once, and can leave categories out. The sidebar's next-category shortcut steps through them in this order."
       }
       control={
         <Button
@@ -793,6 +793,9 @@ function ViewRow(props: {
 }) {
   const { view } = props;
   const members = props.categories.filter((category) => view.categoryIds.includes(category.id));
+  const excluded = props.categories.filter((category) =>
+    view.excludedCategoryIds.includes(category.id),
+  );
   return (
     <SortableRow id={view.id} label={view.name} disabled={!props.editable}>
       {(handle) => (
@@ -810,6 +813,17 @@ function ViewRow(props: {
             <span className="shrink-0 text-sm font-medium">{view.name}</span>
             <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-xs text-muted-foreground">
               {members.map((category) => (
+                <span key={category.id} className="flex shrink-0 items-center gap-1">
+                  <CategorySwatch color={category.color} className="size-2.5" />
+                  {threadCategoryLabel(category)}
+                </span>
+              ))}
+              {excluded.length > 0 ? (
+                <span className="shrink-0">
+                  {members.length > 0 ? "but not" : "Everything but"}
+                </span>
+              ) : null}
+              {excluded.map((category) => (
                 <span key={category.id} className="flex shrink-0 items-center gap-1">
                   <CategorySwatch color={category.color} className="size-2.5" />
                   {threadCategoryLabel(category)}

@@ -14,7 +14,6 @@ import {
 import { useUiStateStore } from "../uiStateStore";
 import { CategorySwatch } from "./CategorySwatch";
 import { Button } from "./ui/button";
-import { Checkbox } from "./ui/checkbox";
 import {
   Dialog,
   DialogDescription,
@@ -26,6 +25,9 @@ import {
 } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { Toggle, ToggleGroup } from "./ui/toggle-group";
+
+type ViewFilter = Pick<ThreadCategoryView, "categoryIds" | "excludedCategoryIds">;
 
 /** Null edits nothing; an empty `viewId` creates a view. */
 const useRequest = create<{ viewId: string | null }>(() => ({ viewId: null }));
@@ -45,13 +47,15 @@ function close() {
   useRequest.setState({ viewId: null });
 }
 
-function seedCategoryIds(): readonly string[] {
+function seedFilter(): ViewFilter {
   const scope = useUiStateStore.getState().sidebarCategoryScope;
-  if (scope?.type === "category") return [scope.categoryId];
+  if (scope?.type === "category")
+    return { categoryIds: [scope.categoryId], excludedCategoryIds: [] };
   if (scope?.type === "view") {
-    return readThreadCategoryViews().find((view) => view.id === scope.viewId)?.categoryIds ?? [];
+    const view = readThreadCategoryViews().find((candidate) => candidate.id === scope.viewId);
+    if (view) return view;
   }
-  return [];
+  return { categoryIds: [], excludedCategoryIds: [] };
 }
 
 export function SidebarViewDialogHost() {
@@ -70,15 +74,28 @@ function SidebarViewDialog({ view }: { view: ThreadCategoryView | null }) {
   const categories = useThreadCategories();
   const updateSettings = useUpdatePrimarySettings();
   const [name, setName] = useState(view?.name ?? "");
-  const [categoryIds, setCategoryIds] = useState<readonly string[]>(
-    () => view?.categoryIds ?? seedCategoryIds(),
-  );
+  const [filter, setFilter] = useState<ViewFilter>(() => view ?? seedFilter());
   const trimmed = name.trim();
   // Keep category order so the view reads like the category list; deleted categories drop out.
-  const ordered = categories
-    .map((category) => category.id)
-    .filter((categoryId) => categoryIds.includes(categoryId));
-  const canSave = trimmed.length > 0 && ordered.length > 0;
+  const inOrder = (ids: readonly string[]) =>
+    categories.map((category) => category.id).filter((categoryId) => ids.includes(categoryId));
+  const ordered = {
+    categoryIds: inOrder(filter.categoryIds),
+    excludedCategoryIds: inOrder(filter.excludedCategoryIds),
+  };
+  const canSave =
+    trimmed.length > 0 && ordered.categoryIds.length + ordered.excludedCategoryIds.length > 0;
+  const setChoice = (categoryId: string, choice: "include" | "exclude" | null) =>
+    setFilter((current) => ({
+      categoryIds: [
+        ...current.categoryIds.filter((id) => id !== categoryId),
+        ...(choice === "include" ? [categoryId] : []),
+      ],
+      excludedCategoryIds: [
+        ...current.excludedCategoryIds.filter((id) => id !== categoryId),
+        ...(choice === "exclude" ? [categoryId] : []),
+      ],
+    }));
 
   // Writes start from the latest list the servers reported, not the one this dialog opened with.
   const writeViews = (update: (current: readonly ThreadCategoryView[]) => ThreadCategoryView[]) =>
@@ -89,13 +106,11 @@ function SidebarViewDialog({ view }: { view: ThreadCategoryView | null }) {
     if (view) {
       writeViews((current) =>
         current.map((candidate) =>
-          candidate.id === view.id
-            ? { ...candidate, name: trimmed, categoryIds: ordered }
-            : candidate,
+          candidate.id === view.id ? { ...candidate, name: trimmed, ...ordered } : candidate,
         ),
       );
     } else {
-      const created = { id: randomUUID(), name: trimmed, categoryIds: ordered };
+      const created = { id: randomUUID(), name: trimmed, ...ordered };
       writeViews((current) => [...current, created]);
       selectSidebarCategoryScope({ type: "view", viewId: created.id });
     }
@@ -128,8 +143,9 @@ function SidebarViewDialog({ view }: { view: ThreadCategoryView | null }) {
           <DialogHeader>
             <DialogTitle>{view ? "Edit view" : "New view"}</DialogTitle>
             <DialogDescription>
-              Shows threads in any of the chosen categories. The sidebar's next-category shortcut
-              cycles through your views.
+              Shows threads in any included category and no excluded one. Exclude without including
+              to show everything else. The sidebar's next-category shortcut cycles through your
+              views.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -143,29 +159,41 @@ function SidebarViewDialog({ view }: { view: ThreadCategoryView | null }) {
                 onChange={(event) => setName(event.target.value)}
               />
             </div>
-            <fieldset className="mt-4 flex flex-col gap-2">
+            <fieldset className="mt-4 flex flex-col gap-1.5">
               <legend className="mb-1.5 text-sm font-medium">Categories</legend>
               {categories.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
                   Create categories in Settings › General › Sidebar first.
                 </p>
               ) : (
-                categories.map((category) => (
-                  <Label key={category.id}>
-                    <Checkbox
-                      checked={categoryIds.includes(category.id)}
-                      onCheckedChange={(checked) =>
-                        setCategoryIds((current) =>
-                          checked
-                            ? [...current, category.id]
-                            : current.filter((categoryId) => categoryId !== category.id),
-                        )
-                      }
-                    />
-                    <CategorySwatch color={category.color} className="size-3" />
-                    {threadCategoryLabel(category)}
-                  </Label>
-                ))
+                categories.map((category) => {
+                  const label = threadCategoryLabel(category);
+                  const choice = filter.categoryIds.includes(category.id)
+                    ? "include"
+                    : filter.excludedCategoryIds.includes(category.id)
+                      ? "exclude"
+                      : null;
+                  return (
+                    <div key={category.id} className="flex items-center gap-2 text-sm">
+                      <CategorySwatch color={category.color} className="size-3" />
+                      <span className="min-w-0 flex-1 truncate">{label}</span>
+                      <ToggleGroup
+                        aria-label={label}
+                        value={choice ? [choice] : []}
+                        onValueChange={(next) => {
+                          const value = next[0];
+                          setChoice(
+                            category.id,
+                            value === "include" || value === "exclude" ? value : null,
+                          );
+                        }}
+                      >
+                        <Toggle value="include">Include</Toggle>
+                        <Toggle value="exclude">Exclude</Toggle>
+                      </ToggleGroup>
+                    </div>
+                  );
+                })
               )}
             </fieldset>
           </DialogPanel>
