@@ -118,6 +118,9 @@ export const ThreadCategoryView = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   categoryIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  excludedCategoryIds: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
 });
 export type ThreadCategoryView = typeof ThreadCategoryView.Type;
 
