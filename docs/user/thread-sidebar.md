@@ -386,6 +386,36 @@ side chats.
 On mobile, a thread lists its side chats above the composer. Tap one to open it and
 answer its questions.
 
+## See what waits on you
+
+Switch the top of the sidebar from **Threads** to **You** to see everything agents
+are waiting on you for, on every connected machine, and your own todos. The count
+beside **You** is what you can do now. Toggle it with `mod+alt+y`
+(`sidebar.toggleYouQueue`), or choose **Show You queue** in the command palette.
+
+**Now** lists approvals and questions first, then decisions, manual steps and blocked
+work that agents recorded for you, then threads that finished with a plan, a result
+you have not seen, or a failure. Items whose agent is still working come last. Click
+one to open its thread.
+
+In a thread, **Waiting on you** above the composer lists what its agent recorded. Pick
+an option, or choose **Done…** and add an optional note; the agent is woken five
+seconds later, so the toast's **Undo** can take it back. **Later** snoozes the thread,
+and **Not here** moves the item to **Elsewhere** on this device until you choose
+**Show here again**. Items with a start time wait in **Later** until then.
+
+Turn on **Triage** to open the next item each time you finish one: answer it, resolve
+it, settle or snooze the thread, or reply. **Next** in the thread, or `mod+alt+shift+y`
+(`youQueue.next`), skips ahead without finishing.
+
+Type in **Add todo…** to keep a task of your own. Click a todo to edit its notes,
+where you need to be, and when it becomes doable, or to mark it done.
+
+**Start overview agent** creates an Overview thread pinned above the list. Tell it
+what you did, such as "the Stripe key is in", and it resolves the matching waits and
+wakes those threads. Every morning at 09:00 it sweeps your threads for asks nobody
+recorded; change or pause that in **Settings → Scheduled tasks**.
+
 ## Snooze until later
 
 To change the choices in the snooze menu, open **Settings → Threads → Snooze options**.

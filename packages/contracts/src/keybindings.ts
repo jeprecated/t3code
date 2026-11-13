@@ -73,6 +73,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "sidebar.toggle",
   "sidebar.nextCategory",
   "sidebar.previousCategory",
+  "sidebar.toggleYouQueue",
+  "youQueue.next",
   "navigation.back",
   "navigation.forward",
   "terminal.toggle",

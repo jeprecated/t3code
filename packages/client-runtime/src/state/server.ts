@@ -1298,6 +1298,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
     }),
+    userTodosLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:user-todos:live",
+      tag: WS_METHODS.userTodosSubscribe,
+    }),
     // A cold transcript scan is measured in seconds, so keep the result around
     // long enough that switching windows or re-rendering does not rescan.
     usageSummary: createEnvironmentRpcQueryAtomFamily(runtime, {
@@ -1542,6 +1546,27 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.scheduledTasksRotateWebhookToken,
       scheduler: configScheduler,
       concurrency: configConcurrency,
+    }),
+    upsertUserTodo: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:user-todo:upsert",
+      tag: WS_METHODS.userTodosUpsert,
+    }),
+    setUserTodoCompleted: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:user-todo:set-completed",
+      tag: WS_METHODS.userTodosSetCompleted,
+    }),
+    deleteUserTodo: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:user-todo:delete",
+      tag: WS_METHODS.userTodosDelete,
+    }),
+    resolveThreadWait: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:thread-wait:resolve",
+      tag: WS_METHODS.threadWaitsResolve,
+    }),
+    startOverview: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:overview:start",
+      tag: WS_METHODS.overviewStart,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
     }),
     createGuestShare: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:guest-share:create",

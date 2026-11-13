@@ -178,6 +178,8 @@ export interface EnvironmentThreadShell {
   readonly snoozedUntil: string | null;
   readonly snoozedAt: string | null;
   readonly limitRecovery?: import("@t3tools/contracts").OrchestrationV2LimitRecovery | null;
+  /** What the agent handed back needing; null once the user writes. */
+  readonly waiting?: import("@t3tools/contracts").OrchestrationV2ThreadWaiting | null;
   readonly categories?: import("@t3tools/contracts").OrchestrationV2ThreadCategories | null;
   readonly pinnedAt: string | null;
   readonly autoSettleDisabledAt?: string | null;
@@ -330,6 +332,7 @@ export function presentThreadShell(
     snoozedUntil: nullableIso(thread.snoozedUntil ?? null),
     snoozedAt: nullableIso(thread.snoozedAt ?? null),
     limitRecovery: thread.limitRecovery ?? null,
+    waiting: thread.waiting ?? null,
     categories: thread.categories ?? null,
     pinnedAt: nullableIso(thread.pinnedAt ?? null),
     autoSettleDisabledAt: nullableIso(thread.autoSettleDisabledAt ?? null),
