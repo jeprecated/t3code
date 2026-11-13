@@ -2,10 +2,15 @@ import {
   MAX_THREAD_WAITS,
   McpCapabilityUnavailableError,
   OrchestrationV2ThreadWait,
+  OrchestrationV2ThreadWaitId,
   OrchestrationV2ThreadWaiting,
   OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
   ThreadId,
+  ThreadWaitNotFoundError,
+  ThreadWaitResolveError,
+  ThreadWaitResolveResult,
+  TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import * as McpSchema from "effect/ai/McpSchema";
@@ -49,6 +54,15 @@ export class WaitingFromSubagentError extends Schema.TaggedError<WaitingFromSuba
   }
 }
 
+export class WaitingDuplicateIdError extends Schema.TaggedError<WaitingDuplicateIdError>()(
+  "WaitingDuplicateIdError",
+  { waitId: Schema.String },
+) {
+  override get message(): string {
+    return `Two waits share the id ${this.waitId}. Give each wait its own id.`;
+  }
+}
+
 export class WaitingSetFailedError extends Schema.TaggedError<WaitingSetFailedError>()(
   "WaitingSetFailedError",
   { cause: Schema.Defect() },
@@ -64,7 +78,10 @@ export const WaitingToolError = Schema.Union([
   WaitingThreadRequiredError,
   WaitingThreadNotFoundError,
   WaitingFromSubagentError,
+  WaitingDuplicateIdError,
   WaitingSetFailedError,
+  ThreadWaitNotFoundError,
+  ThreadWaitResolveError,
 ]);
 export type WaitingToolError = typeof WaitingToolError.Type;
 
@@ -75,7 +92,7 @@ export type SetWaitingResult = typeof SetWaitingResult.Type;
 
 const SetWaitingTool = Tool.make("set_waiting", {
   description:
-    "Record what this thread needs from the user, for their inbox and for tools that filter by kind. `waits` replaces the last list; `[]` clears it. The user's next message clears it too.",
+    "Record what this thread needs from the user, for their queue. `waits` replaces the last list; `[]` clears it. Give each wait a short id and keep it when you set the list again. You may call it mid-turn for something they can do while you keep working: what is still open when your turn ends is what the thread waits on. The user's next message clears it too.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     threadId: Schema.optional(ThreadId.annotate({ description: "Thread. Default: this thread." })),
@@ -92,4 +109,28 @@ const SetWaitingTool = Tool.make("set_waiting", {
   .annotate(Tool.OpenWorld, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromSubagents);
 
-export const WaitingToolkit = Toolkit.make(SetWaitingTool);
+const ResolveWaitTool = Tool.make("resolve_wait", {
+  description:
+    "Mark one of a thread's waits done, after the user says they did it or decided. Drops it from the thread's list and wakes the thread's agent with your note. t3_thread_list with waiting: true shows waits and their ids.",
+  parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    threadId: ThreadId,
+    waitId: OrchestrationV2ThreadWaitId,
+    note: Schema.optional(
+      TrimmedNonEmptyString.check(Schema.isMaxLength(2000)).annotate({
+        description: "What the user did or decided, for the thread's agent.",
+      }),
+    ),
+  }),
+  success: ThreadWaitResolveResult,
+  failure: WaitingToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Resolve a wait")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromSubagents);
+
+export const WaitingToolkit = Toolkit.make(SetWaitingTool, ResolveWaitTool);
