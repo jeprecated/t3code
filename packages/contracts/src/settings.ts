@@ -1422,6 +1422,8 @@ export const ServerSettings = Schema.Struct({
   threadCategoryViews: Schema.Array(ThreadCategoryView).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  /** The thread the overview agent runs in; the server sets it when the user starts one. */
+  overviewThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -1782,6 +1784,7 @@ export const ServerSettingsPatch = Schema.Struct({
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   threadCategories: Schema.optionalKey(Schema.Array(ThreadCategory)),
   threadCategoryViews: Schema.optionalKey(Schema.Array(ThreadCategoryView)),
+  overviewThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),

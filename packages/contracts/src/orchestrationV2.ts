@@ -427,8 +427,14 @@ export const OrchestrationV2ThreadWaitKind = Schema.Literals([
 ]);
 export type OrchestrationV2ThreadWaitKind = typeof OrchestrationV2ThreadWaitKind.Type;
 
+export const OrchestrationV2ThreadWaitId = Schema.String.check(
+  Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,39}$/),
+).annotate({ description: "Short slug, such as pick-theme. Keep it when you set the list again." });
+export type OrchestrationV2ThreadWaitId = typeof OrchestrationV2ThreadWaitId.Type;
+
 /** What a thread's agent declared it needs before its next step; see `set_waiting`. */
 export const OrchestrationV2ThreadWait = Schema.Struct({
+  id: OrchestrationV2ThreadWaitId,
   kind: OrchestrationV2ThreadWaitKind.annotate({
     description:
       "decision: they can answer anywhere, even by voice. manual_step: they must act at a computer. blocked: on something outside you both, such as CI or a third party, that T3 will not wake you for.",
@@ -441,7 +447,17 @@ export const OrchestrationV2ThreadWait = Schema.Struct({
       .check(Schema.isMaxLength(8))
       .annotate({ description: "The choices, for a decision." }),
   ),
-  detail: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2000))),
+  detail: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(2000)).annotate({
+      description: "Exact steps or commands to run.",
+    }),
+  ),
+  where: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(80)).annotate({
+      description: "Where they must be or what they need, such as: iPhone in hand.",
+    }),
+  ),
+  notBefore: Schema.optional(IsoDateTime.annotate({ description: "Not doable before this time." })),
 });
 export type OrchestrationV2ThreadWait = typeof OrchestrationV2ThreadWait.Type;
 
@@ -453,6 +469,41 @@ export const OrchestrationV2ThreadWaiting = Schema.Struct({
   setAt: IsoDateTime,
 });
 export type OrchestrationV2ThreadWaiting = typeof OrchestrationV2ThreadWaiting.Type;
+
+export const ThreadWaitResolveInput = Schema.Struct({
+  threadId: ThreadId,
+  waitId: OrchestrationV2ThreadWaitId,
+  note: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2000))),
+  /** Default true: tell the thread's agent so it continues. */
+  wake: Schema.optional(Schema.Boolean),
+});
+export type ThreadWaitResolveInput = typeof ThreadWaitResolveInput.Type;
+
+export const ThreadWaitResolveResult = Schema.Struct({
+  /** What the thread still waits on. */
+  waiting: Schema.NullOr(OrchestrationV2ThreadWaiting),
+});
+export type ThreadWaitResolveResult = typeof ThreadWaitResolveResult.Type;
+
+export class ThreadWaitNotFoundError extends Schema.TaggedError<ThreadWaitNotFoundError>()(
+  "ThreadWaitNotFoundError",
+  { threadId: ThreadId, waitId: Schema.String },
+) {
+  override get message(): string {
+    return `Thread ${this.threadId} is not waiting on ${this.waitId}.`;
+  }
+}
+
+export class ThreadWaitResolveError extends Schema.TaggedError<ThreadWaitResolveError>()(
+  "ThreadWaitResolveError",
+  { threadId: ThreadId, stage: Schema.Literals(["resolve", "wake"]), cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return this.stage === "resolve"
+      ? `Could not resolve the wait on thread ${this.threadId}.`
+      : `Resolved the wait, but could not wake thread ${this.threadId}.`;
+  }
+}
 
 /** Waits stand until the user writes in the thread; wakes and agent messages leave them. */
 export function currentThreadWaiting(
@@ -3483,6 +3534,13 @@ const OrchestrationV2InternalCommand = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     items: Schema.Array(OrchestrationV2ThreadWait).check(Schema.isMaxLength(MAX_THREAD_WAITS)),
+  }),
+  /** Drops one wait and keeps `setAt`; the rest still stand. */
+  Schema.Struct({
+    type: Schema.Literal("thread.waiting.resolve"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    waitId: OrchestrationV2ThreadWaitId,
   }),
   /** Moves a thread to a project rooted at the folder it already works in, so its cwd never changes. */
   Schema.Struct({

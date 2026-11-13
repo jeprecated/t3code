@@ -123,6 +123,9 @@ import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts"
 import * as DocumentText from "./provider/DocumentText.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
+import * as UserTodoService from "./userTodos/UserTodoService.ts";
+import * as OverviewService from "./overview/OverviewService.ts";
+import * as ThreadWaitService from "./orchestration-v2/ThreadWaitService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import {
@@ -1315,6 +1318,9 @@ export const layerWsRpc = (
       const commandOutputHub = yield* CommandOutputHub.CommandOutputHub;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+      const userTodos = yield* UserTodoService.UserTodoService;
+      const overview = yield* OverviewService.OverviewService;
+      const threadWaits = yield* ThreadWaitService.ThreadWaitService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2221,6 +2227,15 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
             Effect.andThen(scheduledTasks.rotateWebhookToken(input)),
           ),
+        [WS_METHODS.userTodosSubscribe]: (_input) => userTodos.subscribeList(),
+        [WS_METHODS.userTodosUpsert]: (input) => userTodos.upsert({ ...input, createdBy: "user" }),
+        [WS_METHODS.userTodosSetCompleted]: (input) => userTodos.setCompleted(input),
+        [WS_METHODS.userTodosDelete]: (input) => userTodos.delete(input),
+        [WS_METHODS.threadWaitsResolve]: (input) =>
+          Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+            Effect.andThen(threadWaits.resolve({ ...input, resolvedBy: "user" })),
+          ),
+        [WS_METHODS.overviewStart]: (input) => overview.start(input),
         [WS_METHODS.guestShareCreate]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(guestShares.create(input)),

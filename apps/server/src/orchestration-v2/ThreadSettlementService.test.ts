@@ -145,7 +145,7 @@ describe("isAutoSettlementCandidate", () => {
 
   it("never settles a thread whose agent waits on the user, until the user writes", () => {
     const waiting = {
-      items: [{ kind: "decision" as const, summary: "Pick A or B." }],
+      items: [{ id: "pick", kind: "decision" as const, summary: "Pick A or B." }],
       setAt: DateTime.formatIso(at(-60 * 60 * 1_000)),
     };
     expect(ThreadSettlementService.isAutoSettlementCandidate(shell({ waiting }), NOW_MS)).toBe(

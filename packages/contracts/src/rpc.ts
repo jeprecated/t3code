@@ -232,6 +232,10 @@ import {
   OrchestrationV2GetThreadProjectionError,
   OrchestrationV2RpcSchemas,
   OrchestrationV2ThreadLaunchError,
+  ThreadWaitNotFoundError,
+  ThreadWaitResolveError,
+  ThreadWaitResolveInput,
+  ThreadWaitResolveResult,
 } from "./orchestrationV2.ts";
 import {
   ProjectCreateNewInput,
@@ -378,6 +382,17 @@ import {
   ScheduledTaskUpsertInput,
   ScheduledTaskMutationResult,
 } from "./scheduledTask.ts";
+import {
+  UserTodoDeleteInput,
+  UserTodoDeleteResult,
+  UserTodoError,
+  UserTodoListInput,
+  UserTodoListResult,
+  UserTodoMutationResult,
+  UserTodoSetCompletedInput,
+  UserTodoUpsertInput,
+} from "./userTodo.ts";
+import { OverviewStartError, OverviewStartInput, OverviewStartResult } from "./overview.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
 import {
   ProjectCloneActionInput,
@@ -546,6 +561,12 @@ export const WS_METHODS = {
   scheduledTasksDelete: "scheduledTasks.delete",
   scheduledTasksRunNow: "scheduledTasks.runNow",
   scheduledTasksRotateWebhookToken: "scheduledTasks.rotateWebhookToken",
+  userTodosSubscribe: "userTodos.subscribe",
+  userTodosUpsert: "userTodos.upsert",
+  userTodosSetCompleted: "userTodos.setCompleted",
+  userTodosDelete: "userTodos.delete",
+  threadWaitsResolve: "threadWaits.resolve",
+  overviewStart: "overview.start",
   secretsAnswerRequest: "secrets.answerRequest",
   guestShareCreate: "guestShare.create",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
@@ -1913,6 +1934,47 @@ const WsScheduledTasksSubscribeRpc = Rpc.make(WS_METHODS.scheduledTasksSubscribe
   stream: true,
 });
 
+const WsUserTodosSubscribeRpc = Rpc.make(WS_METHODS.userTodosSubscribe, {
+  payload: UserTodoListInput,
+  success: UserTodoListResult,
+  error: Schema.Union([UserTodoError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+const WsUserTodosUpsertRpc = Rpc.make(WS_METHODS.userTodosUpsert, {
+  payload: UserTodoUpsertInput,
+  success: UserTodoMutationResult,
+  error: Schema.Union([UserTodoError, EnvironmentAuthorizationError]),
+});
+
+const WsUserTodosSetCompletedRpc = Rpc.make(WS_METHODS.userTodosSetCompleted, {
+  payload: UserTodoSetCompletedInput,
+  success: UserTodoMutationResult,
+  error: Schema.Union([UserTodoError, EnvironmentAuthorizationError]),
+});
+
+const WsUserTodosDeleteRpc = Rpc.make(WS_METHODS.userTodosDelete, {
+  payload: UserTodoDeleteInput,
+  success: UserTodoDeleteResult,
+  error: Schema.Union([UserTodoError, EnvironmentAuthorizationError]),
+});
+
+const WsThreadWaitsResolveRpc = Rpc.make(WS_METHODS.threadWaitsResolve, {
+  payload: ThreadWaitResolveInput,
+  success: ThreadWaitResolveResult,
+  error: Schema.Union([
+    ThreadWaitNotFoundError,
+    ThreadWaitResolveError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsOverviewStartRpc = Rpc.make(WS_METHODS.overviewStart, {
+  payload: OverviewStartInput,
+  success: OverviewStartResult,
+  error: Schema.Union([OverviewStartError, EnvironmentAuthorizationError]),
+});
+
 const WsScheduledTasksUpsertRpc = Rpc.make(WS_METHODS.scheduledTasksUpsert, {
   payload: ScheduledTaskUpsertInput,
   success: ScheduledTaskMutationResult,
@@ -2057,6 +2119,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsScheduledTasksDeleteRpc,
   WsScheduledTasksRunNowRpc,
   WsScheduledTasksRotateWebhookTokenRpc,
+  WsUserTodosSubscribeRpc,
+  WsUserTodosUpsertRpc,
+  WsUserTodosSetCompletedRpc,
+  WsUserTodosDeleteRpc,
+  WsThreadWaitsResolveRpc,
+  WsOverviewStartRpc,
   WsSecretsAnswerRequestRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,

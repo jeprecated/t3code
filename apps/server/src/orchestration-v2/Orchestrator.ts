@@ -543,6 +543,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.unsnooze":
     case "thread.auto-settle.set":
     case "thread.waiting.set":
+    case "thread.waiting.resolve":
     case "thread.pin":
     case "thread.unpin":
     case "thread.pin.reorder":
@@ -3028,6 +3029,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.unsnooze"
           | "thread.auto-settle.set"
           | "thread.waiting.set"
+          | "thread.waiting.resolve"
           | "thread.pin"
           | "thread.unpin"
           | "thread.pin.reorder"
@@ -3178,6 +3180,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.type === "thread.unsnooze" ||
         command.type === "thread.auto-settle.set" ||
         command.type === "thread.waiting.set" ||
+        command.type === "thread.waiting.resolve" ||
         command.type === "thread.pin" ||
         command.type === "thread.unpin" ||
         command.type === "thread.pin.reorder" ||
@@ -3455,6 +3458,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       markUnreadVisitedAt = DateTime.subtract(latestRunCompletedAt, { milliseconds: 1 });
     }
+    if (
+      command.type === "thread.waiting.resolve" &&
+      !(thread.waiting?.items.some((item) => item.id === command.waitId) ?? false)
+    ) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Thread ${command.threadId} is not waiting on ${command.waitId}.`,
+      });
+    }
     const updatedThread: OrchestrationV2AppThread = (() => {
       switch (command.type) {
         case "thread.archive":
@@ -3538,6 +3551,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 : { items: command.items, setAt: DateTime.formatIso(now) },
             updatedAt: now,
           };
+        case "thread.waiting.resolve": {
+          const items = (thread.waiting?.items ?? []).filter((item) => item.id !== command.waitId);
+          return {
+            ...thread,
+            waiting:
+              thread.waiting == null || items.length === 0 ? null : { ...thread.waiting, items },
+            updatedAt: now,
+          };
+        }
         case "thread.pin": {
           const alreadyPinned = thread.pinnedAt != null;
           const promotes = thread.settledOverride === "settled" || thread.snoozedUntil != null;
@@ -3976,6 +3998,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         case "thread.auto-settle.set":
           return "thread.auto-settle-set" as const;
         case "thread.waiting.set":
+        case "thread.waiting.resolve":
           return "thread.waiting-set" as const;
         case "thread.pin":
           return "thread.pinned" as const;
@@ -13103,6 +13126,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.unsnooze":
       case "thread.auto-settle.set":
       case "thread.waiting.set":
+      case "thread.waiting.resolve":
       case "thread.pin":
       case "thread.unpin":
       case "thread.pin.reorder":

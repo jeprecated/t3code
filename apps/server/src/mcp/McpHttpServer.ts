@@ -71,6 +71,8 @@ import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import * as WaitingHandlers from "./toolkits/waiting/handlers.ts";
 import { WaitingToolkit } from "./toolkits/waiting/tools.ts";
+import * as TodosHandlers from "./toolkits/todos/handlers.ts";
+import { TodosToolkit } from "./toolkits/todos/tools.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
@@ -1136,6 +1138,8 @@ export const layerPullRequestsToolkit = toolkitRegistration(
 
 export const layerWaitingToolkit = toolkitRegistration(WaitingToolkit, WaitingHandlers.layer);
 
+const layerTodosToolkit = toolkitRegistration(TodosToolkit, TodosHandlers.layer);
+
 const layerDeviceStandardToolkitRegistration = toolkitRegistration(
   DeviceStandardToolkit,
   DeviceHandlers.layerStandard,
@@ -1171,6 +1175,7 @@ export const layerTools = Layer.mergeAll(
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
   layerWaitingToolkit,
+  layerTodosToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
 );

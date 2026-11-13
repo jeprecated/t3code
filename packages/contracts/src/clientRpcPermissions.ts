@@ -59,6 +59,13 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.scheduledTasksDelete]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
+  [WS_METHODS.userTodosUpsert]: AuthOrchestrationOperateScope,
+  [WS_METHODS.userTodosSetCompleted]: AuthOrchestrationOperateScope,
+  [WS_METHODS.userTodosDelete]: AuthOrchestrationOperateScope,
+  // Resolving can wake the thread's agent, as sending it a message does.
+  [WS_METHODS.threadWaitsResolve]: AuthOrchestrationOperateScope,
+  // Starts an agent thread and a daily scheduled task.
+  [WS_METHODS.overviewStart]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
   // Force stop kills agent processes, as Stop on a terminal does.
   [ORCHESTRATION_V2_WS_METHODS.forceStopThread]: AuthOrchestrationOperateScope,

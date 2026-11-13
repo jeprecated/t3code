@@ -4,9 +4,11 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
+import * as ThreadWaitService from "../../../orchestration-v2/ThreadWaitService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
+  WaitingDuplicateIdError,
   WaitingFromSubagentError,
   WaitingSetFailedError,
   WaitingThreadNotFoundError,
@@ -17,6 +19,7 @@ import {
 const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const crypto = yield* Crypto.Crypto;
+  const threadWaits = yield* ThreadWaitService.ThreadWaitService;
 
   const requireThread = Effect.fn("WaitingToolkit.requireThread")(function* (
     requested: ThreadId | undefined,
@@ -44,6 +47,11 @@ const make = Effect.gen(function* () {
           if (thread.lineage.relationshipToParent === "subagent") {
             return yield* new WaitingFromSubagentError();
           }
+          const ids = new Set<string>();
+          for (const wait of input.waits) {
+            if (ids.has(wait.id)) return yield* new WaitingDuplicateIdError({ waitId: wait.id });
+            ids.add(wait.id);
+          }
           const uuid = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
           yield* engine
             .dispatch({
@@ -62,6 +70,20 @@ const make = Effect.gen(function* () {
           const after = yield* requireThread(thread.id);
           return { waiting: after.waiting ?? null };
         }),
+    ),
+    resolve_wait: McpToolAccess.writesThreads(
+      (input) => [input.threadId],
+      (input) =>
+        McpInvocationContext.requireMcpCapability("orchestration").pipe(
+          Effect.andThen(
+            threadWaits.resolve({
+              threadId: input.threadId,
+              waitId: input.waitId,
+              note: input.note,
+              resolvedBy: "agent",
+            }),
+          ),
+        ),
     ),
   } satisfies McpToolAccess.Handlers<typeof WaitingToolkit.tools>;
 });

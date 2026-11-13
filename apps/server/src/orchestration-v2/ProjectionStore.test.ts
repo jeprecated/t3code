@@ -3652,7 +3652,9 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       const createdAt = yield* DateTime.now;
       const threadId = ThreadId.make("thread:projection-waits");
       const waiting = {
-        items: [{ kind: "decision" as const, summary: "Pick A or B.", options: ["A", "B"] }],
+        items: [
+          { id: "pick", kind: "decision" as const, summary: "Pick A or B.", options: ["A", "B"] },
+        ],
         setAt: DateTime.formatIso(DateTime.add(createdAt, { seconds: 1 })),
       };
       const thread = {

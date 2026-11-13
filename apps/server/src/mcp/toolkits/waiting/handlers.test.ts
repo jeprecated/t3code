@@ -15,6 +15,7 @@ import * as Stream from "effect/Stream";
 import type { Tool } from "effect/ai";
 
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
+import * as ThreadWaitService from "../../../orchestration-v2/ThreadWaitService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as McpToolAccessTestkit from "../../McpToolAccess.testkit.ts";
@@ -48,6 +49,9 @@ const makeHarness = Effect.fn("makeWaitingToolkitHarness")(function* (
   lineage?: OrchestrationV2ThreadShell["lineage"],
 ) {
   const commands = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
+  const resolved = yield* Ref.make<
+    ReadonlyArray<Parameters<ThreadWaitService.ThreadWaitService["Service"]["resolve"]>[0]>
+  >([]);
   const waiting = yield* Ref.make<OrchestrationV2ThreadWaiting | null>(null);
   const shell = (id: ThreadId) =>
     Effect.map(Ref.get(waiting), (current) => ({
@@ -70,6 +74,10 @@ const makeHarness = Effect.fn("makeWaitingToolkitHarness")(function* (
           return { sequence: 1, storedEvents: [] };
         }),
     }),
+    Layer.mock(ThreadWaitService.ThreadWaitService)({
+      resolve: (input) =>
+        Ref.update(resolved, (all) => [...all, input]).pipe(Effect.as({ waiting: null })),
+    }),
     Layer.succeed(Crypto.Crypto, testCrypto),
     McpToolAccessTestkit.liveThreadsLayer,
   );
@@ -80,28 +88,43 @@ const makeHarness = Effect.fn("makeWaitingToolkitHarness")(function* (
       ),
     ),
   );
-  const call = (
-    params: Parameters<typeof toolkit.handle<"set_waiting">>[1],
+  const handle = <Name extends keyof typeof WaitingToolkit.tools>(
+    name: Name,
+    params: Parameters<typeof toolkit.handle<Name>>[1],
     capabilities: ReadonlyArray<McpInvocationContext.McpCapability> = ["orchestration"],
   ) =>
-    toolkit.handle("set_waiting", params).pipe(
+    toolkit.handle(name, params).pipe(
       Stream.unwrap,
       Stream.runCollect,
       Effect.map(
-        (chunk) => chunk.at(-1)!.result as Tool.Success<typeof WaitingToolkit.tools.set_waiting>,
+        (chunk) => chunk.at(-1)!.result as Tool.Success<(typeof WaitingToolkit.tools)[Name]>,
       ),
       Effect.provideService(McpInvocationContext.McpInvocationContext, invocation(capabilities)),
       Effect.provide(layerDependencies),
     );
-  return { commands, call };
+  const call = (
+    params: Parameters<typeof toolkit.handle<"set_waiting">>[1],
+    capabilities?: ReadonlyArray<McpInvocationContext.McpCapability>,
+  ) => handle("set_waiting", params, capabilities);
+  return { commands, resolved, call, handle };
 });
 
 describe("waiting toolkit handlers", () => {
   it.effect("replaces the token's thread's waits with the full list, and [] clears them", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
-      const decision = { kind: "decision" as const, summary: "Pick A or B.", options: ["A", "B"] };
-      const step = { kind: "manual_step" as const, summary: "Create a PostHog account." };
+      const decision = {
+        id: "pick",
+        kind: "decision" as const,
+        summary: "Pick A or B.",
+        options: ["A", "B"],
+      };
+      const step = {
+        id: "posthog",
+        kind: "manual_step" as const,
+        summary: "Create a PostHog account.",
+        where: "browser with my logins",
+      };
 
       expect(yield* harness.call({ waits: [decision, step] })).toEqual({
         waiting: { items: [decision, step], setAt: SET_AT },
@@ -116,7 +139,7 @@ describe("waiting toolkit handlers", () => {
 
   it.effect("refuses a subagent thread, an unknown thread, and a token without orchestration", () =>
     Effect.gen(function* () {
-      const waits = [{ kind: "blocked" as const, summary: "Waiting on the vendor." }];
+      const waits = [{ id: "vendor", kind: "blocked" as const, summary: "Waiting on the vendor." }];
       const child = yield* makeHarness({
         rootThreadId: ThreadId.make("parent"),
         parentThreadId: ThreadId.make("parent"),
@@ -136,6 +159,41 @@ describe("waiting toolkit handlers", () => {
         capability: "orchestration",
       });
       expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("rejects two waits with one id before setting anything", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const wait = { id: "pick", kind: "decision" as const, summary: "Pick A or B." };
+      expect(
+        yield* harness
+          .call({ waits: [wait, { ...wait, summary: "Pick C or D." }] })
+          .pipe(Effect.flip),
+      ).toMatchObject({ _tag: "WaitingDuplicateIdError", waitId: "pick" });
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("resolves a wait on the named thread as the agent", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      expect(
+        yield* harness.handle("resolve_wait", {
+          threadId: THREAD_ID,
+          waitId: "pick",
+          note: "The user picked A.",
+        }),
+      ).toEqual({ waiting: null });
+      expect(yield* Ref.get(harness.resolved)).toEqual([
+        { threadId: THREAD_ID, waitId: "pick", note: "The user picked A.", resolvedBy: "agent" },
+      ]);
+      expect(
+        yield* harness
+          .handle("resolve_wait", { threadId: THREAD_ID, waitId: "pick" }, ["preview"])
+          .pipe(Effect.flip),
+      ).toMatchObject({ _tag: "McpCapabilityUnavailableError" });
+      expect(yield* Ref.get(harness.resolved)).toHaveLength(1);
     }),
   );
 });

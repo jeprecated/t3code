@@ -1,4 +1,5 @@
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as ThreadWaitService from "../orchestration-v2/ThreadWaitService.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import { expect, it } from "@effect/vitest";
@@ -1178,7 +1179,7 @@ it.effect("hides tools for links and refuses another environment while the beta 
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("lists watch tools and set_waiting only to threads that are not subagents", () =>
+it.effect("lists watch tools and wait tools only to threads that are not subagents", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const scopeFor = (
@@ -1220,6 +1221,7 @@ it.effect("lists watch tools and set_waiting only to threads that are not subage
             Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),
             Layer.mock(Orchestrator.OrchestratorV2)({}),
             Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
+            Layer.mock(ThreadWaitService.ThreadWaitService)({}),
             NodeServices.layer,
           ),
         ),
@@ -1266,12 +1268,14 @@ it.effect("lists watch tools and set_waiting only to threads that are not subage
           "watch_pull_request",
           "unwatch_pull_request",
           "set_waiting",
+          "resolve_wait",
         ]),
       );
       expect(childTools).toContain("link_pull_request");
       expect(childTools).not.toContain("watch_pull_request");
       expect(childTools).not.toContain("unwatch_pull_request");
       expect(childTools).not.toContain("set_waiting");
+      expect(childTools).not.toContain("resolve_wait");
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

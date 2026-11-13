@@ -327,6 +327,8 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_thread_organize: tool(["Organize", "Organizing", "Organized", "a thread"], "thread-organize"),
   t3_thread_update: tool(["Update", "Updating", "Updated", "T3 thread metadata"], "thread-update"),
   set_waiting: tool(["Set", "Setting", "Set", "what the thread waits on"], "thread-update"),
+  resolve_wait: tool(["Resolve", "Resolving", "Resolved", "a wait"], "thread-update"),
+  user_todos: tool(["Update", "Updating", "Updated", "your todos"], "thread-update"),
   t3_thread_categories: tool(
     ["List", "Listing", "Listed", "thread categories"],
     "thread-categories",
