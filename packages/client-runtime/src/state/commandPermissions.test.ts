@@ -231,6 +231,9 @@ describe("command permissions", () => {
     WS_METHODS.workflowsAnswer,
     WS_METHODS.workflowsResume,
     WS_METHODS.workflowsCancel,
+    WS_METHODS.threadWaitsResolve,
+    WS_METHODS.userTodosUpsert,
+    WS_METHODS.overviewStart,
   ])("uses the target grant for both availability and execution of %s", (method) =>
     Effect.gen(function* () {
       const registry = yield* setup;

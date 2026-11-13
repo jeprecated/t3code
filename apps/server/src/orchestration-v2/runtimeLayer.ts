@@ -65,6 +65,9 @@ import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
+import * as OverviewService from "../overview/OverviewService.ts";
+import * as UserTodoService from "../userTodos/UserTodoService.ts";
+import * as ThreadWaitService from "./ThreadWaitService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as FeedbackStore from "../feedback/FeedbackStore.ts";
 import * as WorkspaceFolders from "../workspace/WorkspaceFolders.ts";
@@ -454,6 +457,19 @@ export const layerProduction = Layer.mergeAll(
     Layer.provide(Layer.merge(layerOrchestratorProvided, layerCommandOutputHubProvided)),
   ),
   layerThreadCategoryProvided,
+  ThreadWaitService.layer.pipe(
+    Layer.provide(Layer.merge(layerOrchestratorProvided, layerThreadManagementProvided)),
+  ),
+  UserTodoService.layer,
+  OverviewService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        layerThreadManagementProvided,
+        layerThreadLaunchProvided,
+        layerScheduledTaskProvided,
+      ),
+    ),
+  ),
   UsageLimitRecoveryWorker.layer.pipe(
     Layer.provide(
       Layer.mergeAll(

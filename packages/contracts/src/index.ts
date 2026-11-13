@@ -69,6 +69,8 @@ export * from "./usage.ts";
 export * from "./scheduledTask.ts";
 export * from "./milestones.ts";
 export * from "./workflow.ts";
+export * from "./userTodo.ts";
+export * from "./overview.ts";
 export * from "./worktreeMcp.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
