@@ -25,6 +25,9 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadLastVisitedAtById: {},
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
+    sidebarMode: "threads",
+    youNotHereKeys: [],
+    youTriage: false,
     ...overrides,
   };
 }
@@ -139,6 +142,9 @@ describe("parsePersistedState", () => {
       sidebarProjectScopeKeys: [],
       sidebarCategoryScope: null,
       pullRequestMergeMethod: "merge",
+      sidebarMode: "threads",
+      youNotHereKeys: [],
+      youTriage: false,
     });
   });
 
@@ -227,10 +233,30 @@ describe("uiStateStore persistence", () => {
       sidebarCategoryScope: null,
       sidebarProjectScopeKey: null,
       pullRequestMergeMethod: "merge",
+      sidebarMode: "threads",
+      youNotHereKeys: [],
+      youTriage: false,
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
     });
+  });
+
+  it("restores the You queue mode, not-here keys and triage, and drops malformed ones", () => {
+    persistState(
+      makeUiState({ sidebarMode: "you", youNotHereKeys: ["env:todo:1"], youTriage: true }),
+    );
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+    expect(parsePersistedState(persisted)).toMatchObject({
+      sidebarMode: "you",
+      youNotHereKeys: ["env:todo:1"],
+      youTriage: true,
+    });
+    expect(
+      parsePersistedState({ sidebarMode: "board", youNotHereKeys: [3], youTriage: "yes" } as never),
+    ).toMatchObject({ sidebarMode: "threads", youNotHereKeys: [], youTriage: false });
   });
 
   it("restores the sidebar project scope across reloads", () => {

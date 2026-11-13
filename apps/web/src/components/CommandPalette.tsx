@@ -87,6 +87,7 @@ import {
   TagIcon,
   TextSearchIcon,
   UserPlusIcon,
+  InboxIcon,
   WorkflowIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
@@ -2071,6 +2072,18 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:you-queue",
+    searchTerms: ["you", "queue", "waiting", "todo", "todos", "overview", "triage", "inbox"],
+    title: "Show You queue",
+    icon: <InboxIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "sidebar.toggleYouQueue",
+    run: async () => {
+      useUiStateStore.getState().setSidebarMode("you");
+    },
+  });
 
   actionItems.push({
     kind: "action",

@@ -17,6 +17,8 @@ import { type CommandHandler, type CommandScopeOptions, registerCommands } from 
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { stepSidebarCategory } from "../threadCategories";
 import { resolveThreadRouteTarget } from "../threadRoutes";
+import { useUiStateStore } from "../uiStateStore";
+import { openNextYouQueueItem } from "../youQueue";
 
 function consume(event: KeyboardEvent): void {
   event.preventDefault();
@@ -107,6 +109,16 @@ export function installCommandPaletteCommands(
     {
       "sidebar.nextCategory": stepCategory(1),
       "sidebar.previousCategory": stepCategory(-1),
+      "sidebar.toggleYouQueue": (event) => {
+        consume(event);
+        if (event.repeat) return;
+        useUiStateStore.getState().toggleSidebarMode();
+      },
+      "youQueue.next": (event) => {
+        consume(event);
+        if (event.repeat) return;
+        openNextYouQueueItem(router);
+      },
     },
     {
       ...options,
