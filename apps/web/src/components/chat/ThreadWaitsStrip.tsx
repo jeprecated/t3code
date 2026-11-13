@@ -27,6 +27,7 @@ import {
   scheduleWaitResolve,
   usePendingWaitResolves,
 } from "../../threadWaitResolves";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { useUiStateStore } from "../../uiStateStore";
 import { openNextYouQueueItem } from "../../youQueue";
@@ -175,6 +176,7 @@ function ThreadWaitCard(props: {
 }) {
   const { wait } = props;
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const nowMs = Date.parse(`${useNowMinute()}:00.000Z`);
   const [detailOpen, setDetailOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
@@ -197,9 +199,9 @@ function ThreadWaitCard(props: {
               {wait.where}
             </Badge>
           ) : null}
-          {wait.notBefore ? (
+          {wait.notBefore && Date.parse(wait.notBefore) > nowMs ? (
             <Badge variant="outline" size="sm">
-              after {formatUpcomingTimestamp(wait.notBefore, timestampFormat)}
+              {`after ${formatUpcomingTimestamp(wait.notBefore, timestampFormat)}`}
             </Badge>
           ) : null}
           {wait.detail ? (
