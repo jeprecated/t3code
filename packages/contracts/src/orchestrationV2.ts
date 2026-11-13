@@ -454,7 +454,8 @@ export const OrchestrationV2ThreadWait = Schema.Struct({
   ),
   where: Schema.optional(
     TrimmedNonEmptyString.check(Schema.isMaxLength(80)).annotate({
-      description: "Where they must be or what they need, such as: iPhone in hand.",
+      description:
+        "A place or device only, never steps or links: on Clippy, iPhone in hand, browser with their logins.",
     }),
   ),
   notBefore: Schema.optional(IsoDateTime.annotate({ description: "Not doable before this time." })),

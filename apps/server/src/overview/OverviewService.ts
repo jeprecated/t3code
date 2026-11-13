@@ -109,10 +109,11 @@ const make = Effect.gen(function* () {
 
       const project = yield* overviewProject(input.projectId);
       const resolved = resolveProjectSettings(current, project.id, project).settings;
-      const modelSelection = resolved.defaultModelSelection ?? {
-        instanceId: ProviderInstanceId.make("codex"),
-        model: DEFAULT_MODEL,
-      };
+      const modelSelection = input.modelSelection ??
+        resolved.defaultModelSelection ?? {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: DEFAULT_MODEL,
+        };
       const uuid = yield* newId;
       const { threadId } = yield* threadLaunch
         .launch({

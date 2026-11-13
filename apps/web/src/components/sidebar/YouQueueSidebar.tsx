@@ -15,7 +15,7 @@ import {
   youQueueTriageTarget,
   type YouQueueItem,
 } from "@t3tools/client-runtime/state/you-queue";
-import type { EnvironmentId, UserTodo } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, type EnvironmentId, type UserTodo } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 import { Atom } from "effect/reactivity";
 import * as Schema from "effect/Schema";
@@ -36,7 +36,12 @@ import { useThreadRouteRef } from "../../hooks/useThreadRouteTarget";
 import { cn } from "../../lib/utils";
 import { useQuietThreadShell } from "../../state/entities";
 import { useEnvironmentIdentities } from "../../state/environments";
-import { serverEnvironment } from "../../state/server";
+import { environmentServerConfigsAtom, serverEnvironment } from "../../state/server";
+import { appAtomRegistry } from "../../rpc/atomRegistry";
+import {
+  resolveDefaultProviderModelSelection,
+  resolveProjectDefaultProviderModelSelection,
+} from "../../providerInstances";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { formatElapsedDurationLabel, formatUpcomingTimestamp } from "../../timestampFormat";
@@ -252,7 +257,11 @@ function timingLabel(
   if (section === "later" && item.notBefore !== null) {
     return formatUpcomingTimestamp(item.notBefore, timestampFormat, nowMs);
   }
-  return item.todo !== null ? "" : formatElapsedDurationLabel(item.since, nowMs);
+  if (item.todo !== null) return "";
+  // The list re-renders once a minute, so a seconds count would sit stale.
+  return nowMs - Date.parse(item.since) < 60_000
+    ? "<1m"
+    : formatElapsedDurationLabel(item.since, nowMs);
 }
 
 function QueueSection(props: {
@@ -612,6 +621,16 @@ function overviewStatus(
   }
 }
 
+/** What a new thread on this environment would use, so the overview never falls back to an unauthenticated provider. */
+function newThreadModelSelection(environmentId: EnvironmentId) {
+  const config = appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId);
+  const settings = config?.settings ?? DEFAULT_SERVER_SETTINGS;
+  const providers = config?.providers ?? [];
+  return settings.defaultModelSelection
+    ? resolveDefaultProviderModelSelection(providers, settings.defaultModelSelection)
+    : resolveProjectDefaultProviderModelSelection(providers, settings, null);
+}
+
 function OverviewRow(props: {
   readonly routeThreadKey: string | null;
   readonly onOpened: () => void;
@@ -665,7 +684,11 @@ function OverviewRow(props: {
       disabled={!canStart || starting}
       onClick={async () => {
         setStarting(true);
-        const result = await start({ environmentId, input: {} });
+        const modelSelection = newThreadModelSelection(environmentId);
+        const result = await start({
+          environmentId,
+          input: modelSelection === null ? {} : { modelSelection },
+        });
         setStarting(false);
         if (reportFailure("Could not start the overview agent", result)) return;
         if (result._tag !== "Success") return;
