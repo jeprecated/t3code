@@ -140,6 +140,7 @@ import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as Workflows from "./workflows/Workflows.ts";
 import * as WorkflowRuntime from "./workflows/WorkflowRuntime.ts";
 import * as UserTodoService from "./userTodos/UserTodoService.ts";
+import * as TaskSnoozeService from "./taskSnoozes/TaskSnoozeService.ts";
 import * as OverviewService from "./overview/OverviewService.ts";
 import * as ThreadWaitService from "./orchestration-v2/ThreadWaitService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
@@ -900,6 +901,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Workflows.layerDisabled,
   Layer.mock(WorkflowRuntime.WorkflowDefinitions)({}),
   Layer.mock(UserTodoService.UserTodoService)({}),
+  Layer.mock(TaskSnoozeService.TaskSnoozeService)({}),
   Layer.mock(OverviewService.OverviewService)({}),
   Layer.mock(ThreadWaitService.ThreadWaitService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),

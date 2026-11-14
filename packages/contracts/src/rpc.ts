@@ -473,6 +473,15 @@ import {
   UserTodoSetCompletedInput,
   UserTodoUpsertInput,
 } from "./userTodo.ts";
+import {
+  TaskSnoozeClearInput,
+  TaskSnoozeClearResult,
+  TaskSnoozeListInput,
+  TaskSnoozeListResult,
+  TaskSnoozePersistenceError,
+  TaskSnoozeSetInput,
+  TaskSnoozeSetResult,
+} from "./taskSnooze.ts";
 import { OverviewStartError, OverviewStartInput, OverviewStartResult } from "./overview.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
 import { AgentFeedbackAnswerInput, AgentFeedbackRequestError } from "./agentFeedback.ts";
@@ -676,6 +685,9 @@ export const WS_METHODS = {
   userTodosUpsert: "userTodos.upsert",
   userTodosSetCompleted: "userTodos.setCompleted",
   userTodosDelete: "userTodos.delete",
+  taskSnoozesSubscribe: "taskSnoozes.subscribe",
+  taskSnoozesSet: "taskSnoozes.set",
+  taskSnoozesClear: "taskSnoozes.clear",
   threadWaitsResolve: "threadWaits.resolve",
   overviewStart: "overview.start",
   secretsAnswerRequest: "secrets.answerRequest",
@@ -2460,6 +2472,25 @@ const WsUserTodosDeleteRpc = Rpc.make(WS_METHODS.userTodosDelete, {
   error: Schema.Union([UserTodoError, EnvironmentAuthorizationError]),
 });
 
+const WsTaskSnoozesSubscribeRpc = Rpc.make(WS_METHODS.taskSnoozesSubscribe, {
+  payload: TaskSnoozeListInput,
+  success: TaskSnoozeListResult,
+  error: Schema.Union([TaskSnoozePersistenceError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+const WsTaskSnoozesSetRpc = Rpc.make(WS_METHODS.taskSnoozesSet, {
+  payload: TaskSnoozeSetInput,
+  success: TaskSnoozeSetResult,
+  error: Schema.Union([TaskSnoozePersistenceError, EnvironmentAuthorizationError]),
+});
+
+const WsTaskSnoozesClearRpc = Rpc.make(WS_METHODS.taskSnoozesClear, {
+  payload: TaskSnoozeClearInput,
+  success: TaskSnoozeClearResult,
+  error: Schema.Union([TaskSnoozePersistenceError, EnvironmentAuthorizationError]),
+});
+
 const WsThreadWaitsResolveRpc = Rpc.make(WS_METHODS.threadWaitsResolve, {
   payload: ThreadWaitResolveInput,
   success: ThreadWaitResolveResult,
@@ -2663,6 +2694,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsUserTodosUpsertRpc,
   WsUserTodosSetCompletedRpc,
   WsUserTodosDeleteRpc,
+  WsTaskSnoozesSubscribeRpc,
+  WsTaskSnoozesSetRpc,
+  WsTaskSnoozesClearRpc,
   WsThreadWaitsResolveRpc,
   WsOverviewStartRpc,
   WsSecretsAnswerRequestRpc,

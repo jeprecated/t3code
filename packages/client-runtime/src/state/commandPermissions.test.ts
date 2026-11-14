@@ -233,6 +233,7 @@ describe("command permissions", () => {
     WS_METHODS.workflowsCancel,
     WS_METHODS.threadWaitsResolve,
     WS_METHODS.userTodosUpsert,
+    WS_METHODS.taskSnoozesSet,
     WS_METHODS.overviewStart,
   ])("uses the target grant for both availability and execution of %s", (method) =>
     Effect.gen(function* () {
