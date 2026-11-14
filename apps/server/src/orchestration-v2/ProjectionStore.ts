@@ -1293,6 +1293,7 @@ type ShellThreadRow = {
   readonly blocking_run_background_wake: number;
   readonly blocking_failure_payload_json: string | null;
   readonly pending_request_payload_json: string | null;
+  readonly pending_request_item_payload_json: string | null;
   readonly pending_secret_request_payload_json: string | null;
   readonly pending_link_request_payload_json: string | null;
   readonly latest_user_message_at: string | null;
@@ -1830,15 +1831,48 @@ function buildVisibleTurnItems(input: {
   );
 }
 
+const PENDING_REQUEST_TITLE_MAX = 120;
+
+function clipTitle(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1).trimEnd()}…`;
+}
+
+/** Kept short: the title rides on every shell update. */
+function pendingRequestTitle(
+  request: OrchestrationV2ThreadProjection["runtimeRequests"][number],
+  item: OrchestrationV2TurnItem | null | undefined,
+): string | undefined {
+  if (item?.type === "user_input_request" && item.requestId === request.id) {
+    const first = item.questions[0];
+    if (first === undefined) return undefined;
+    const more = item.questions.length > 1 ? ` (+${item.questions.length - 1} more)` : "";
+    return (
+      clipTitle(first.question || first.header, PENDING_REQUEST_TITLE_MAX - more.length) + more
+    );
+  }
+  if (item?.type === "approval_request" && item.requestId === request.id) {
+    const text = clipTitle(
+      item.prompt ?? item.reason ?? item.appName ?? "",
+      PENDING_REQUEST_TITLE_MAX,
+    );
+    return text || undefined;
+  }
+  return undefined;
+}
+
 function pendingRuntimeRequestSummary(
   request: OrchestrationV2ThreadProjection["runtimeRequests"][number] | null,
+  item?: OrchestrationV2TurnItem | null,
 ): OrchestrationV2PendingRuntimeRequestSummary | null {
   if (request === null) return null;
+  const title = pendingRequestTitle(request, item);
   return {
     id: request.id,
     kind: request.kind,
     createdAt: request.createdAt,
     blocking: request.responseCapability.type !== "message",
+    ...(title === undefined ? {} : { title }),
   };
 }
 
@@ -1903,14 +1937,25 @@ export function threadShellFromProjection(
     runs.filter(isActivityRunForShell).toSorted((left, right) => right.ordinal - left.ordinal)[0] ??
     null;
   const liveRunIds = new Set(runs.filter(isActivityRunForShell).map((run) => run.id));
-  let pendingRuntimeRequest = pendingRuntimeRequestSummary(
+  const pendingRequest =
     projection.runtimeRequests
       .filter((request) => request.status === "pending")
       .toSorted(
         (left, right) =>
           Number(left.kind === "user_input") - Number(right.kind === "user_input") ||
           DateTime.toEpochMillis(right.createdAt) - DateTime.toEpochMillis(left.createdAt),
-      )[0] ?? null,
+      )[0] ?? null;
+  let pendingRuntimeRequest = pendingRuntimeRequestSummary(
+    pendingRequest,
+    pendingRequest === null
+      ? null
+      : projection.turnItems.findLast(
+          (item) =>
+            (item.type === "user_input_request" || item.type === "approval_request") &&
+            item.requestId === pendingRequest.id &&
+            // As the shell query reads it, through the active-item index.
+            (item.status === "pending" || item.status === "running" || item.status === "waiting"),
+        ),
   );
 
   const userMessages = projection.messages
@@ -8598,6 +8643,24 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 LIMIT 1
               ) AS pending_request_payload_json,
               (
+                SELECT request_item.payload_json
+                FROM orchestration_v2_projection_turn_items request_item
+                  INDEXED BY orchestration_v2_projection_turn_items_active_ordinal_idx
+                WHERE request_item.thread_id = t.thread_id
+                  AND request_item.status IN ('pending', 'running', 'waiting')
+                  AND request_item.type IN ('approval_request', 'user_input_request')
+                  AND json_extract(request_item.payload_json, '$.requestId') = (
+                    SELECT request.runtime_request_id
+                    FROM orchestration_v2_projection_runtime_requests request
+                    WHERE request.thread_id = t.thread_id
+                      AND request.status = 'pending'
+                    ORDER BY request.created_at DESC, request.runtime_request_id DESC
+                    LIMIT 1
+                  )
+                ORDER BY request_item.ordinal DESC, request_item.turn_item_id DESC
+                LIMIT 1
+              ) AS pending_request_item_payload_json,
+              (
                 SELECT secret.payload_json
                 -- Keep runs outermost so completed history is never scanned for a pending secret.
                 FROM orchestration_v2_projection_runs r
@@ -9197,6 +9260,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           row.pending_request_payload_json !== null
             ? pendingRuntimeRequestSummary(
                 yield* decodeRuntimeRequestPayload(row.pending_request_payload_json),
+                row.pending_request_item_payload_json === null
+                  ? null
+                  : yield* decodeTurnItemPayload(row.pending_request_item_payload_json),
               )
             : null;
         if (

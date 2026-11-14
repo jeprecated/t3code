@@ -13144,8 +13144,6 @@
   "5c58e2296d35abc7": "Cockpit: Erledigt (Hauptaktion)",
   "b2313b519c244f5a": "Cockpit: Aufgabe zurückstellen",
   "fea7ae3031dd71ab": "Cockpit: Zugehörigen Thread öffnen",
-  "d197a6f2caf57915": "Cockpit: Nächste Aufgabe",
-  "349084108192baec": "Cockpit: Vorherige Aufgabe",
   "346ac5674f00ec7a": "Cockpit: Genehmigen",
   "e43c0bbfdf5c3298": "Cockpit: Für diesen Thread genehmigen",
   "3a1bfd48e82a038b": "Cockpit: Ablehnen",
@@ -13154,5 +13152,7 @@
   "f893b54624147259": "Cockpit: Letztes Ergebnis rückgängig machen",
   "f42c27d69fd27d04": "Cockpit: Dem Übersichtsagenten schreiben",
   "812248dc756ad6c3": "Cockpit: Tasten anzeigen",
-  "5335dbd356d2c14e": "Cockpit öffnen"
+  "5335dbd356d2c14e": "Cockpit öffnen",
+  "d40d3da2df2cc751": "Cockpit: Nächster Eintrag",
+  "7ff780bbeb8faefb": "Cockpit: Vorheriger Eintrag"
 }

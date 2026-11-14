@@ -10,11 +10,11 @@ import {
   citationQuote,
   cockpitCardCommands,
   cockpitPrimary,
-  cycleRegion,
   detailLinks,
-  keyAfter,
   optionIndexForKey,
+  OVERVIEW_ENTRY,
   resolveCockpitCard,
+  resolveSelection,
   rovingTarget,
   stepKey,
   waitResolveNote,
@@ -46,17 +46,6 @@ const item = (
 });
 
 describe("regions and roving focus", () => {
-  it("cycles regions both ways and skips empty ones", () => {
-    const all = () => true;
-    expect(cycleRegion("card", 1, all)).toBe("upNext");
-    expect(cycleRegion("overview", 1, all)).toBe("card");
-    expect(cycleRegion("card", -1, all)).toBe("overview");
-    const noUpNext = (region: string) => region !== "upNext";
-    expect(cycleRegion("card", 1, noUpNext)).toBe("overview");
-    expect(cycleRegion("overview", -1, noUpNext)).toBe("card");
-    expect(cycleRegion("card", 1, (region) => region === "card")).toBe("card");
-  });
-
   it("moves within a region without wrapping, entering from either end", () => {
     expect(rovingTarget(-1, 3, "ArrowDown")).toBe(0);
     expect(rovingTarget(-1, 3, "ArrowUp")).toBe(2);
@@ -77,15 +66,25 @@ describe("regions and roving focus", () => {
     expect(optionIndexForKey("e", 3)).toBeNull();
   });
 
-  it("steps through tasks, and lands after the finished one", () => {
+  it("steps through the list, wrapping", () => {
     expect(stepKey(["a", "b", "c"], "c", 1)).toBe("a");
     expect(stepKey(["a", "b", "c"], "a", -1)).toBe("c");
     expect(stepKey(["a", "b"], null, -1)).toBe("b");
     expect(stepKey([], "a", 1)).toBeNull();
-    expect(keyAfter(["a", "b", "c"], "b")).toBe("c");
-    expect(keyAfter(["a", "b", "c"], "c")).toBe("b");
-    expect(keyAfter(["a"], "a")).toBeNull();
-    expect(keyAfter(["a", "b"], "gone")).toBe("a");
+  });
+
+  it("keeps the selection, and closes the gap when it goes", () => {
+    const selection = { key: "b", index: 2 };
+    expect(resolveSelection([OVERVIEW_ENTRY, "a", "b", "c"], selection)).toBe(selection);
+    // An entry above went: same row, new index.
+    expect(resolveSelection([OVERVIEW_ENTRY, "b", "c"], selection)).toEqual({ key: "b", index: 1 });
+    // It went: the entry now at its index, else the last.
+    expect(resolveSelection([OVERVIEW_ENTRY, "a", "c"], selection)).toEqual({ key: "c", index: 2 });
+    expect(resolveSelection([OVERVIEW_ENTRY, "a"], selection)).toEqual({ key: "a", index: 1 });
+    expect(resolveSelection([OVERVIEW_ENTRY], selection)).toEqual({
+      key: OVERVIEW_ENTRY,
+      index: 0,
+    });
   });
 });
 

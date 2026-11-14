@@ -13144,8 +13144,6 @@
   "5c58e2296d35abc7": "Cockpit : terminé (action principale)",
   "b2313b519c244f5a": "Cockpit : reporter la tâche",
   "fea7ae3031dd71ab": "Cockpit : ouvrir son fil",
-  "d197a6f2caf57915": "Cockpit : tâche suivante",
-  "349084108192baec": "Cockpit : tâche précédente",
   "346ac5674f00ec7a": "Cockpit : approuver",
   "e43c0bbfdf5c3298": "Cockpit : approuver pour ce fil",
   "3a1bfd48e82a038b": "Cockpit : refuser",
@@ -13154,5 +13152,7 @@
   "f893b54624147259": "Cockpit : annuler le dernier résultat",
   "f42c27d69fd27d04": "Cockpit : écrire à l’agent de synthèse",
   "812248dc756ad6c3": "Cockpit : afficher les touches",
-  "5335dbd356d2c14e": "Ouvrir le cockpit"
+  "5335dbd356d2c14e": "Ouvrir le cockpit",
+  "d40d3da2df2cc751": "Cockpit : entrée suivante",
+  "7ff780bbeb8faefb": "Cockpit : entrée précédente"
 }
