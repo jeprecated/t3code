@@ -37,9 +37,6 @@ export interface PersistedUiState {
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
-  sidebarMode?: string;
-  youNotHereKeys?: string[];
-  youTriage?: boolean;
 }
 
 export interface UiProjectState {
@@ -63,17 +60,8 @@ export interface UiPullRequestState {
   pullRequestMergeMethod: PullRequestMergeMethod;
 }
 
-export type SidebarMode = "threads" | "you";
-
-export interface UiYouQueueState {
-  sidebarMode: SidebarMode;
-  /** You queue item keys the user is not in the place to do, on this device. */
-  youNotHereKeys: string[];
-  youTriage: boolean;
-}
-
 export interface UiState
-  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState, UiYouQueueState {}
+  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
@@ -84,9 +72,6 @@ const initialState: UiState = {
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
-  sidebarMode: "threads",
-  youNotHereKeys: [],
-  youTriage: false,
 };
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
@@ -195,9 +180,6 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
-    sidebarMode: parsed.sidebarMode === "you" ? "you" : "threads",
-    youNotHereKeys: sanitizeStringArray(parsed.youNotHereKeys),
-    youTriage: parsed.youTriage === true,
   };
 }
 
@@ -273,9 +255,6 @@ export function persistState(state: UiState): void {
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
-        sidebarMode: state.sidebarMode,
-        youNotHereKeys: state.youNotHereKeys,
-        youTriage: state.youTriage,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -410,16 +389,6 @@ function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMetho
     : { ...state, pullRequestMergeMethod: method };
 }
 
-function setYouNotHere(state: UiState, key: string, notHere: boolean): UiState {
-  if (state.youNotHereKeys.includes(key) === notHere) return state;
-  return {
-    ...state,
-    youNotHereKeys: notHere
-      ? [...state.youNotHereKeys, key]
-      : state.youNotHereKeys.filter((existing) => existing !== key),
-  };
-}
-
 export function resolveProjectExpanded(
   projectExpandedById: Readonly<Record<string, boolean>>,
   preferenceKeys: readonly string[],
@@ -505,10 +474,6 @@ interface UiStateStore extends UiState {
   setSidebarProjectScopeKeys: (projectKeys: readonly string[]) => void;
   setSidebarCategoryScope: (scope: SidebarCategoryScope | null) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
-  setSidebarMode: (mode: SidebarMode) => void;
-  toggleSidebarMode: () => void;
-  setYouNotHere: (key: string, notHere: boolean) => void;
-  setYouTriage: (triage: boolean) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
@@ -531,11 +496,6 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setSidebarProjectScopeKeys(state, projectKeys)),
   setSidebarCategoryScope: (scope) => set((state) => setSidebarCategoryScope(state, scope)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
-  setSidebarMode: (sidebarMode) => set({ sidebarMode }),
-  toggleSidebarMode: () =>
-    set((state) => ({ sidebarMode: state.sidebarMode === "you" ? "threads" : "you" })),
-  setYouNotHere: (key, notHere) => set((state) => setYouNotHere(state, key, notHere)),
-  setYouTriage: (youTriage) => set({ youTriage }),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>
