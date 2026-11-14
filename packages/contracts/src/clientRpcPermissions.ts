@@ -62,6 +62,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.userTodosUpsert]: AuthOrchestrationOperateScope,
   [WS_METHODS.userTodosSetCompleted]: AuthOrchestrationOperateScope,
   [WS_METHODS.userTodosDelete]: AuthOrchestrationOperateScope,
+  [WS_METHODS.taskSnoozesSet]: AuthOrchestrationOperateScope,
+  [WS_METHODS.taskSnoozesClear]: AuthOrchestrationOperateScope,
   // Resolving can wake the thread's agent, as sending it a message does.
   [WS_METHODS.threadWaitsResolve]: AuthOrchestrationOperateScope,
   // Starts an agent thread and a daily scheduled task.

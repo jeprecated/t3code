@@ -424,6 +424,7 @@ export const OrchestrationV2ThreadWaitKind = Schema.Literals([
   "decision",
   "manual_step",
   "blocked",
+  "review",
 ]);
 export type OrchestrationV2ThreadWaitKind = typeof OrchestrationV2ThreadWaitKind.Type;
 
@@ -437,7 +438,7 @@ export const OrchestrationV2ThreadWait = Schema.Struct({
   id: OrchestrationV2ThreadWaitId,
   kind: OrchestrationV2ThreadWaitKind.annotate({
     description:
-      "decision: they can answer anywhere, even by voice. manual_step: they must act at a computer. blocked: on something outside you both, such as CI or a third party, that T3 will not wake you for.",
+      "decision: they can answer anywhere, even by voice. manual_step: they must act at a computer. blocked: on something outside you both, such as CI or a third party, that T3 will not wake you for. review: you finished something they should judge; detail says what to look at and where.",
   }),
   summary: TrimmedNonEmptyString.check(Schema.isMaxLength(200)).annotate({
     description: "One short sentence that reads well aloud.",

@@ -14,6 +14,7 @@ import * as Ref from "effect/Ref";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as TaskSnoozeService from "../taskSnoozes/TaskSnoozeService.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
 import * as Orchestrator from "./Orchestrator.ts";
@@ -77,7 +78,7 @@ const layerTest = (sent: Ref.Ref<ReadonlyArray<SendInput>>) =>
         }),
       ),
     ),
-    Layer.provideMerge(layerOrchestrator),
+    Layer.provideMerge(TaskSnoozeService.layer.pipe(Layer.provideMerge(layerOrchestrator))),
     Layer.provide(NodeCrypto.layer),
   );
 
@@ -87,6 +88,7 @@ it.effect("resolves one wait, wakes the thread as T3, and leaves its other waits
     yield* Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const waits = yield* ThreadWaitService.ThreadWaitService;
+      const snoozes = yield* TaskSnoozeService.TaskSnoozeService;
       const threadId = ThreadId.make("thread:wait-service");
       yield* orchestrator.dispatch({
         type: "thread.create",
@@ -111,6 +113,10 @@ it.effect("resolves one wait, wakes the thread as T3, and leaves its other waits
         threadId,
         items: [step, decision],
       });
+      yield* snoozes.set({
+        key: `wait:${threadId}:switch`,
+        snoozedUntil: "2099-01-01T00:00:00.000Z",
+      });
       yield* TestClock.adjust("1 second");
 
       const result = yield* waits.resolve({
@@ -120,6 +126,7 @@ it.effect("resolves one wait, wakes the thread as T3, and leaves its other waits
         resolvedBy: "agent",
       });
       assert.deepEqual(result.waiting?.items, [decision]);
+      assert.deepEqual((yield* snoozes.list()).snoozes, []);
       const [wake] = yield* Ref.get(sent);
       assert.notEqual(wake?.createdBy, "user");
       assert.equal(wake?.mode, "auto");

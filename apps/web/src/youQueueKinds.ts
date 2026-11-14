@@ -1,11 +1,11 @@
 import type { YouQueueKind } from "@t3tools/client-runtime/state/you-queue";
 import {
   CircleAlertIcon,
-  CircleCheckIcon,
   CirclePauseIcon,
   HandIcon,
   ListChecksIcon,
   MessageCircleQuestionIcon,
+  ScanEyeIcon,
   ShieldQuestionIcon,
   SignpostIcon,
   SquareIcon,
@@ -33,7 +33,7 @@ export const YOU_QUEUE_KINDS: Record<
   manual_step: { label: "Manual step", icon: HandIcon, className: "text-warning-foreground" },
   blocked: { label: "Blocked", icon: CirclePauseIcon, className: "text-muted-foreground" },
   plan: { label: "Plan", icon: ListChecksIcon, className: "text-info-foreground" },
-  review: { label: "Review", icon: CircleCheckIcon, className: "text-info-foreground" },
+  review: { label: "Review", icon: ScanEyeIcon, className: "text-success-foreground" },
   fix: { label: "Fix", icon: CircleAlertIcon, className: "text-destructive-foreground" },
   todo: { label: "Todo", icon: SquareIcon, className: "text-muted-foreground" },
 };

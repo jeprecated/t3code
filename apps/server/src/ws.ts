@@ -124,6 +124,7 @@ import * as DocumentText from "./provider/DocumentText.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as UserTodoService from "./userTodos/UserTodoService.ts";
+import * as TaskSnoozeService from "./taskSnoozes/TaskSnoozeService.ts";
 import * as OverviewService from "./overview/OverviewService.ts";
 import * as ThreadWaitService from "./orchestration-v2/ThreadWaitService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
@@ -1319,6 +1320,7 @@ export const layerWsRpc = (
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const userTodos = yield* UserTodoService.UserTodoService;
+      const taskSnoozes = yield* TaskSnoozeService.TaskSnoozeService;
       const overview = yield* OverviewService.OverviewService;
       const threadWaits = yield* ThreadWaitService.ThreadWaitService;
       const secretRequests = yield* SecretRequests.SecretRequests;
@@ -2231,6 +2233,9 @@ export const layerWsRpc = (
         [WS_METHODS.userTodosUpsert]: (input) => userTodos.upsert({ ...input, createdBy: "user" }),
         [WS_METHODS.userTodosSetCompleted]: (input) => userTodos.setCompleted(input),
         [WS_METHODS.userTodosDelete]: (input) => userTodos.delete(input),
+        [WS_METHODS.taskSnoozesSubscribe]: (_input) => taskSnoozes.subscribeList(),
+        [WS_METHODS.taskSnoozesSet]: (input) => taskSnoozes.set(input),
+        [WS_METHODS.taskSnoozesClear]: (input) => taskSnoozes.clear(input),
         [WS_METHODS.threadWaitsResolve]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(threadWaits.resolve({ ...input, resolvedBy: "user" })),

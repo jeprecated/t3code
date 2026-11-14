@@ -1,4 +1,5 @@
 import {
+  taskTodoKey,
   type UserTodo,
   type UserTodoDeleteInput,
   type UserTodoDeleteResult,
@@ -21,6 +22,8 @@ import * as PubSub from "effect/PubSub";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
+
+import * as TaskSnoozeService from "../taskSnoozes/TaskSnoozeService.ts";
 
 /** Completed todos stay listed this long, so a mistaken tick can be undone. */
 const COMPLETED_RETENTION = { days: 7 } as const;
@@ -74,10 +77,14 @@ function todoFromRow(row: UserTodoRow): UserTodo {
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const crypto = yield* Crypto.Crypto;
+  const snoozes = yield* TaskSnoozeService.TaskSnoozeService;
   const writes = yield* Semaphore.make(1);
   // Subscribers only need to know the list changed; each re-reads it.
   const changes = yield* PubSub.sliding<void>(1);
 
+  // The todo is saved by now, so a stale snooze only costs a dead row.
+  const clearSnooze = (id: UserTodoId) =>
+    snoozes.clear({ key: taskTodoKey(id) }).pipe(Effect.ignore({ log: true }));
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const cutoffIso = DateTime.now.pipe(
     Effect.map((now) => DateTime.formatIso(DateTime.subtract(now, COMPLETED_RETENTION))),
@@ -193,11 +200,13 @@ const make = Effect.gen(function* () {
       const existing = yield* find(input.id);
       if ((existing.completedAt !== null) === input.completed) return { todo: existing };
       const now = yield* nowIso;
-      return yield* save({
+      const result = yield* save({
         ...existing,
         completedAt: input.completed ? now : null,
         updatedAt: now,
       });
+      if (input.completed) yield* clearSnooze(input.id);
+      return result;
     },
     (effect) => writes.withPermits(1)(effect),
   );
@@ -209,6 +218,7 @@ const make = Effect.gen(function* () {
       `.pipe(Effect.mapError(writeError));
       if (deleted.length === 0) return yield* new UserTodoNotFoundError({ id: input.id });
       yield* PubSub.publish(changes, undefined);
+      yield* clearSnooze(input.id);
       return { id: input.id };
     },
     (effect) => writes.withPermits(1)(effect),

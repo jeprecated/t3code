@@ -81,6 +81,7 @@ import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as UserTodoService from "./userTodos/UserTodoService.ts";
+import * as TaskSnoozeService from "./taskSnoozes/TaskSnoozeService.ts";
 import * as OverviewService from "./overview/OverviewService.ts";
 import * as ThreadWaitService from "./orchestration-v2/ThreadWaitService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
@@ -581,6 +582,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ReviewService.ReviewService)({}),
   Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
   Layer.mock(UserTodoService.UserTodoService)({}),
+  Layer.mock(TaskSnoozeService.TaskSnoozeService)({}),
   Layer.mock(OverviewService.OverviewService)({}),
   Layer.mock(ThreadWaitService.ThreadWaitService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),

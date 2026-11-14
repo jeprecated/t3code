@@ -1,6 +1,7 @@
 import {
   CommandId,
   MessageId,
+  taskWaitKey,
   ThreadWaitNotFoundError,
   ThreadWaitResolveError,
   type ThreadWaitResolveInput,
@@ -11,6 +12,7 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as TaskSnoozeService from "../taskSnoozes/TaskSnoozeService.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 
@@ -39,6 +41,7 @@ const make = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const crypto = yield* Crypto.Crypto;
+  const snoozes = yield* TaskSnoozeService.TaskSnoozeService;
 
   const resolve: ThreadWaitService["Service"]["resolve"] = Effect.fn("ThreadWaitService.resolve")(
     function* (input) {
@@ -65,6 +68,10 @@ const make = Effect.gen(function* () {
           waitId: input.waitId,
         })
         .pipe(Effect.mapError(failed("resolve")));
+      // The wait is gone either way, so a stale snooze only costs a dead row.
+      yield* snoozes
+        .clear({ key: taskWaitKey(input.threadId, input.waitId) })
+        .pipe(Effect.ignore({ log: true }));
       if (input.wake !== false) {
         yield* threads
           .sendToThread({
