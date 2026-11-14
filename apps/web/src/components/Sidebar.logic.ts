@@ -211,6 +211,19 @@ export function resolveSidebarThreadSection(input: {
   return "active";
 }
 
+/** The bottom row above the Snoozed shelf. Working rows count only while that shelf is open. */
+export function lastSidebarJumpThread<T>(input: {
+  readonly mainThreads: readonly T[];
+  readonly workingThreads: readonly T[];
+  readonly workingShelfExpanded: boolean;
+}): T | null {
+  return (
+    (input.workingShelfExpanded ? input.workingThreads.at(-1) : undefined) ??
+    input.mainThreads.at(-1) ??
+    null
+  );
+}
+
 const SIDEBAR_MARKER_PREFIX = "sidebar-marker-";
 
 export type SidebarListMarker =
