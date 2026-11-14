@@ -7,9 +7,11 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as TaskSnoozeService from "../taskSnoozes/TaskSnoozeService.ts";
 import * as UserTodoService from "./UserTodoService.ts";
 
 const layerTest = UserTodoService.layer.pipe(
+  Layer.provideMerge(TaskSnoozeService.layer),
   Layer.provide(Layer.mergeAll(SqlitePersistence.layerMemory, NodeCrypto.layer)),
 );
 
@@ -19,6 +21,7 @@ const titles = (result: { readonly todos: ReadonlyArray<{ readonly title: string
 it.effect("creates, updates, completes, reopens and deletes todos, and lists them in order", () =>
   Effect.gen(function* () {
     const todos = yield* UserTodoService.UserTodoService;
+    const snoozes = yield* TaskSnoozeService.TaskSnoozeService;
     const { todo: call } = yield* todos.upsert({
       title: "Call the bank",
       where: "phone",
@@ -49,7 +52,9 @@ it.effect("creates, updates, completes, reopens and deletes todos, and lists the
       "where",
     );
 
+    yield* snoozes.set({ key: `todo:${call.id}`, snoozedUntil: "2099-01-01T00:00:00.000Z" });
     yield* todos.setCompleted({ id: call.id, completed: true });
+    assert.deepEqual((yield* snoozes.list()).snoozes, []);
     assert.deepEqual(titles(yield* todos.list()), ["Renew acme.app", "Call the bank"]);
     assert.isNull((yield* todos.setCompleted({ id: call.id, completed: false })).todo.completedAt);
     assert.deepEqual(titles(yield* todos.list()), ["Call the bank", "Renew acme.app"]);
