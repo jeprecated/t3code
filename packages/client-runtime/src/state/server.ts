@@ -1615,6 +1615,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:user-todos:live",
       tag: WS_METHODS.userTodosSubscribe,
     }),
+    taskSnoozesLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:task-snoozes:live",
+      tag: WS_METHODS.taskSnoozesSubscribe,
+    }),
     // A cold transcript scan is measured in seconds, so keep the result around
     // long enough that switching windows or re-rendering does not rescan. With
     // nothing to show yet, the server's last scan answers first, then a plain
@@ -1919,6 +1923,14 @@ export function createServerEnvironmentAtoms<R, E>(
     deleteUserTodo: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:user-todo:delete",
       tag: WS_METHODS.userTodosDelete,
+    }),
+    setTaskSnooze: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:task-snooze:set",
+      tag: WS_METHODS.taskSnoozesSet,
+    }),
+    clearTaskSnooze: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:task-snooze:clear",
+      tag: WS_METHODS.taskSnoozesClear,
     }),
     resolveThreadWait: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:thread-wait:resolve",

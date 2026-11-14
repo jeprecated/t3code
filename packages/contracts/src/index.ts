@@ -68,6 +68,7 @@ export * from "./previewCapture.ts";
 export * from "./usage.ts";
 export * from "./scheduledTask.ts";
 export * from "./userTodo.ts";
+export * from "./taskSnooze.ts";
 export * from "./overview.ts";
 export * from "./worktreeMcp.ts";
 export * from "./resourceTelemetry.ts";
