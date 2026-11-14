@@ -521,6 +521,20 @@ const COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
   "thread.snooze.tomorrow": msg("Thread: Snooze Until Tomorrow"),
   "thread.snooze.nextWeek": msg("Thread: Snooze Until Next Week"),
   "thread.undo": msg("Thread: Undo"),
+  "cockpit.toggle": msg("Cockpit: Open or Close"),
+  "cockpit.primary": msg("Cockpit: Done (Main Action)"),
+  "cockpit.snooze": msg("Cockpit: Snooze Task"),
+  "cockpit.openThere": msg("Cockpit: Open Its Thread"),
+  "cockpit.next": msg("Cockpit: Next Task"),
+  "cockpit.previous": msg("Cockpit: Previous Task"),
+  "cockpit.approve": msg("Cockpit: Approve"),
+  "cockpit.approveForThread": msg("Cockpit: Approve for This Thread"),
+  "cockpit.deny": msg("Cockpit: Deny"),
+  "cockpit.reply": msg("Cockpit: Reply or Add a Note"),
+  "cockpit.openLink": msg("Cockpit: Open First Link"),
+  "cockpit.undo": msg("Cockpit: Undo Last Outcome"),
+  "cockpit.focusOverview": msg("Cockpit: Message the Overview Agent"),
+  "cockpit.help": msg("Cockpit: Show Keys"),
 };
 
 // Whole labels: search titles keep the encoded message, which cannot nest another one.
