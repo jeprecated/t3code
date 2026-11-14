@@ -12689,8 +12689,6 @@
   "5c58e2296d35abc7": "Cockpit: concluído (ação principal)",
   "b2313b519c244f5a": "Cockpit: adiar tarefa",
   "fea7ae3031dd71ab": "Cockpit: abrir a thread",
-  "d197a6f2caf57915": "Cockpit: próxima tarefa",
-  "349084108192baec": "Cockpit: tarefa anterior",
   "346ac5674f00ec7a": "Cockpit: aprovar",
   "e43c0bbfdf5c3298": "Cockpit: aprovar para esta thread",
   "3a1bfd48e82a038b": "Cockpit: negar",
@@ -12699,5 +12697,7 @@
   "f893b54624147259": "Cockpit: desfazer o último resultado",
   "f42c27d69fd27d04": "Cockpit: escrever ao agente de visão geral",
   "812248dc756ad6c3": "Cockpit: mostrar teclas",
-  "5335dbd356d2c14e": "Abrir cockpit"
+  "5335dbd356d2c14e": "Abrir cockpit",
+  "d40d3da2df2cc751": "Cockpit: próxima entrada",
+  "7ff780bbeb8faefb": "Cockpit: entrada anterior"
 }

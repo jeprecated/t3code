@@ -12684,8 +12684,6 @@
   "5c58e2296d35abc7": "Cockpit: hecho (acción principal)",
   "b2313b519c244f5a": "Cockpit: posponer tarea",
   "fea7ae3031dd71ab": "Cockpit: abrir su hilo",
-  "d197a6f2caf57915": "Cockpit: tarea siguiente",
-  "349084108192baec": "Cockpit: tarea anterior",
   "346ac5674f00ec7a": "Cockpit: aprobar",
   "e43c0bbfdf5c3298": "Cockpit: aprobar para este hilo",
   "3a1bfd48e82a038b": "Cockpit: denegar",
@@ -12694,5 +12692,7 @@
   "f893b54624147259": "Cockpit: deshacer el último resultado",
   "f42c27d69fd27d04": "Cockpit: escribir al agente de resumen",
   "812248dc756ad6c3": "Cockpit: mostrar teclas",
-  "5335dbd356d2c14e": "Abrir cockpit"
+  "5335dbd356d2c14e": "Abrir cockpit",
+  "d40d3da2df2cc751": "Cockpit: entrada siguiente",
+  "7ff780bbeb8faefb": "Cockpit: entrada anterior"
 }
