@@ -14,6 +14,7 @@ import {
   deleteSelectedThreadEntries,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
+  lastSidebarJumpThread,
   orderItemsByPreferredIds,
   pinOrderKeyBetween,
   resolveSidebarSweepKeys,
@@ -1124,6 +1125,17 @@ describe("Working shelf (beta)", () => {
         hasActionableProposedPlan: true,
       }),
     ).toBe(false);
+  });
+
+  it("jumps to the last open Working row, else the last main row, never further down", () => {
+    const last = (workingShelfExpanded: boolean, working: string[], main = ["pin", "a", "b"]) =>
+      lastSidebarJumpThread({ mainThreads: main, workingThreads: working, workingShelfExpanded });
+
+    expect(last(true, ["w1", "w2"])).toBe("w2");
+    expect(last(false, ["w1", "w2"])).toBe("b");
+    expect(last(true, [])).toBe("b");
+    expect(last(true, ["w1"], [])).toBe("w1");
+    expect(last(false, ["w1"], [])).toBeNull();
   });
 
   describe("sortInboxThreadsByReturn", () => {
