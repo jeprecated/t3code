@@ -51,6 +51,11 @@ export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
   cwd: Schema.NullOr(Schema.String),
   approvalPolicy: Schema.optional(Schema.Unknown),
   sandboxPolicy: Schema.optional(Schema.Unknown),
+  /**
+   * The administrator's ceiling, when a managed policy sets one. `runtimeMode` is already under
+   * it; adapters use it to refuse native mode choices a user makes beside T3 Code's own.
+   */
+  maxRuntimeMode: Schema.optional(RuntimeMode),
 });
 export type ProviderAdapterV2RuntimePolicy = typeof ProviderAdapterV2RuntimePolicy.Type;
 
@@ -622,6 +627,14 @@ export interface ProviderAdapterV2SessionRuntime {
     readonly taskIds: ReadonlyArray<string>;
     readonly awaited: boolean;
   }) => Effect.Effect<{ readonly matched: ReadonlyArray<string> }, ProviderAdapterV2Error>;
+  /**
+   * Raw output of a background command the provider thread lists, starting with what is
+   * already written, ending once the command does. Read only while someone watches it.
+   */
+  readonly streamBackgroundTaskOutput?: (input: {
+    readonly providerThread: OrchestrationV2ProviderThread;
+    readonly taskId: string;
+  }) => Stream.Stream<string, ProviderAdapterV2Error>;
   readonly interruptTurn: (
     input: ProviderAdapterV2InterruptInput,
   ) => Effect.Effect<void, ProviderAdapterV2Error>;

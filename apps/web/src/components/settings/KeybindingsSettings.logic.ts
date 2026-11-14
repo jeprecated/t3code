@@ -14,6 +14,7 @@ import {
 } from "@t3tools/shared/keybindings";
 
 import { shortcutConflictKey, shortcutKeyFromEvent } from "../../keybindings";
+import { commandForNewThreadPreset, newThreadPresetIdFromCommand } from "../../newThreadPresets";
 import { isMacPlatform } from "../../lib/utils";
 import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
 
@@ -211,9 +212,17 @@ const KEYBINDING_GROUPS = [
   {
     id: "navigation",
     title: "Navigation",
-    prefixes: ["sidebar", "rightPanel", "commandPalette", "filePicker", "projectSearch", "editor"],
+    prefixes: [
+      "sidebar",
+      "rightPanel",
+      "commandPalette",
+      "filePicker",
+      "projectSearch",
+      "threadSwitcher",
+      "editor",
+    ],
   },
-  { id: "threads", title: "Threads", prefixes: ["thread", "chat", "pullRequest"] },
+  { id: "threads", title: "Threads", prefixes: ["thread", "chat", "preset", "pullRequest"] },
   { id: "composer", title: "Composer", prefixes: ["composer", "modelPicker"] },
   { id: "terminal", title: "Terminal", prefixes: ["terminal"] },
   { id: "preview", title: "Preview & diff", prefixes: ["preview", "diff"] },
@@ -359,13 +368,42 @@ export function buildWhenVariableOptions(): ReadonlyArray<WhenVariableOption> {
 
 export function buildKeybindingCommandOptions(
   keybindings: ResolvedKeybindingsConfig,
+  newThreadPresetIds: ReadonlyArray<string> = [],
 ): ReadonlyArray<KeybindingCommandOption> {
   const commands = new Set<KeybindingCommand>(STATIC_KEYBINDING_COMMANDS);
+  for (const presetId of newThreadPresetIds) {
+    commands.add(commandForNewThreadPreset(presetId));
+  }
   for (const binding of keybindings) {
     commands.add(binding.command);
   }
   return [...commands].toSorted((left, right) => compareCommands(left, right, commandLabel));
 }
+
+const THREAD_SNOOZE_PRESET_LABELS: Partial<Record<KeybindingCommand, string>> = {
+  "thread.snooze.hour": "1 Hour",
+  "thread.snooze.threeHours": "3 Hours",
+  "thread.snooze.evening": "Until Evening",
+  "thread.snooze.tomorrow": "Until Tomorrow",
+  "thread.snooze.nextWeek": "Until Next Week",
+};
+
+const COCKPIT_LABELS: Partial<Record<KeybindingCommand, string>> = {
+  "cockpit.toggle": "Open or Close",
+  "cockpit.primary": "Done (Main Action)",
+  "cockpit.snooze": "Snooze Task",
+  "cockpit.openThere": "Open Its Thread",
+  "cockpit.next": "Next Entry",
+  "cockpit.previous": "Previous Entry",
+  "cockpit.approve": "Approve",
+  "cockpit.approveForThread": "Approve for This Thread",
+  "cockpit.deny": "Deny",
+  "cockpit.reply": "Reply or Add a Note",
+  "cockpit.openLink": "Open First Link",
+  "cockpit.undo": "Undo Last Outcome",
+  "cockpit.focusOverview": "Message the Overview Agent",
+  "cockpit.help": "Show Keys",
+};
 
 export function commandLabel(command: KeybindingCommand): string {
   if (command === "workspace.focusNext") return "Focus Next Workspace Area";
@@ -376,6 +414,11 @@ export function commandLabel(command: KeybindingCommand): string {
   if (command === "thread.steerQueuedMessage") return "Queue: Send First Queued Message";
   if (command === "thread.editQueuedMessage") return "Queue: Edit Last Queued Message";
   if (command === "thread.copyReference") return "Pull Request: Copy Link or Thread";
+  if (command === "thread.snooze") return "Thread: Snooze or Wake";
+  const snoozePresetLabel = THREAD_SNOOZE_PRESET_LABELS[command];
+  if (snoozePresetLabel) return `Thread: Snooze ${snoozePresetLabel}`;
+  const cockpitLabel = COCKPIT_LABELS[command];
+  if (cockpitLabel) return `Cockpit: ${cockpitLabel}`;
   const usageMetric = METRIC_OPTIONS.find((option) => option.command === command);
   if (usageMetric) return `Usage: ${usageMetric.label}`;
   const usagePeriod = WINDOW_OPTIONS.find((option) => option.command === command);
@@ -386,6 +429,8 @@ export function commandLabel(command: KeybindingCommand): string {
   if (raw.startsWith("script.") && raw.endsWith(".run")) {
     return `Run Script: ${titleCaseCommandSegment(raw.slice("script.".length, -".run".length))}`;
   }
+  const presetId = newThreadPresetIdFromCommand(raw);
+  if (presetId !== null) return `New Thread Preset: ${titleCaseCommandSegment(presetId)}`;
   return raw.split(".").map(titleCaseCommandSegment).join(": ");
 }
 

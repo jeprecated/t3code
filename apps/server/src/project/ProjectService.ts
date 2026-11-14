@@ -400,6 +400,13 @@ export const make = Effect.gen(function* () {
 
   const bootstrap: ProjectService["Service"]["bootstrap"] = Effect.fn("ProjectService.bootstrap")(
     function* (input) {
+      // The lookup below normalizes the root, which fails when it does not exist yet.
+      if (input.createWorkspaceRootIfMissing === true) {
+        yield* normalizeWorkspaceRoot({
+          workspaceRoot: input.workspaceRoot,
+          createIfMissing: true,
+        });
+      }
       const existing = yield* getByWorkspaceRoot(input.workspaceRoot);
       if (Option.isSome(existing)) return { project: existing.value, created: false };
       return { project: yield* create(input), created: true };

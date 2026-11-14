@@ -59,6 +59,9 @@ import {
   PullRequestsToolkit,
 } from "../../apps/server/src/mcp/toolkits/pullRequests/tools.ts";
 import { ThreadToolkit } from "../../apps/server/src/mcp/toolkits/thread/tools.ts";
+import { WaitingToolkit } from "../../apps/server/src/mcp/toolkits/waiting/tools.ts";
+import { TodosToolkit } from "../../apps/server/src/mcp/toolkits/todos/tools.ts";
+import { OVERVIEW_BRIEF } from "../../apps/server/src/overview/OverviewService.ts";
 import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/tools.ts";
 import {
   CLAUDE_PROVIDER,
@@ -245,6 +248,8 @@ export const McpToolUseCase = Schema.Struct({
     /** delegate_task `role` for a delegated child. T3 builds the child's first message from it. */
     delegateRole: Schema.optional(OrchestratorMcpTaskRole),
     context: Schema.optional(Schema.String),
+    /** The thread is the overview agent's: T3's overview brief is its first message. */
+    overviewBrief: Schema.optional(Schema.Boolean),
     priorTurns: Schema.optional(
       Schema.Array(
         Schema.Struct({
@@ -383,6 +388,8 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   PreviewControlsToolkit,
   WorktreeToolkit,
   PullRequestsToolkit,
+  WaitingToolkit,
+  TodosToolkit,
   PreviewToolkit,
   DeviceToolkit,
   HtmlToolkit,
@@ -881,6 +888,7 @@ export const buildMessages = (sample: Sample) => {
   push("user", ...reminders, ...notes.flatMap((note) => (note ? [reminder(note)] : [])));
   const toolSearch = findTool(base, "ToolSearch")?.name ?? "ToolSearch";
   let nextId = 0;
+  if (testCase.setup.overviewBrief === true) push("user", text(OVERVIEW_BRIEF));
   for (const turn of priorTurns) {
     const calls = (turn.toolCalls ?? []).map((call) => {
       const tool = findTool(base, call.tool);

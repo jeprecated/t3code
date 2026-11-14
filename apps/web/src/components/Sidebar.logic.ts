@@ -1,8 +1,11 @@
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
+import {
+  backgroundWorkHoldsCompletion,
+  hasRunningBackgroundCommand,
+} from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
-import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
 import {
@@ -205,6 +208,19 @@ export function belongsInSidebarWorkingShelf<T extends { readonly environmentId:
     input.enabled &&
     !input.disconnectedEnvironmentIds.has(thread.environmentId) &&
     input.isWorking(thread)
+  );
+}
+
+/** The bottom row above the Snoozed shelf. Working rows count only while that shelf is open. */
+export function lastSidebarJumpThread<T>(input: {
+  readonly mainThreads: readonly T[];
+  readonly workingThreads: readonly T[];
+  readonly workingShelfExpanded: boolean;
+}): T | null {
+  return (
+    (input.workingShelfExpanded ? input.workingThreads.at(-1) : undefined) ??
+    input.mainThreads.at(-1) ??
+    null
   );
 }
 
@@ -736,7 +752,8 @@ export interface ThreadStatusPill {
     | "Awaiting Input"
     | "Guest Request"
     | "Waiting"
-    | "Plan Ready";
+    | "Plan Ready"
+    | "Running";
   colorClass: string;
   dotClass: string;
   pulse: boolean;
@@ -752,6 +769,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Waiting: 2.5,
   "Plan Ready": 2,
   Completed: 1,
+  Running: 0.5,
 };
 
 type ThreadStatusInput = Pick<
@@ -1279,6 +1297,15 @@ export function resolveThreadStatusPill(input: {
       label: "Completed",
       colorClass: "text-emerald-600 dark:text-emerald-300/90",
       dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+      pulse: false,
+    };
+  }
+
+  if (hasRunningBackgroundCommand(thread.pendingBackgroundTasks ?? [])) {
+    return {
+      label: "Running",
+      colorClass: "text-sidebar-muted-foreground",
+      dotClass: "bg-sidebar-muted-foreground",
       pulse: false,
     };
   }

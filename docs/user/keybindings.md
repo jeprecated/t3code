@@ -30,6 +30,10 @@ workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
 
+Two more composer commands have no default shortcut. **Composer: Project** opens a
+new thread's project menu. **Composer: Toggle Start from Origin** switches whether a
+new worktree starts from origin, without opening the branch picker.
+
 To change effort one step without opening the picker, bind
 **Composer: Increase Effort** and **Composer: Decrease Effort** in Keybindings.
 Both are unbound by default. Increase wraps from the highest level to the
@@ -45,6 +49,16 @@ These shortcuts run inside the focused web or desktop client. `mod` uses Command
 on macOS and Ctrl on Windows and Linux, including GNOME, KDE Plasma, Niri, and
 Hyprland. If a custom desktop shortcut takes the same keys, choose another binding
 in Settings.
+
+## Switch threads
+
+**Thread Switcher: Toggle** opens a quick search over your threads. It has no
+default shortcut. Bind it in Settings → Keybindings, or choose **Switch thread**
+in the command palette. Type part of a thread's name, project, or branch.
+Closer matches rank first. Between equally close matches, the thread's name beats
+its project, which beats its branch or worktree. Enter opens the top result, and
+the thread you are on is always listed last. Only active threads
+appear at first. Press Tab to include settled and snoozed threads.
 
 ## Copy pull request references
 
@@ -103,6 +117,9 @@ Each rule requires a `key` shortcut and a `command` ID. An optional `when`
 expression restricts when it runs.
 
 Project scripts use `script.{id}.run`, such as `script.test.run`.
+[New thread presets](./thread-sidebar.md#start-from-a-preset) use
+`preset.{id}.new`, such as `preset.quick.new`. Settings → General lists each
+preset's command.
 
 ## Key syntax
 
@@ -112,12 +129,14 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 
 ## When conditions
 
-Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
-`previewOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`,
-`turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
+Available context keys are `terminalFocus`, `terminalOpen`, `terminalFloating`,
+`previewFocus`, `previewOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`,
+`draftThreadRoute`, `turnRunning`, `editableFocus`, `cockpitOpen`, `isWeb`, and `isDesktop`.
 `draftThreadRoute` is true on a draft thread, including a restored draft, until it is first sent.
+`terminalFloating` is true while the terminal is showing as a
+[floating popover](terminal.md#floating-terminal).
 `editableFocus` is true while a text field, the composer, or another editor has
-the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
+the keyboard. `cockpitOpen` is true while the [cockpit](thread-sidebar.md#cockpit) is open. `isWeb` is true in a browser tab. `isDesktop` is true in the
 desktop app. Unknown keys evaluate to `false`.
 
 `mod+1` through `mod+9` jump to the first nine threads, and to models while the
@@ -158,6 +177,19 @@ actions of the same kind undo together. The notice remains available for five
 seconds after the latest action. Right after an action, the shortcut works even
 in a text field such as the composer. Once you type or press another key, the
 field gets its own undo back. Terminals always keep their native shortcut.
+
+`thread.snooze` has no default shortcut. On the open thread it opens a snooze picker:
+press the arrow keys or Tab to move between the snooze presets and Enter to pick one, or
+type a time such as `3h`, `5d`, `14`, `tomorrow 14`, `fri 9`, or `oct 20 8am`. Days
+without a time mean 9:00. **Custom…** opens the same date and duration dialog as the
+thread menu. If the thread is already snoozed, the shortcut wakes it instead.
+`thread.snooze.hour`, `thread.snooze.threeHours`, `thread.snooze.evening`,
+`thread.snooze.tomorrow`, and `thread.snooze.nextWeek` skip the picker and snooze to
+that preset directly.
+
+The `cockpit.*` commands act on the cockpit's current task. Their single-key defaults use
+`cockpitOpen && !editableFocus`, so they never fire while you type in a note or the
+overview agent's composer. See [Cockpit](thread-sidebar.md#cockpit) for the full list.
 
 `navigation.back` (`mod+[` by default) and `navigation.forward` (`mod+]`) move
 through the pages you have visited, like a browser's back and forward buttons.

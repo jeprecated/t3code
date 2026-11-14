@@ -146,6 +146,7 @@ type WhenToken =
 
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+b", command: "sidebar.toggle" },
+  { key: "mod+alt+y", command: "cockpit.toggle", when: "!terminalFocus" },
   { key: "f6", command: "workspace.focusNext" },
   { key: "shift+f6", command: "workspace.focusPrevious" },
   // Some browsers keep plain F6 for their own toolbars; mod+F6 reaches the page in all of them.
@@ -154,6 +155,9 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+[", command: "navigation.back", when: "!terminalFocus" },
   { key: "mod+]", command: "navigation.forward", when: "!terminalFocus" },
   { key: "mod+j", command: "terminal.toggle" },
+  { key: "mod+alt+j", command: "terminal.toggleFloating" },
+  { key: "mod+alt+k", command: "terminal.cycleFloatingLayout", when: "terminalOpen" },
+  { key: "mod+alt+shift+j", command: "terminal.toggleDocked", when: "terminalOpen" },
   { key: "mod+alt+b", command: "rightPanel.toggle" },
   { key: "mod+shift+b", command: "threadPanel.toggle", when: "!terminalFocus" },
   { key: "mod+t", command: "rightPanel.new", when: "rightPanelOpen && !terminalFocus" },
@@ -236,6 +240,24 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+2", command: "usage.period.week", when: "usagePageOpen" },
   { key: "mod+shift+3", command: "usage.period.month", when: "usagePageOpen" },
   { key: "mod+shift+4", command: "usage.period.quarter", when: "usagePageOpen" },
+  // Single keys, so they stay out of text fields; last, so they win while the cockpit is open.
+  ...(
+    [
+      ["e", "cockpit.primary"],
+      ["s", "cockpit.snooze"],
+      ["o", "cockpit.openThere"],
+      ["j", "cockpit.next"],
+      ["k", "cockpit.previous"],
+      ["y", "cockpit.approve"],
+      ["shift+y", "cockpit.approveForThread"],
+      ["n", "cockpit.deny"],
+      ["r", "cockpit.reply"],
+      ["l", "cockpit.openLink"],
+      ["u", "cockpit.undo"],
+      ["/", "cockpit.focusOverview"],
+      ["shift+/", "cockpit.help"],
+    ] as const
+  ).map(([key, command]) => ({ key, command, when: "cockpitOpen && !editableFocus" })),
 ];
 
 function normalizeKeyToken(token: string): string {

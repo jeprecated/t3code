@@ -210,7 +210,20 @@ const make = Effect.gen(function* () {
     let worktreeBaseRef = baseRef;
     let baseRefName = baseRef;
     let startedFromOrigin = false;
-    if (startFromOrigin) {
+    // jj workspaces fetch through jj: Agent Tick repositories have no git
+    // remote, and their `jj git fetch` syncs the shared bookmarks.
+    const jujutsuCommand = startFromOrigin
+      ? yield* gitWorkflow.jujutsuCommandFor({ cwd: projectCwd })
+      : null;
+    if (jujutsuCommand !== null) {
+      const commit = yield* gitWorkflow
+        .fetchJjBase({ cwd: projectCwd, refName: baseRef, jujutsuCommand })
+        .pipe(asOperationFailed("Unable to fetch through jj"));
+      if (commit !== null) {
+        worktreeBaseRef = commit;
+        startedFromOrigin = true;
+      }
+    } else if (startFromOrigin) {
       const resolvedRemoteBase = yield* gitWorkflow
         .fetchWorktreeBaseCommit({ cwd: projectCwd, refName: baseRef })
         .pipe(asOperationFailed(`Unable to fetch the remote base of '${baseRef}'`));

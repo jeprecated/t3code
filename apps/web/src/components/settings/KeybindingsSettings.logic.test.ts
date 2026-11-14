@@ -8,7 +8,9 @@ import {
 import { resolveShortcutCommand } from "../../keybindings";
 
 import {
+  buildKeybindingCommandOptions,
   buildKeybindingRows,
+  commandLabel,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
   parseWhenExpressionDraft,
@@ -299,5 +301,21 @@ describe("KeybindingsSettings.logic", () => {
     );
 
     expect(rows.map((row) => row.conflicts)).toEqual([[], []]);
+  });
+
+  it("labels the snooze and cockpit commands", () => {
+    expect(commandLabel("thread.snooze")).toBe("Thread: Snooze or Wake");
+    expect(commandLabel("thread.snooze.threeHours")).toBe("Thread: Snooze 3 Hours");
+    expect(commandLabel("thread.snooze.nextWeek")).toBe("Thread: Snooze Until Next Week");
+    expect(commandLabel("cockpit.toggle")).toBe("Cockpit: Open or Close");
+    expect(commandLabel("cockpit.approveForThread")).toBe("Cockpit: Approve for This Thread");
+  });
+
+  it("labels new-thread preset commands", () => {
+    expect(commandLabel("preset.quick-sol.new")).toBe("New Thread Preset: Quick Sol");
+  });
+
+  it("offers each saved new-thread preset as a bindable command", () => {
+    expect(buildKeybindingCommandOptions([], ["quick"])).toContain("preset.quick.new");
   });
 });

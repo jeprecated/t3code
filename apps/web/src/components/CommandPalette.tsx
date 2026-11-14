@@ -16,6 +16,7 @@ import {
   getNewProjectPublishTarget,
   getNewProjectPublishTargets,
   getNewProjectRepository,
+  githubIncompleteOwnerRepositoryMessage,
   normalizePastedCloneUrl,
   addProjectRemoteSourceLabel,
   addProjectRemoteSourcePathHint,
@@ -78,6 +79,7 @@ import {
   TagIcon,
   TextSearchIcon,
   UserPlusIcon,
+  InboxIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
 import {
@@ -106,7 +108,10 @@ import {
   copyPromptLink,
   promptLinkRepositoryOf,
 } from "./promptLinks/copyPromptLink";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, usePrimarySettings } from "../hooks/useSettings";
+import { useStartNewThreadPreset } from "../hooks/useStartNewThreadPreset";
+import { commandForNewThreadPreset } from "../newThreadPresets";
+import { requestSaveDraftAsNewThreadPreset } from "./chat/newThreadPresetActionBus";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { readLocalApi } from "../localApi";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
@@ -171,6 +176,7 @@ import {
   useUpdateThreadCategories,
 } from "../threadCategories";
 import { useUiStateStore } from "../uiStateStore";
+import { setCockpitOpen } from "../cockpitStore";
 import { editCurrentSidebarView, openSidebarViewEditor } from "./SidebarViewDialog";
 import { openNewThreadCategoryDialog } from "./ThreadCategoryDialog";
 import { CategorySwatch } from "./CategorySwatch";
@@ -254,6 +260,7 @@ import { openGuestShareDialog } from "./chat/guestShareDialogState";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { settingsForThisPlatform, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
 import { primaryServerKeybindingsAtom } from "../state/server";
+import { ThreadSwitcher } from "./ThreadSwitcher";
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { Button } from "./ui/button";
@@ -272,6 +279,7 @@ import { threadRecentUse } from "@t3tools/shared/paletteSearch";
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 const ADD_PROJECT_ENTRY_GROUP = "add-project";
 const NEW_THREAD_IN_GROUP = "projects";
+const NEW_THREAD_PRESET_GROUP = "presets";
 
 /** The submenu an open intent starts in; its groups resolve while rendering. */
 function openIntentView(intent: CommandPaletteOpenIntent | null): CommandPaletteView | null {
@@ -285,6 +293,11 @@ function openIntentView(intent: CommandPaletteOpenIntent | null): CommandPalette
       return {
         addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
         groups: [{ value: NEW_THREAD_IN_GROUP, label: "Projects", items: [] }],
+      };
+    case "new-thread-preset":
+      return {
+        addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
+        groups: [{ value: NEW_THREAD_PRESET_GROUP, label: "Presets", items: [] }],
       };
     case "change-theme":
       return {
@@ -306,13 +319,16 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   const openChildSearch = (mode: "files" | "content", context: CommandPaletteReturnContext) =>
     dispatchCommandPalette({ _tag: "OpenChildSearch", mode, context });
   const composerHandleRef = useRef<ChatComposerHandle | null>(null);
+  // Escape steps back from the file and content overlays to the palette; the
+  // thread switcher is a quick jump, so Escape closes it outright.
+  const escapeReturnsToCommand = state.mode === "files" || state.mode === "content";
 
   return (
     <ComposerHandleContext value={composerHandleRef}>
       <CommandDialog
         open={state.open}
         onOpenChange={(open, eventDetails) => {
-          if (!open && eventDetails.reason === "escape-key" && state.mode !== "command") {
+          if (!open && eventDetails.reason === "escape-key" && escapeReturnsToCommand) {
             eventDetails.cancel();
             dispatchCommandPalette({ _tag: "BackToCommand" });
             return;
@@ -356,7 +372,9 @@ function CommandPaletteDialog(props: {
           ? "File picker"
           : props.mode === "content"
             ? "Search project contents"
-            : "Command palette"
+            : props.mode === "threads"
+              ? "Switch thread"
+              : "Command palette"
       }
       className={cn("overflow-hidden", props.mode === "content" && "h-105")}
       data-command-palette="true"
@@ -380,6 +398,8 @@ function CommandPaletteDialog(props: {
         <ProjectFilePicker setOpen={props.setOpen} />
       ) : props.mode === "content" ? (
         <ProjectContentSearchDialog onOpenChange={props.setOpen} />
+      ) : props.mode === "threads" ? (
+        <ThreadSwitcher setOpen={props.setOpen} />
       ) : (
         <OpenCommandPaletteDialog
           key={props.session}
@@ -475,6 +495,8 @@ function OpenCommandPaletteDialog(props: {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const paletteRouteTarget = useThreadRouteTarget();
+  const newThreadPresets = usePrimarySettings((settings) => settings.newThreadPresets);
+  const startNewThreadPreset = useStartNewThreadPreset();
   const projects = useProjects();
   const referenceThreadRef =
     pathname === "/pull-requests"
@@ -888,6 +910,22 @@ function OpenCommandPaletteDialog(props: {
   const projectThreadItems = openingOrderThreadItems.map(
     (item) => projectJumpItems.get(item.value) ?? item,
   );
+  const newThreadPresetItems = newThreadPresets.map((preset) => ({
+    kind: "action" as const,
+    value: `new-thread-preset:${preset.id}`,
+    searchTerms: ["preset", preset.name],
+    title: preset.name,
+    icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: commandForNewThreadPreset(preset.id),
+    run: () => startNewThreadPreset(preset),
+  }));
+  // Presets lead "New thread in…", since each picks its project itself.
+  const newThreadInGroups = [
+    ...(newThreadPresetItems.length > 0
+      ? [{ value: NEW_THREAD_PRESET_GROUP, label: "Presets", items: newThreadPresetItems }]
+      : []),
+    { value: NEW_THREAD_IN_GROUP, label: "Projects", items: projectThreadItems },
+  ];
 
   const {
     threadItems: allThreadItems,
@@ -1277,7 +1315,49 @@ function OpenCommandPaletteDialog(props: {
       title: "New thread in...",
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
-      groups: [{ value: NEW_THREAD_IN_GROUP, label: "Projects", items: projectThreadItems }],
+      groups: newThreadInGroups,
+    });
+  }
+
+  if (newThreadPresetItems.length > 0) {
+    actionItems.push({
+      kind: "submenu",
+      value: "action:new-thread-from-preset",
+      searchTerms: ["new thread", "preset", "pick", "choose"],
+      title: "New thread from preset...",
+      icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
+      shortcutCommand: "chat.newFromPreset",
+      groups: [{ value: NEW_THREAD_PRESET_GROUP, label: "Presets", items: newThreadPresetItems }],
+    });
+  }
+
+  for (const preset of newThreadPresets) {
+    actionItems.push({
+      kind: "action",
+      value: `action:new-thread-preset:${preset.id}`,
+      searchTerms: ["new thread", "preset", preset.name],
+      title: (
+        <>
+          New thread from <span className="font-semibold">{preset.name}</span>
+        </>
+      ),
+      icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: commandForNewThreadPreset(preset.id),
+      run: () => startNewThreadPreset(preset),
+    });
+  }
+
+  if (paletteRouteTarget?.kind === "draft") {
+    actionItems.push({
+      kind: "action",
+      value: "action:save-draft-as-new-thread-preset",
+      searchTerms: ["preset", "save", "new thread", "draft", "template"],
+      title: "Save draft as new-thread preset…",
+      icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        requestSaveDraftAsNewThreadPreset();
+      },
     });
   }
 
@@ -1474,6 +1554,19 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "filePicker.toggle",
     run: async () => {
       openChildSearch("files", { query, linkedThreadSearch });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:switch-thread",
+    searchTerms: ["switch thread", "go to thread", "jump to thread", "find thread"],
+    title: "Switch thread",
+    icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+    keepOpen: true,
+    shortcutCommand: "threadSwitcher.toggle",
+    run: async () => {
+      dispatchCommandPalette({ _tag: "ToggleMode", mode: "threads" });
     },
   });
 
@@ -1757,6 +1850,18 @@ function OpenCommandPaletteDialog(props: {
 
   actionItems.push({
     kind: "action",
+    value: "action:cockpit",
+    searchTerms: ["cockpit", "waiting", "tasks", "todo", "todos", "overview", "inbox", "queue"],
+    title: "Open cockpit",
+    icon: <InboxIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "cockpit.toggle",
+    run: async () => {
+      setCockpitOpen(true);
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
     value: "action:usage",
     searchTerms: ["usage", "use", "tokens", "cost", "spend", "limits", "stats", "analytics"],
     title: "Open usage",
@@ -1883,24 +1988,24 @@ function OpenCommandPaletteDialog(props: {
         )
       : currentView?.groups[0]?.value === ADD_PROJECT_ENTRY_GROUP
         ? addProjectEntryGroups()
-        : currentView?.groups[0]?.value === NEW_THREAD_IN_GROUP
-          ? [
-              {
-                value: NEW_THREAD_IN_GROUP,
-                label: "Projects",
-                // Every project archived and no "No project" home leaves only adding one.
-                items: projectThreadItems.length > 0 ? projectThreadItems : [addProjectAction],
-              },
-            ]
-          : currentView?.groups[0]?.value === "themes"
-            ? changeThemeItem.groups
-            : currentView?.groups[0]?.value === "appearance"
-              ? changeAppearanceItem.groups
-              : currentView?.groups[0]?.value === "sidebar-category" && sidebarCategoryItem
-                ? sidebarCategoryItem.groups
-                : currentView?.groups[0]?.value === "thread-categories" && threadCategoriesItem
-                  ? threadCategoriesItem.groups
-                  : (currentView?.groups ?? rootGroups);
+        : currentView?.groups.some((group) => group.value === NEW_THREAD_IN_GROUP)
+          ? newThreadInGroups.map((group) =>
+              // Every project archived and no "No project" home leaves only adding one.
+              group.value === NEW_THREAD_IN_GROUP && group.items.length === 0
+                ? { ...group, items: [addProjectAction] }
+                : group,
+            )
+          : currentView?.groups[0]?.value === NEW_THREAD_PRESET_GROUP
+            ? [{ value: NEW_THREAD_PRESET_GROUP, label: "Presets", items: newThreadPresetItems }]
+            : currentView?.groups[0]?.value === "themes"
+              ? changeThemeItem.groups
+              : currentView?.groups[0]?.value === "appearance"
+                ? changeAppearanceItem.groups
+                : currentView?.groups[0]?.value === "sidebar-category" && sidebarCategoryItem
+                  ? sidebarCategoryItem.groups
+                  : currentView?.groups[0]?.value === "thread-categories" && threadCategoriesItem
+                    ? threadCategoriesItem.groups
+                    : (currentView?.groups ?? rootGroups);
 
   const isLinkedThreadSearch =
     linkedThreadSearch?.linkedThreads !== undefined && deferredQuery === linkedThreadSearch.query;
@@ -2142,6 +2247,21 @@ function OpenCommandPaletteDialog(props: {
     if (addProjectCloneFlow.step === "repository") {
       const rawRepository = query.trim();
       if (rawRepository.length === 0 || isRemoteProjectLookingUp) {
+        return;
+      }
+
+      const incompleteOwnerMessage = githubIncompleteOwnerRepositoryMessage(
+        addProjectCloneFlow.source,
+        rawRepository,
+      );
+      if (incompleteOwnerMessage) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Repository name incomplete",
+            description: incompleteOwnerMessage,
+          }),
+        );
         return;
       }
 

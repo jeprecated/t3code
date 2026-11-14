@@ -34,10 +34,25 @@ import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
 import * as ProjectService from "./ProjectService.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 
-const layerWorkspacePaths = Layer.succeed(WorkspacePaths.WorkspacePaths, {
-  normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot.replace(/\/$/, "")),
-  resolveRelativePathWithinRoot: ({ workspaceRoot, relativePath }) =>
-    Effect.succeed({ absolutePath: `${workspaceRoot}/${relativePath}`, relativePath }),
+// Roots under /missing/ exist only once something creates them.
+const layerWorkspacePaths = Layer.sync(WorkspacePaths.WorkspacePaths, () => {
+  const created = new Set<string>();
+  return {
+    normalizeWorkspaceRoot: (workspaceRoot, options) => {
+      const normalized = workspaceRoot.replace(/\/$/, "");
+      if (options?.createIfMissing === true) created.add(normalized);
+      return normalized.startsWith("/missing/") && !created.has(normalized)
+        ? Effect.fail(
+            new WorkspacePaths.WorkspaceRootNotExistsError({
+              workspaceRoot,
+              normalizedWorkspaceRoot: normalized,
+            }),
+          )
+        : Effect.succeed(normalized);
+    },
+    resolveRelativePathWithinRoot: ({ workspaceRoot, relativePath }) =>
+      Effect.succeed({ absolutePath: `${workspaceRoot}/${relativePath}`, relativePath }),
+  };
 });
 
 const layerMetadata = Layer.merge(
@@ -291,6 +306,15 @@ it.layer(layerTest)("ProjectService", (it) => {
       assert.isTrue(first.created);
       assert.isFalse(second.created);
       assert.equal(second.project.id, first.project.id);
+
+      const missing = yield* service.bootstrap({
+        commandId: CommandId.make("command:bootstrap:missing"),
+        projectId: ProjectId.make("project:bootstrap:missing"),
+        title: "Missing",
+        workspaceRoot: "/missing/overview",
+        createWorkspaceRootIfMissing: true,
+      });
+      assert.isTrue(missing.created);
     }),
   );
 

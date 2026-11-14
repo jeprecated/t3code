@@ -10,6 +10,11 @@ import {
 
 const environmentId = EnvironmentId.make("environment-1");
 
+const waiting = {
+  items: [{ id: "lattice-switch", kind: "manual_step" as const, summary: "Run nix switch." }],
+  setAt: "2026-06-01T00:00:01.000Z",
+};
+
 function thread(id: string, working: boolean) {
   return {
     id: ThreadId.make(id),
@@ -97,12 +102,21 @@ describe("createInboxReturnTracker", () => {
     expect(tracker.returnedAt(thread("a", false))).toBe(14_500);
   });
 
+  it("moves a thread with waits out of Working once its run is no longer active", () => {
+    const running = thread("a", true);
+    const parked = { ...running, runtime: { ...running.runtime!, status: "idle" as const } };
+    expect(isThreadWorking(parked)).toBe(true);
+    expect(isThreadWorking({ ...parked, waiting })).toBe(false);
+    expect(isThreadWorking({ ...running, waiting })).toBe(true);
+  });
+
   it.each([
     { hasPendingApprovals: true },
     { hasPendingUserInput: true },
     { pendingSubagentRequest: "approval" as const },
     { pendingSubagentRequest: "user_input" as const },
     { pendingGuestMessageCount: 1 },
+    { waiting },
     { interactionMode: "plan" as const, hasActionableProposedPlan: true },
     { runtime: { ...thread("a", true).runtime!, status: "failed" as const, lastError: "failed" } },
     { pinnedAt: "2026-06-01T00:00:01Z" },

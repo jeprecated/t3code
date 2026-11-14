@@ -71,15 +71,17 @@ export function assertClaudeBackgroundTaskWakeOutput(
   assert.isAbove(clearedIndex, rosterIndex, "the completed task must leave the roster");
   assert.deepEqual(projection.providerThreads[0]?.pendingBackgroundTasks ?? [], []);
 
+  // background_tasks_changed lists the task first; task_started then adds the Bash command line.
   const rosterTask = result.domainEvents
     .flatMap((event) =>
       event.type === "provider-thread.updated" ? (event.payload.pendingBackgroundTasks ?? []) : [],
     )
-    .find((task) => task.taskId === BACKGROUND_TASK_ID);
+    .findLast((task) => task.taskId === BACKGROUND_TASK_ID);
   assert.deepEqual(rosterTask, {
     taskId: BACKGROUND_TASK_ID,
     description: "Background sleep test",
     kind: "command",
+    command: "sleep 8 && echo BG_DONE",
   });
   assert.deepEqual(backgroundNotifications(projection), [
     {

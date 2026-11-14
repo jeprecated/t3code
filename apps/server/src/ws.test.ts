@@ -80,6 +80,10 @@ import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolve
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
+import * as UserTodoService from "./userTodos/UserTodoService.ts";
+import * as TaskSnoozeService from "./taskSnoozes/TaskSnoozeService.ts";
+import * as OverviewService from "./overview/OverviewService.ts";
+import * as ThreadWaitService from "./orchestration-v2/ThreadWaitService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -112,6 +116,7 @@ import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as ServerConfigModule from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerSettings from "./serverSettings.ts";
+import * as ManagedPolicy from "./policy/ManagedPolicy.ts";
 
 import * as EventStore from "./orchestration-v2/EventStore.ts";
 import * as ProjectionMaintenance from "./orchestration-v2/ProjectionMaintenance.ts";
@@ -576,6 +581,10 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ResourceTelemetry.ResourceTelemetry)({}),
   Layer.mock(ReviewService.ReviewService)({}),
   Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
+  Layer.mock(UserTodoService.UserTodoService)({}),
+  Layer.mock(TaskSnoozeService.TaskSnoozeService)({}),
+  Layer.mock(OverviewService.OverviewService)({}),
+  Layer.mock(ThreadWaitService.ThreadWaitService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(SecretResolver.SecretResolver)({}),
   Layer.mock(GuestShareService.GuestShareService)({}),
@@ -604,7 +613,9 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
 
 const layerConfigSources = Layer.mergeAll(
   Keybindings.layer,
-  ServerSettings.layer.pipe(Layer.provide(ServerSecretStore.layer)),
+  ServerSettings.layer.pipe(
+    Layer.provide(Layer.merge(ServerSecretStore.layer, ManagedPolicy.layerTest())),
+  ),
 ).pipe(
   Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
   Layer.provideMerge(

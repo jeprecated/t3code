@@ -1,4 +1,4 @@
-import { pendingGuestMessageCount } from "@t3tools/contracts";
+import { currentThreadWaiting, pendingGuestMessageCount } from "@t3tools/contracts";
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";
 import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
@@ -204,6 +204,7 @@ export type ProjectionSettlementCandidate = Pick<
   | "settledOverride"
   | "pinnedAt"
   | "autoSettleDisabledAt"
+  | "waiting"
   | "snoozedUntil"
   | "snoozedAt"
   | "latestRunId"
@@ -793,6 +794,7 @@ export function applyToProjection(
     case "thread.snoozed":
     case "thread.unsnoozed":
     case "thread.auto-settle-set":
+    case "thread.waiting-set":
     case "thread.pinned":
     case "thread.unpinned":
     case "thread.pin-reordered":
@@ -975,6 +977,7 @@ type ShellThreadRow = {
   readonly blocking_run_stop_requested: number;
   readonly blocking_failure_payload_json: string | null;
   readonly pending_request_payload_json: string | null;
+  readonly pending_request_item_payload_json: string | null;
   readonly pending_secret_request_payload_json: string | null;
   readonly pending_link_request_payload_json: string | null;
   readonly latest_user_message_at: string | null;
@@ -1392,15 +1395,48 @@ function buildVisibleTurnItems(input: {
   );
 }
 
+const PENDING_REQUEST_TITLE_MAX = 120;
+
+function clipTitle(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1).trimEnd()}…`;
+}
+
+/** Kept short: the title rides on every shell update. */
+function pendingRequestTitle(
+  request: OrchestrationV2ThreadProjection["runtimeRequests"][number],
+  item: OrchestrationV2TurnItem | null | undefined,
+): string | undefined {
+  if (item?.type === "user_input_request" && item.requestId === request.id) {
+    const first = item.questions[0];
+    if (first === undefined) return undefined;
+    const more = item.questions.length > 1 ? ` (+${item.questions.length - 1} more)` : "";
+    return (
+      clipTitle(first.question || first.header, PENDING_REQUEST_TITLE_MAX - more.length) + more
+    );
+  }
+  if (item?.type === "approval_request" && item.requestId === request.id) {
+    const text = clipTitle(
+      item.prompt ?? item.reason ?? item.appName ?? "",
+      PENDING_REQUEST_TITLE_MAX,
+    );
+    return text || undefined;
+  }
+  return undefined;
+}
+
 function pendingRuntimeRequestSummary(
   request: OrchestrationV2ThreadProjection["runtimeRequests"][number] | null,
+  item?: OrchestrationV2TurnItem | null,
 ): OrchestrationV2PendingRuntimeRequestSummary | null {
   if (request === null) return null;
+  const title = pendingRequestTitle(request, item);
   return {
     id: request.id,
     kind: request.kind,
     createdAt: request.createdAt,
     blocking: request.responseCapability.type !== "message",
+    ...(title === undefined ? {} : { title }),
   };
 }
 
@@ -1452,13 +1488,24 @@ export function threadShellFromProjection(
     runs.filter(isActivityRunForShell).toSorted((left, right) => right.ordinal - left.ordinal)[0] ??
     null;
   const liveRunIds = new Set(runs.filter(isActivityRunForShell).map((run) => run.id));
-  let pendingRuntimeRequest = pendingRuntimeRequestSummary(
+  const pendingRequest =
     projection.runtimeRequests
       .filter((request) => request.status === "pending")
       .toSorted(
         (left, right) =>
           DateTime.toEpochMillis(right.createdAt) - DateTime.toEpochMillis(left.createdAt),
-      )[0] ?? null,
+      )[0] ?? null;
+  let pendingRuntimeRequest = pendingRuntimeRequestSummary(
+    pendingRequest,
+    pendingRequest === null
+      ? null
+      : projection.turnItems.findLast(
+          (item) =>
+            (item.type === "user_input_request" || item.type === "approval_request") &&
+            item.requestId === pendingRequest.id &&
+            // As the shell query reads it, through the active-item index.
+            (item.status === "pending" || item.status === "running" || item.status === "waiting"),
+        ),
   );
   if (pendingRuntimeRequest === null || pendingRuntimeRequest.blocking === false) {
     pendingRuntimeRequest =
@@ -1478,6 +1525,8 @@ export function threadShellFromProjection(
         DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt),
     );
   const latestUserMessage = userMessages[0] ?? null;
+  const latestUserAuthoredMessageAt =
+    userMessages.find((message) => message.createdBy === "user")?.updatedAt ?? null;
   const pendingBackgroundTasks = derivePendingBackgroundWork({
     latestRun,
     providerThreads: projection.providerThreads,
@@ -1545,8 +1594,7 @@ export function threadShellFromProjection(
     // initial hydration and streaming updates independent of transcript size.
     latestVisibleMessage: null,
     latestUserMessageAt: latestUserMessage?.updatedAt ?? null,
-    latestUserAuthoredMessageAt:
-      userMessages.find((message) => message.createdBy === "user")?.updatedAt ?? null,
+    latestUserAuthoredMessageAt,
     hasActionableProposedPlan: projection.plans.some(
       (plan) => plan.kind === "proposed_plan" && plan.status === "active",
     ),
@@ -1577,6 +1625,7 @@ export function threadShellFromProjection(
     opens: projection.thread.opens ?? null,
     titleRegeneration: projection.thread.titleRegeneration ?? null,
     limitRecovery: projection.thread.limitRecovery ?? null,
+    waiting: currentThreadWaiting(projection.thread.waiting, latestUserAuthoredMessageAt),
     categories: projection.thread.categories ?? null,
     deletedAt: projection.thread.deletedAt,
   };
@@ -1843,6 +1892,10 @@ function shellFromState(input: {
     opens: input.state.thread.opens ?? null,
     titleRegeneration: input.state.thread.titleRegeneration ?? null,
     limitRecovery: input.state.thread.limitRecovery ?? null,
+    waiting: currentThreadWaiting(
+      input.state.thread.waiting,
+      input.state.latestUserAuthoredMessageAt,
+    ),
     categories: input.state.thread.categories ?? null,
     deletedAt: input.state.thread.deletedAt,
   };
@@ -1894,6 +1947,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             case "thread.snoozed":
             case "thread.unsnoozed":
             case "thread.auto-settle-set":
+            case "thread.waiting-set":
             case "thread.pinned":
             case "thread.unpinned":
             case "thread.pin-reordered":
@@ -2706,6 +2760,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             event.type !== "thread.snoozed" &&
             event.type !== "thread.unsnoozed" &&
             event.type !== "thread.auto-settle-set" &&
+            event.type !== "thread.waiting-set" &&
             event.type !== "thread.pinned" &&
             event.type !== "thread.unpinned" &&
             event.type !== "thread.pin-reordered" &&
@@ -5990,6 +6045,24 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 LIMIT 1
               ) AS pending_request_payload_json,
               (
+                SELECT request_item.payload_json
+                FROM orchestration_v2_projection_turn_items request_item
+                  INDEXED BY orchestration_v2_projection_turn_items_active_ordinal_idx
+                WHERE request_item.thread_id = t.thread_id
+                  AND request_item.status IN ('pending', 'running', 'waiting')
+                  AND request_item.type IN ('approval_request', 'user_input_request')
+                  AND json_extract(request_item.payload_json, '$.requestId') = (
+                    SELECT request.runtime_request_id
+                    FROM orchestration_v2_projection_runtime_requests request
+                    WHERE request.thread_id = t.thread_id
+                      AND request.status = 'pending'
+                    ORDER BY request.created_at DESC, request.runtime_request_id DESC
+                    LIMIT 1
+                  )
+                ORDER BY request_item.ordinal DESC, request_item.turn_item_id DESC
+                LIMIT 1
+              ) AS pending_request_item_payload_json,
+              (
                 SELECT secret.payload_json
                 -- Keep runs outermost so completed history is never scanned for a pending secret.
                 FROM orchestration_v2_projection_runs r
@@ -6487,6 +6560,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           row.pending_request_payload_json !== null
             ? pendingRuntimeRequestSummary(
                 yield* decodeRuntimeRequestPayload(row.pending_request_payload_json),
+                row.pending_request_item_payload_json === null
+                  ? null
+                  : yield* decodeTurnItemPayload(row.pending_request_item_payload_json),
               )
             : null;
         if (

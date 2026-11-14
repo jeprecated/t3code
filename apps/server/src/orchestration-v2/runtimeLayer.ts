@@ -56,6 +56,10 @@ import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
+import * as OverviewService from "../overview/OverviewService.ts";
+import * as UserTodoService from "../userTodos/UserTodoService.ts";
+import * as TaskSnoozeService from "../taskSnoozes/TaskSnoozeService.ts";
+import * as ThreadWaitService from "./ThreadWaitService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 
 export const layerEventInfrastructure = Layer.mergeAll(
@@ -385,6 +389,26 @@ export const layerProduction = Layer.mergeAll(
     Layer.provide(Layer.merge(layerOrchestratorProvided, layerCommandOutputHubProvided)),
   ),
   layerThreadCategoryProvided,
+  ThreadWaitService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        layerOrchestratorProvided,
+        layerThreadManagementProvided,
+        TaskSnoozeService.layer,
+      ),
+    ),
+  ),
+  UserTodoService.layer.pipe(Layer.provideMerge(TaskSnoozeService.layer)),
+  OverviewService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        layerProjectService,
+        layerThreadManagementProvided,
+        layerThreadLaunchProvided,
+        layerScheduledTaskProvided,
+      ),
+    ),
+  ),
   UsageLimitRecoveryWorker.layer.pipe(
     Layer.provide(
       Layer.mergeAll(

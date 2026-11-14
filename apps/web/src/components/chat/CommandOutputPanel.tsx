@@ -17,23 +17,41 @@ export function useCommandOutputStreaming(environmentId: EnvironmentId): boolean
   );
 }
 
+/** True when the environment streams the output of background commands its providers list. */
+export function useBackgroundTaskOutput(environmentId: EnvironmentId): boolean {
+  return (
+    useServerConfigs().get(environmentId)?.environment.capabilities.backgroundTaskOutput === true
+  );
+}
+
 /**
- * Output of one expanded command row: streams while the command runs, then
- * shows its final output. Mount it only when `useCommandOutputStreaming` holds
- * or a `source` serves the output.
- * It subscribes only while mounted, so collapsed rows and other threads receive nothing.
+ * A command row's output, or a background command's by `taskId`, subscribed only while mounted.
+ * Mount only when useCommandOutputStreaming (useBackgroundTaskOutput for a task) or a source holds.
  */
-export function CommandOutputPanel(props: {
-  readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
-  readonly itemId: TurnItemId;
-  readonly source?: TurnItemSource["commandOutput"] | undefined;
-}) {
-  const input = { threadId: props.threadId, itemId: props.itemId };
+export function CommandOutputPanel(
+  props: {
+    readonly environmentId: EnvironmentId;
+    readonly threadId: ThreadId;
+  } & (
+    | {
+        readonly itemId: TurnItemId;
+        readonly source?: TurnItemSource["commandOutput"] | undefined;
+      }
+    | { readonly taskId: string }
+  ),
+) {
   const { data, error } = useEnvironmentQuery<CommandOutputView, unknown>(
-    props.source
-      ? props.source(input)
-      : orchestrationEnvironment.v2.commandOutput({ environmentId: props.environmentId, input }),
+    "itemId" in props
+      ? props.source
+        ? props.source({ threadId: props.threadId, itemId: props.itemId })
+        : orchestrationEnvironment.v2.commandOutput({
+            environmentId: props.environmentId,
+            input: { threadId: props.threadId, itemId: props.itemId },
+          })
+      : orchestrationEnvironment.v2.backgroundTaskOutput({
+          environmentId: props.environmentId,
+          input: { threadId: props.threadId, taskId: props.taskId },
+        }),
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);

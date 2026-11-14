@@ -237,6 +237,66 @@ describe("effectiveShortcutsForCommand", () => {
   });
 });
 
+describe("floating terminal shortcuts", () => {
+  const focusedTerminal = { terminalFocus: true, terminalOpen: true };
+  const meh = { ctrlKey: true, altKey: true, shiftKey: true };
+
+  it("resolve from the focused terminal by default", () => {
+    const options = { platform: "Linux", context: focusedTerminal };
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "j", ctrlKey: true, altKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        options,
+      ),
+      "terminal.toggleFloating",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "k", ctrlKey: true, altKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        options,
+      ),
+      "terminal.cycleFloatingLayout",
+    );
+    // Shift makes the browser report the uppercase letter.
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "J", ...meh }), DEFAULT_RESOLVED_KEYBINDINGS, options),
+      "terminal.toggleDocked",
+    );
+  });
+
+  it("leave the layout and dock chords alone while the terminal is closed", () => {
+    const options = { platform: "Linux", context: { terminalOpen: false } };
+    assert.isNull(
+      resolveShortcutCommand(
+        event({ key: "k", ctrlKey: true, altKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        options,
+      ),
+    );
+    assert.isNull(
+      resolveShortcutCommand(event({ key: "J", ...meh }), DEFAULT_RESOLVED_KEYBINDINGS, options),
+    );
+  });
+
+  it("let a user binding take a chord from the default theme editor shortcut", () => {
+    const bindings = mergeWithDefaultKeybindings(
+      compileResolvedKeybindingsConfig([
+        { key: "ctrl+alt+shift+t", command: "terminal.cycleFloatingLayout" },
+      ]),
+    );
+
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "T", ...meh }), bindings, {
+        platform: "Linux",
+        context: focusedTerminal,
+      }),
+      "terminal.cycleFloatingLayout",
+    );
+  });
+});
+
 describe("settle thread shortcut", () => {
   it("does not intercept the terminal", () => {
     assert.isNull(
@@ -244,6 +304,80 @@ describe("settle thread shortcut", () => {
         platform: "Win32",
         context: { terminalFocus: true },
       }),
+    );
+  });
+});
+
+describe("snooze thread shortcut", () => {
+  const snoozeKey = { key: "Z", ctrlKey: true, altKey: true, shiftKey: true };
+
+  it("is unbound by default", () => {
+    assert.isNull(
+      resolveShortcutCommand(event(snoozeKey), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: false },
+      }),
+    );
+  });
+
+  it("resolves a user binding, including from the composer", () => {
+    const bindings = mergeWithDefaultKeybindings(
+      compileResolvedKeybindingsConfig([
+        { key: "mod+alt+shift+z", command: "thread.snooze", when: "!terminalFocus" },
+        { key: "mod+alt+shift+y", command: "thread.snooze.tomorrow", when: "!terminalFocus" },
+      ]),
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event(snoozeKey), bindings, {
+        platform: "Linux",
+        context: { terminalFocus: false, composerFocus: true, editableFocus: true },
+      }),
+      "thread.snooze",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ ...snoozeKey, key: "Y" }), bindings, {
+        platform: "Linux",
+        context: { terminalFocus: false },
+      }),
+      "thread.snooze.tomorrow",
+    );
+    assert.isNull(
+      resolveShortcutCommand(event(snoozeKey), bindings, {
+        platform: "Linux",
+        context: { terminalFocus: true },
+      }),
+    );
+  });
+});
+
+describe("cockpit shortcuts", () => {
+  const resolve = (overrides: Partial<ShortcutEventLike>, context: Record<string, boolean>) =>
+    resolveShortcutCommand(event(overrides), DEFAULT_RESOLVED_KEYBINDINGS, {
+      platform: "Linux",
+      context,
+    });
+
+  it("act only while the cockpit is open and no field has the keyboard", () => {
+    assert.strictEqual(resolve({ key: "e" }, { cockpitOpen: true }), "cockpit.primary");
+    assert.strictEqual(
+      resolve({ key: "Y", shiftKey: true }, { cockpitOpen: true }),
+      "cockpit.approveForThread",
+    );
+    assert.strictEqual(
+      resolve({ key: "?", code: "Slash", shiftKey: true }, { cockpitOpen: true }),
+      "cockpit.help",
+    );
+    assert.isNull(resolve({ key: "e" }, { cockpitOpen: false }));
+    assert.isNull(resolve({ key: "e" }, { cockpitOpen: true, editableFocus: true }));
+    // The usage page's L stays its own unless the cockpit is open over it.
+    assert.strictEqual(resolve({ key: "l" }, { usagePageOpen: true }), "usage.limits");
+    assert.strictEqual(
+      resolve({ key: "l" }, { usagePageOpen: true, cockpitOpen: true }),
+      "cockpit.openLink",
+    );
+    assert.strictEqual(
+      resolve({ key: "y", ctrlKey: true, altKey: true }, { terminalFocus: false }),
+      "cockpit.toggle",
     );
   });
 });

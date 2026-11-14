@@ -2,6 +2,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type ModelSelection,
   type WorktreeSubmodules,
+  managedRuntimeModeDenial,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -19,6 +20,7 @@ import {
   resolveProjectDefaultProviderModelSelection,
 } from "../../providerInstances";
 import { useEnvironmentProviders, useEnvironments } from "../../state/environments";
+import { firstManagedDenial } from "../../state/managedPolicy";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { resolveEnvModeLabel, WORKTREE_SUBMODULES_LABELS } from "../BranchToolbar.logic";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
@@ -104,6 +106,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const PermissionIcon = runtimeModeConfig[settings.defaultRuntimeMode].icon;
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
+  const mixedJujutsu = useScopedSettingsMixed(["jujutsuWorkspaces"]);
   const mixedAgentCredits = useScopedSettingsMixed(["removeAgentCreditsOnMerge"]);
   const mixedMergeMethod = useScopedSettingsMixed(["pullRequestMergeMethod"]);
   const modelSource = useScopedSettingSource(["defaultModelSelection"]);
@@ -380,15 +383,26 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                   {runtimeModeOptions.map((mode) => {
                     const option = runtimeModeConfig[mode];
                     const Icon = option.icon;
+                    const managedReason = firstManagedDenial(
+                      connectedEnvironments.map(
+                        (environment) => environment.serverConfig?.managedPolicy,
+                      ),
+                      (policy) => managedRuntimeModeDenial(policy, mode),
+                    );
                     return (
-                      <SelectItem key={mode} value={mode} className="min-w-64">
+                      <SelectItem
+                        key={mode}
+                        value={mode}
+                        disabled={managedReason !== undefined}
+                        className="min-w-64"
+                      >
                         <div className="grid gap-0.5">
                           <span className="inline-flex items-center gap-1.5 font-medium">
                             <Icon className="size-3.5 shrink-0 text-muted-foreground" />
                             {option.label}
                           </span>
                           <span className="text-xs leading-4 text-muted-foreground">
-                            {option.description}
+                            {managedReason ?? option.description}
                           </span>
                         </div>
                       </SelectItem>
@@ -428,6 +442,34 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 mixed={mixedAutoPull}
                 checked={mixedAutoPull ? false : settings.defaultAutoPull}
                 onCheckedChange={(enabled) => updateSettings({ defaultAutoPull: enabled })}
+              />
+            }
+          />
+          <SettingsRow
+            serverScoped
+            settingKeys={["jujutsuWorkspaces"]}
+            mixed={mixedJujutsu}
+            {...searchableSetting("jujutsu-workspaces")}
+            description={
+              isProjectScope
+                ? "Creates this project's new worktrees with jj workspace add, so they show up in jj as well as git. Needs a colocated jj repository and jj 0.46 or newer."
+                : "Creates new worktrees with jj workspace add, so they show up in jj as well as git. Needs a colocated jj repository and jj 0.46 or newer. Projects can override it."
+            }
+            resetAction={
+              settings.jujutsuWorkspaces ? (
+                <SettingResetButton
+                  label="jujutsu workspaces"
+                  tooltip="Reset Jujutsu workspaces to off"
+                  onClick={() => updateSettings({ jujutsuWorkspaces: false })}
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                aria-label="Create new worktrees as Jujutsu workspaces"
+                mixed={mixedJujutsu}
+                checked={mixedJujutsu ? false : settings.jujutsuWorkspaces}
+                onCheckedChange={(enabled) => updateSettings({ jujutsuWorkspaces: enabled })}
               />
             }
           />

@@ -17,6 +17,7 @@ import {
   resolveSidebarRowThreadId,
   belongsInSidebarWorkingShelf,
   isSidebarEnvironmentDisconnected,
+  lastSidebarJumpThread,
   orderItemsByPreferredIds,
   pinOrderKeyBetween,
   resolveProjectStatusIndicator,
@@ -492,6 +493,28 @@ describe("resolveThreadStatusPill", () => {
       dotClass: "bg-sidebar-muted-foreground",
       pulse: false,
     });
+  });
+
+  it("shows a command left running once its completion is seen", () => {
+    const thread = {
+      ...baseThread,
+      interactionMode: "default" as const,
+      latestRun: makeLatestRun(),
+      pendingBackgroundTasks: [
+        { taskId: "bg-1", description: "Upload build", kind: "command" as const },
+      ],
+      runtime: { ...baseThread.runtime, status: "completed" as const, activeRunId: null },
+    };
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...thread, lastVisitedAt: "2026-03-09T10:00:00.000Z" },
+      }),
+    ).toMatchObject({ label: "Completed" });
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...thread, lastVisitedAt: "2026-03-09T10:06:00.000Z" },
+      }),
+    ).toMatchObject({ label: "Running", pulse: false });
   });
 
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {
@@ -1125,6 +1148,17 @@ describe("Working shelf (beta)", () => {
     expect(shelve([])).toBe(true);
     expect(shelve([EnvironmentId.make("environment-other")])).toBe(true);
     expect(shelve([], false)).toBe(false);
+  });
+
+  it("jumps to the last open Working row, else the last main row, never further down", () => {
+    const last = (workingShelfExpanded: boolean, working: string[], main = ["pin", "a", "b"]) =>
+      lastSidebarJumpThread({ mainThreads: main, workingThreads: working, workingShelfExpanded });
+
+    expect(last(true, ["w1", "w2"])).toBe("w2");
+    expect(last(false, ["w1", "w2"])).toBe("b");
+    expect(last(true, [])).toBe("b");
+    expect(last(true, ["w1"], [])).toBe("w1");
+    expect(last(false, ["w1"], [])).toBeNull();
   });
 
   describe("sortInboxThreadsByReturn", () => {

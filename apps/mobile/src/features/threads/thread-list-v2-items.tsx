@@ -29,6 +29,7 @@ import { AuthOrchestrationOperateScope, type EnvironmentMachineKind } from "@t3t
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
 import { canSnooze } from "@t3tools/client-runtime/state/thread-settled";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
+import { hasRunningBackgroundCommand } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useMemo, useState, type ComponentProps } from "react";
 import { Platform, Pressable, useWindowDimensions, View } from "react-native";
@@ -137,6 +138,12 @@ const DONE_STATUS_LABEL: StatusLabel = {
   icon: "checkmark.circle",
   className: "text-adaptive-emerald-700-300",
   iconTintClassName: "accent-adaptive-emerald-700-300",
+};
+const RUNNING_STATUS_LABEL: StatusLabel = {
+  label: "Running",
+  icon: "terminal",
+  className: "text-foreground-muted",
+  iconTintClassName: "accent-foreground-muted",
 };
 
 function ThreadListV2Duration(props: { readonly startedAt: string | null }) {
@@ -698,7 +705,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const statusLabel =
     (status === "working" && workingLabel !== undefined && thread.goal?.status === "active"
       ? { ...workingLabel, label: "Goal" }
-      : workingLabel) ?? (isUnread ? DONE_STATUS_LABEL : undefined);
+      : workingLabel) ??
+    (isUnread
+      ? DONE_STATUS_LABEL
+      : hasRunningBackgroundCommand(thread.pendingBackgroundTasks)
+        ? RUNNING_STATUS_LABEL
+        : undefined);
   const recede = shouldRecedeThreadRow({ status, selected });
   const isRegeneratingTitle = thread.titleRegeneration != null;
   const rowAccessibilityLabel = `${thread.title}${props.hasQueuedMessages ? ", messages queued to send" : ""}${isRegeneratingTitle ? ", regenerating title" : ""}`;
