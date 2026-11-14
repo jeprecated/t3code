@@ -190,6 +190,7 @@ import {
   isSidebarEnvironmentDisconnected,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
+  lastSidebarJumpThread,
   orderItemsByPreferredIds,
   planSidebarThreadDrop,
   reduceSidebarProjectScopeMenuState,
@@ -555,11 +556,19 @@ function useSidebarThreads(input: {
               : EMPTY_THREADS,
           };
         });
-  const orderedThreads = [
+  const mainThreads = [
     ...pinnedThreads,
     ...(projectFolders === null
       ? activeThreads
       : projectFolders.flatMap((folder) => folder.threads)),
+  ];
+  const lastJumpThread = lastSidebarJumpThread({
+    mainThreads,
+    workingThreads: visibleWorkingThreads,
+    workingShelfExpanded,
+  });
+  const orderedThreads = [
+    ...mainThreads,
     ...visibleWorkingThreads,
     ...visibleSnoozedThreads,
     ...renderedSettledThreads,
@@ -609,6 +618,7 @@ function useSidebarThreads(input: {
     visibleSnoozedThreads,
     visibleWorkingThreads,
     orderedThreadKeys: orderedThreads.map(threadShellKey),
+    lastJumpThreadKey: lastJumpThread === null ? null : threadShellKey(lastJumpThread),
     threadByKey: new Map(orderedThreads.map((thread) => [threadShellKey(thread), thread] as const)),
     settledThreadKeys: new Set(settledThreads.map(threadShellKey)),
     snoozedThreadKeys: new Set(snoozedThreads.map(threadShellKey)),
@@ -1334,6 +1344,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     visibleSnoozedThreads,
     visibleWorkingThreads,
     orderedThreadKeys,
+    lastJumpThreadKey,
     threadByKey,
     settledThreadKeys,
     snoozedThreadKeys,
@@ -2917,6 +2928,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         );
         return;
       }
+      if (command === "thread.jump.last") {
+        navigateToThreadKey(lastJumpThreadKey);
+        return;
+      }
       const jumpIndex = threadJumpIndexFromCommand(command ?? "");
       if (jumpIndex === null) return;
       navigateToThreadKey(orderedThreadKeys[jumpIndex] ?? null);
@@ -2925,6 +2940,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     return () => window.removeEventListener("keydown", onWindowKeyDown);
   }, [
     keybindings,
+    lastJumpThreadKey,
     navigateToThread,
     orderedThreadKeys,
     routeRowThreadKey,

@@ -14,6 +14,7 @@ import {
   resolveSidebarRowThreadId,
   belongsInSidebarWorkingShelf,
   isSidebarEnvironmentDisconnected,
+  lastSidebarJumpThread,
   orderItemsByPreferredIds,
   pinOrderKeyBetween,
   resolveProjectStatusIndicator,
@@ -1121,6 +1122,17 @@ describe("Working shelf (beta)", () => {
     expect(shelve([])).toBe(true);
     expect(shelve([EnvironmentId.make("environment-other")])).toBe(true);
     expect(shelve([], false)).toBe(false);
+  });
+
+  it("jumps to the last open Working row, else the last main row, never further down", () => {
+    const last = (workingShelfExpanded: boolean, working: string[], main = ["pin", "a", "b"]) =>
+      lastSidebarJumpThread({ mainThreads: main, workingThreads: working, workingShelfExpanded });
+
+    expect(last(true, ["w1", "w2"])).toBe("w2");
+    expect(last(false, ["w1", "w2"])).toBe("b");
+    expect(last(true, [])).toBe("b");
+    expect(last(true, ["w1"], [])).toBe("w1");
+    expect(last(false, ["w1"], [])).toBeNull();
   });
 
   describe("sortInboxThreadsByReturn", () => {

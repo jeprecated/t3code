@@ -45,6 +45,7 @@ const THREAD_KEYBINDING_COMMANDS = [
   "thread.pin",
   "thread.undo",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
+  "thread.jump.last",
 ] as const;
 
 const MODEL_PICKER_KEYBINDING_COMMANDS = [
