@@ -12330,8 +12330,6 @@
   "5c58e2296d35abc7": "Cockpit: Klar (huvudåtgärd)",
   "b2313b519c244f5a": "Cockpit: Snooza uppgift",
   "fea7ae3031dd71ab": "Cockpit: Öppna dess tråd",
-  "d197a6f2caf57915": "Cockpit: Nästa uppgift",
-  "349084108192baec": "Cockpit: Föregående uppgift",
   "346ac5674f00ec7a": "Cockpit: Godkänn",
   "e43c0bbfdf5c3298": "Cockpit: Godkänn för den här tråden",
   "3a1bfd48e82a038b": "Cockpit: Neka",
@@ -12340,5 +12338,7 @@
   "f893b54624147259": "Cockpit: Ångra senaste utfallet",
   "f42c27d69fd27d04": "Cockpit: Skriv till översiktsagenten",
   "812248dc756ad6c3": "Cockpit: Visa tangenter",
-  "5335dbd356d2c14e": "Öppna cockpit"
+  "5335dbd356d2c14e": "Öppna cockpit",
+  "d40d3da2df2cc751": "Cockpit: Nästa post",
+  "7ff780bbeb8faefb": "Cockpit: Föregående post"
 }

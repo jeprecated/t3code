@@ -58,11 +58,17 @@ const running: Partial<OrchestrationV2ThreadShell> = {
 const ask = (
   kind: "command" | "user_input" | "auth_refresh",
   createdAt: string,
+  title?: string,
 ): Partial<OrchestrationV2ThreadShell> => ({
   latestRunId: RunId.make("run"),
   activeRunId: RunId.make("run"),
   status: "waiting",
-  pendingRuntimeRequest: { id: RuntimeRequestId.make("request"), kind, createdAt: at(createdAt) },
+  pendingRuntimeRequest: {
+    id: RuntimeRequestId.make("request"),
+    kind,
+    createdAt: at(createdAt),
+    ...(title === undefined ? {} : { title }),
+  },
 });
 
 const waits = (
@@ -106,6 +112,7 @@ describe("deriveCockpitQueue", () => {
       threads: [
         shell("approve", ask("command", "2026-06-20T11:00:00.000Z")),
         shell("question", ask("user_input", "2026-06-20T11:00:00.000Z")),
+        shell("titled", ask("user_input", "2026-06-20T11:30:00.000Z", "Which base branch?")),
         shell("auth", ask("auth_refresh", "2026-06-20T11:00:00.000Z")),
         shell(
           "waits",
@@ -137,6 +144,7 @@ describe("deriveCockpitQueue", () => {
     expect(queue.now.map((item) => [item.key, item.kind, item.title])).toEqual([
       ["env-1:request:approve:request", "approval", "Approve a command"],
       ["env-1:request:question:request", "question", "Answer the agent"],
+      ["env-1:request:titled:request", "question", "Which base branch?"],
       ["env-1:wait:waits:pick", "decision", "pick"],
       ["env-1:wait:waits:run", "manual_step", "run"],
       ["env-1:request:auth:request", "request", "Sign in to the provider again"],
@@ -145,7 +153,7 @@ describe("deriveCockpitQueue", () => {
       ["env-1:thread:failed", "fix", "Boom"],
       ["env-1:todo:call", "todo", "call"],
     ]);
-    expect(queue.now[2]).toMatchObject({
+    expect(queue.now[3]).toMatchObject({
       taskKey: "wait:waits:pick",
       projectTitle: "Project",
       threadTitle: "waits",

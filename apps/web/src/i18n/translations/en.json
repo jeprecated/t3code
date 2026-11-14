@@ -12332,8 +12332,6 @@
   "5c58e2296d35abc7": "Cockpit: Done (Main Action)",
   "b2313b519c244f5a": "Cockpit: Snooze Task",
   "fea7ae3031dd71ab": "Cockpit: Open Its Thread",
-  "d197a6f2caf57915": "Cockpit: Next Task",
-  "349084108192baec": "Cockpit: Previous Task",
   "346ac5674f00ec7a": "Cockpit: Approve",
   "e43c0bbfdf5c3298": "Cockpit: Approve for This Thread",
   "3a1bfd48e82a038b": "Cockpit: Deny",
@@ -12342,5 +12340,7 @@
   "f893b54624147259": "Cockpit: Undo Last Outcome",
   "f42c27d69fd27d04": "Cockpit: Message the Overview Agent",
   "812248dc756ad6c3": "Cockpit: Show Keys",
-  "5335dbd356d2c14e": "Open cockpit"
+  "5335dbd356d2c14e": "Open cockpit",
+  "d40d3da2df2cc751": "Cockpit: Next Entry",
+  "7ff780bbeb8faefb": "Cockpit: Previous Entry"
 }
