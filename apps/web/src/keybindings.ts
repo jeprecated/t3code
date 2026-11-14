@@ -18,6 +18,7 @@ import {
   type ShortcutEventLike as SharedShortcutEventLike,
   type ShortcutModifierStateLike,
 } from "@t3tools/shared/keybindings";
+import { isCockpitOpen } from "./cockpitStore";
 import { isElectron } from "./env";
 import { isEditableFocused } from "./lib/editableFocus";
 import { projectScriptIdFromCommand } from "./projectScripts";
@@ -67,6 +68,8 @@ function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatc
     isWeb: !isElectron,
     isDesktop: isElectron,
     editableFocus: false,
+    // Every resolver sees it, so no caller has to remember the cockpit.
+    cockpitOpen: isCockpitOpen(),
     ...options?.context,
   };
 }

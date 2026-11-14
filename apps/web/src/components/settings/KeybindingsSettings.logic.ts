@@ -388,6 +388,23 @@ const THREAD_SNOOZE_PRESET_LABELS: Partial<Record<KeybindingCommand, string>> = 
   "thread.snooze.nextWeek": "Until Next Week",
 };
 
+const COCKPIT_LABELS: Partial<Record<KeybindingCommand, string>> = {
+  "cockpit.toggle": "Open or Close",
+  "cockpit.primary": "Done (Main Action)",
+  "cockpit.snooze": "Snooze Task",
+  "cockpit.openThere": "Open Its Thread",
+  "cockpit.next": "Next Task",
+  "cockpit.previous": "Previous Task",
+  "cockpit.approve": "Approve",
+  "cockpit.approveForThread": "Approve for This Thread",
+  "cockpit.deny": "Deny",
+  "cockpit.reply": "Reply or Add a Note",
+  "cockpit.openLink": "Open First Link",
+  "cockpit.undo": "Undo Last Outcome",
+  "cockpit.focusOverview": "Message the Overview Agent",
+  "cockpit.help": "Show Keys",
+};
+
 export function commandLabel(command: KeybindingCommand): string {
   if (command === "workspace.focusNext") return "Focus Next Workspace Area";
   if (command === "workspace.focusPrevious") return "Focus Previous Workspace Area";
@@ -400,6 +417,8 @@ export function commandLabel(command: KeybindingCommand): string {
   if (command === "thread.snooze") return "Thread: Snooze or Wake";
   const snoozePresetLabel = THREAD_SNOOZE_PRESET_LABELS[command];
   if (snoozePresetLabel) return `Thread: Snooze ${snoozePresetLabel}`;
+  const cockpitLabel = COCKPIT_LABELS[command];
+  if (cockpitLabel) return `Cockpit: ${cockpitLabel}`;
   const usageMetric = METRIC_OPTIONS.find((option) => option.command === command);
   if (usageMetric) return `Usage: ${usageMetric.label}`;
   const usagePeriod = WINDOW_OPTIONS.find((option) => option.command === command);

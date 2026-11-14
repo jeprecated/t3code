@@ -1,7 +1,14 @@
 import {
   isListedThreadLineage,
+  taskRequestKey,
+  taskThreadKey,
+  taskTodoKey,
+  taskWaitKey,
   type EnvironmentId,
   type OrchestrationV2ThreadWait,
+  type RuntimeRequestId,
+  type TaskKey,
+  type TaskSnooze,
   type ThreadId,
   type UserTodo,
 } from "@t3tools/contracts";
@@ -13,7 +20,7 @@ import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts"
 import { isThreadWorking } from "./threadInbox.ts";
 import { effectiveSnoozed } from "./threadSettled.ts";
 
-export type YouQueueKind =
+export type CockpitKind =
   | "approval"
   | "question"
   | "request"
@@ -25,12 +32,12 @@ export type YouQueueKind =
   | "fix"
   | "todo";
 
-export type YouQueueGroup = "now" | "later" | "elsewhere" | "todos";
-
-export interface YouQueueItem {
-  /** Stable across updates; the device-local "not here" set stores these. */
+export interface CockpitItem {
+  /** Unique across environments: `environmentId:taskKey`. */
   readonly key: string;
-  readonly kind: YouQueueKind;
+  /** What task snoozes are stored under, in the item's environment. */
+  readonly taskKey: TaskKey;
+  readonly kind: CockpitKind;
   readonly title: string;
   readonly environmentId: EnvironmentId;
   /** `environmentId:threadId`, as routes key threads; null for todos. */
@@ -43,40 +50,43 @@ export interface YouQueueItem {
   /** The agent is still working, so it is not blocked on this yet. */
   readonly working: boolean;
   readonly where: string | null;
-  /** When it becomes doable: a wait's or todo's own time, else the thread's snooze end. */
   readonly notBefore: string | null;
+  /** The live request a question or approval answers. */
+  readonly requestId: RuntimeRequestId | null;
   readonly wait: OrchestrationV2ThreadWait | null;
   readonly todo: UserTodo | null;
+  /** In `snoozed`: when it comes back, and what holds it until then. */
+  readonly until: string | null;
+  readonly snoozedBy: "task" | "thread" | "time" | null;
 }
 
-export interface YouQueue {
-  readonly now: ReadonlyArray<YouQueueItem>;
-  readonly later: ReadonlyArray<YouQueueItem>;
-  readonly elsewhere: ReadonlyArray<YouQueueItem>;
-  readonly todos: ReadonlyArray<YouQueueItem>;
+export interface CockpitQueue {
+  readonly now: ReadonlyArray<CockpitItem>;
+  readonly snoozed: ReadonlyArray<CockpitItem>;
 }
 
-export interface YouQueueInput {
+export interface CockpitQueueInput {
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly todos: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
     readonly todos: ReadonlyArray<UserTodo>;
   }>;
+  readonly snoozes: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly snoozes: ReadonlyArray<TaskSnooze>;
+  }>;
   readonly now: string;
-  readonly notHereKeys: ReadonlySet<string>;
   /** Thread keys (see `threadKey`) of tasks linked environments list under their parent. */
   readonly delegatedUnderParent: ReadonlySet<string>;
   /** Display names by `environmentId:projectId`. */
   readonly projectTitles: ReadonlyMap<string, string>;
-  /** Wait item keys the user already answered, while the answer is on its way. */
+  /** Item keys the user already finished, while that reaches the server. */
   readonly hiddenKeys?: ReadonlySet<string>;
-  /** Its unseen completion stays listed though it is now seen, because the user opened it from here. */
-  readonly retainedThreadKey?: string | null;
-  /** Pinned above the queue with its own status, so its finished turns are not listed. */
+  /** The overview agent's own thread, whose finished turns are not tasks. */
   readonly overviewThreadKey?: string | null;
 }
 
-const KIND_RANK: Record<YouQueueKind, number> = {
+const KIND_RANK: Record<CockpitKind, number> = {
   approval: 0,
   question: 1,
   decision: 2,
@@ -98,50 +108,54 @@ const APPROVAL_TITLES: Record<string, string> = {
   dynamic_tool_call: "Approve a tool call",
 };
 
-export const youQueueTodoKey = (environmentId: EnvironmentId, id: string) =>
-  `${environmentId}:todo:${id}`;
-
-export const youQueueWaitKey = (environmentId: EnvironmentId, threadId: ThreadId, waitId: string) =>
-  `${environmentId}:${threadId}:wait:${waitId}`;
+export const cockpitItemKey = (environmentId: EnvironmentId, taskKey: TaskKey) =>
+  `${environmentId}:${taskKey}`;
 
 const ms = (iso: string | null | undefined) => {
   const value = iso == null ? Number.NaN : Date.parse(iso);
   return Number.isNaN(value) ? 0 : value;
 };
 
-function liveAsk(
-  thread: EnvironmentThreadShell,
-): { kind: YouQueueKind; title: string; since: string } | null {
+type Ask = {
+  kind: CockpitKind;
+  title: string;
+  since: string;
+  requestId: RuntimeRequestId | null;
+};
+
+function liveAsk(thread: EnvironmentThreadShell): Ask | null {
   const request = thread.source.pendingRuntimeRequest;
   const since = request ? DateTime.formatIso(request.createdAt) : thread.updatedAt;
+  const requestId = request?.id ?? null;
   if (thread.hasPendingApprovals) {
     return {
       kind: "approval",
       title: APPROVAL_TITLES[request?.kind ?? ""] ?? "Approve a request",
       since,
+      requestId,
     };
   }
   // Secret and link cards arrive as questions too; the shell cannot tell them apart.
-  if (thread.hasPendingUserInput) return { kind: "question", title: "Answer the agent", since };
+  if (thread.hasPendingUserInput) {
+    return { kind: "question", title: "Answer the agent", since, requestId };
+  }
   if (thread.pendingSubagentRequest === "approval") {
-    return { kind: "approval", title: "A subagent needs approval", since };
+    return { kind: "approval", title: "A subagent needs approval", since, requestId: null };
   }
   if (thread.pendingSubagentRequest === "user_input") {
-    return { kind: "question", title: "A subagent asks you something", since };
+    return { kind: "question", title: "A subagent asks you something", since, requestId: null };
   }
   if (request?.kind === "auth_refresh") {
-    return { kind: "request", title: "Sign in to the provider again", since };
+    return { kind: "request", title: "Sign in to the provider again", since, requestId };
   }
   if ((thread.pendingGuestMessageCount ?? 0) > 0) {
-    return { kind: "request", title: "Review guest messages", since };
+    return { kind: "request", title: "Review guest messages", since, requestId: null };
   }
   return null;
 }
 
-function returned(
-  thread: EnvironmentThreadShell,
-  retained: boolean,
-): { kind: YouQueueKind; title: string; since: string } | null {
+/** A proposed plan or a failed run: both stay until the user acts or the thread runs again. */
+function returned(thread: EnvironmentThreadShell): Omit<Ask, "requestId"> | null {
   const run = thread.latestRun;
   if (run === null || thread.settledOverride === "settled") return null;
   if (threadRuntimeIsActive(thread.runtime) || isThreadWorking(thread)) return null;
@@ -159,45 +173,46 @@ function returned(
       since,
     };
   }
-  const unseen =
-    run.completedAt !== null &&
-    (thread.lastVisitedAt === null ||
-      (thread.lastVisitedAt !== undefined && ms(run.completedAt) > ms(thread.lastVisitedAt)));
-  if (!unseen && !retained) return null;
-  const message = thread.source.latestVisibleMessage;
-  const firstLine =
-    message?.role === "assistant" ? message.text.trim().split("\n")[0]?.trim() : undefined;
-  return { kind: "review", title: firstLine || "Review the result", since };
+  return null;
 }
 
-const compareNow = (left: YouQueueItem, right: YouQueueItem) =>
+const compareNow = (left: CockpitItem, right: CockpitItem) =>
   Number(left.working) - Number(right.working) ||
   KIND_RANK[left.kind] - KIND_RANK[right.kind] ||
   ms(left.since) - ms(right.since) ||
   left.key.localeCompare(right.key);
 
+type Draft = Omit<CockpitItem, "key" | "until" | "snoozedBy">;
+
 /**
  * Everything agents wait on from the user, and the user's own todos, in one pass over the
- * thread shells. `now` is the badge count and triage order.
+ * thread shells. `now` is the badge count and the cockpit's order.
  */
-export function deriveYouQueue(input: YouQueueInput): YouQueue {
+export function deriveCockpitQueue(input: CockpitQueueInput): CockpitQueue {
   const nowMs = ms(input.now);
-  const now: YouQueueItem[] = [];
-  const later: YouQueueItem[] = [];
-  const elsewhere: YouQueueItem[] = [];
-  const todos: YouQueueItem[] = [];
-  const place = (item: YouQueueItem, snoozedUntil: string | null) => {
-    if (input.hiddenKeys?.has(item.key)) return;
-    if (input.notHereKeys.has(item.key)) {
-      elsewhere.push(item);
-    } else if (item.notBefore !== null && ms(item.notBefore) > nowMs) {
-      later.push(item);
-    } else if (snoozedUntil !== null) {
-      later.push({ ...item, notBefore: snoozedUntil });
-    } else if (item.kind === "todo") {
-      todos.push(item);
+  const snoozedUntil = new Map<string, string>();
+  for (const { environmentId, snoozes } of input.snoozes) {
+    for (const snooze of snoozes) {
+      // The subscription does not re-send when a snooze ends.
+      if (ms(snooze.snoozedUntil) > nowMs) {
+        snoozedUntil.set(cockpitItemKey(environmentId, snooze.key), snooze.snoozedUntil);
+      }
+    }
+  }
+  const now: CockpitItem[] = [];
+  const snoozed: CockpitItem[] = [];
+  const place = (draft: Draft, threadSnoozedUntil: string | null) => {
+    const key = cockpitItemKey(draft.environmentId, draft.taskKey);
+    if (input.hiddenKeys?.has(key)) return;
+    const taskUntil = snoozedUntil.get(key) ?? null;
+    if (taskUntil !== null) {
+      snoozed.push({ ...draft, key, until: taskUntil, snoozedBy: "task" });
+    } else if (draft.notBefore !== null && ms(draft.notBefore) > nowMs) {
+      snoozed.push({ ...draft, key, until: draft.notBefore, snoozedBy: "time" });
+    } else if (threadSnoozedUntil !== null) {
+      snoozed.push({ ...draft, key, until: threadSnoozedUntil, snoozedBy: "thread" });
     } else {
-      now.push(item);
+      now.push({ ...draft, key, until: null, snoozedBy: null });
     }
   };
 
@@ -221,8 +236,14 @@ export function deriveYouQueue(input: YouQueueInput): YouQueue {
       projectTitle: input.projectTitles.get(`${thread.environmentId}:${thread.projectId}`) ?? null,
       working: isThreadWorking(thread),
       todo: null,
+      wait: null,
+      where: null,
+      notBefore: null,
+      requestId: null,
     };
-    const snoozedUntil = effectiveSnoozed(thread, { now: input.now }) ? thread.snoozedUntil : null;
+    const threadSnoozedUntil = effectiveSnoozed(thread, { now: input.now })
+      ? thread.snoozedUntil
+      : null;
     const ask = liveAsk(thread);
     if (ask !== null) {
       place(
@@ -230,13 +251,13 @@ export function deriveYouQueue(input: YouQueueInput): YouQueue {
         {
           ...base,
           ...ask,
-          key: `${key}:ask`,
+          taskKey:
+            ask.requestId === null
+              ? taskThreadKey(thread.id)
+              : taskRequestKey(thread.id, ask.requestId),
           working: false,
-          where: null,
-          notBefore: null,
-          wait: null,
         },
-        snoozedUntil,
+        threadSnoozedUntil,
       );
     }
     const waiting = thread.waiting ?? null;
@@ -244,7 +265,7 @@ export function deriveYouQueue(input: YouQueueInput): YouQueue {
       place(
         {
           ...base,
-          key: youQueueWaitKey(thread.environmentId, thread.id, wait.id),
+          taskKey: taskWaitKey(thread.id, wait.id),
           kind: wait.kind,
           title: wait.summary,
           since: waiting?.setAt ?? thread.updatedAt,
@@ -252,25 +273,22 @@ export function deriveYouQueue(input: YouQueueInput): YouQueue {
           notBefore: wait.notBefore ?? null,
           wait,
         },
-        snoozedUntil,
+        threadSnoozedUntil,
       );
     }
     if (ask !== null || waiting !== null || key === input.overviewThreadKey) continue;
-    const back = returned(thread, key === input.retainedThreadKey);
+    const back = returned(thread);
     if (back !== null) {
-      place(
-        { ...base, ...back, key: `${key}:returned`, where: null, notBefore: null, wait: null },
-        snoozedUntil,
-      );
+      place({ ...base, ...back, taskKey: taskThreadKey(thread.id) }, threadSnoozedUntil);
     }
   }
 
-  for (const { environmentId, todos: environmentTodos } of input.todos) {
-    for (const todo of environmentTodos) {
+  for (const { environmentId, todos } of input.todos) {
+    for (const todo of todos) {
       if (todo.completedAt !== null) continue;
       place(
         {
-          key: youQueueTodoKey(environmentId, todo.id),
+          taskKey: taskTodoKey(todo.id),
           kind: "todo",
           title: todo.title,
           environmentId,
@@ -282,6 +300,7 @@ export function deriveYouQueue(input: YouQueueInput): YouQueue {
           working: false,
           where: todo.where ?? null,
           notBefore: todo.notBefore ?? null,
+          requestId: null,
           wait: null,
           todo,
         },
@@ -292,44 +311,8 @@ export function deriveYouQueue(input: YouQueueInput): YouQueue {
 
   return {
     now: now.sort(compareNow),
-    later: later.sort(
-      (left, right) =>
-        ms(left.notBefore) - ms(right.notBefore) || left.key.localeCompare(right.key),
-    ),
-    elsewhere: elsewhere.sort(compareNow),
-    todos: todos.sort(
-      (left, right) => ms(left.since) - ms(right.since) || left.key.localeCompare(right.key),
+    snoozed: snoozed.sort(
+      (left, right) => ms(left.until) - ms(right.until) || left.key.localeCompare(right.key),
     ),
   };
-}
-
-/** The `now` item after the open thread's, wrapping around, on another thread. */
-export function nextYouQueueItem(
-  now: ReadonlyArray<YouQueueItem>,
-  openThreadKey: string | null,
-): YouQueueItem | null {
-  const at =
-    openThreadKey === null ? -1 : now.findIndex((item) => item.threadKey === openThreadKey);
-  const ordered = at < 0 ? now : [...now.slice(at + 1), ...now.slice(0, at)];
-  return ordered.find((item) => item.threadKey !== openThreadKey) ?? null;
-}
-
-/**
- * Where triage goes once the open thread's last `now` item leaves the queue: the item that
- * followed it, if it is still there. Null while the open thread still waits on the user.
- */
-export function youQueueTriageTarget(
-  previous: ReadonlyArray<YouQueueItem>,
-  current: ReadonlyArray<YouQueueItem>,
-  openThreadKey: string | null,
-): YouQueueItem | null {
-  if (openThreadKey === null) return null;
-  if (!previous.some((item) => item.threadKey === openThreadKey)) return null;
-  if (current.some((item) => item.threadKey === openThreadKey)) return null;
-  const remaining = new Set(current.map((item) => item.key));
-  const next = nextYouQueueItem(
-    previous.filter((item) => item.threadKey === openThreadKey || remaining.has(item.key)),
-    openThreadKey,
-  );
-  return next === null ? null : (current.find((item) => item.key === next.key) ?? null);
 }

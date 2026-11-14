@@ -131,12 +131,12 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 
 Available context keys are `terminalFocus`, `terminalOpen`, `terminalFloating`,
 `previewFocus`, `previewOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`,
-`draftThreadRoute`, `turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
+`draftThreadRoute`, `turnRunning`, `editableFocus`, `cockpitOpen`, `isWeb`, and `isDesktop`.
 `draftThreadRoute` is true on a draft thread, including a restored draft, until it is first sent.
 `terminalFloating` is true while the terminal is showing as a
 [floating popover](terminal.md#floating-terminal).
 `editableFocus` is true while a text field, the composer, or another editor has
-the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
+the keyboard. `cockpitOpen` is true while the [cockpit](thread-sidebar.md#cockpit) is open. `isWeb` is true in a browser tab. `isDesktop` is true in the
 desktop app. Unknown keys evaluate to `false`.
 
 `mod+1` through `mod+9` jump to the first nine threads, and to models while the
@@ -186,6 +186,10 @@ thread menu. If the thread is already snoozed, the shortcut wakes it instead.
 `thread.snooze.hour`, `thread.snooze.threeHours`, `thread.snooze.evening`,
 `thread.snooze.tomorrow`, and `thread.snooze.nextWeek` skip the picker and snooze to
 that preset directly.
+
+The `cockpit.*` commands act on the cockpit's current task. Their single-key defaults use
+`cockpitOpen && !editableFocus`, so they never fire while you type in a note or the
+overview agent's composer. See [Cockpit](thread-sidebar.md#cockpit) for the full list.
 
 `navigation.back` (`mod+[` by default) and `navigation.forward` (`mod+]`) move
 through the pages you have visited, like a browser's back and forward buttons.

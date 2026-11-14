@@ -176,6 +176,7 @@ import {
   useUpdateThreadCategories,
 } from "../threadCategories";
 import { useUiStateStore } from "../uiStateStore";
+import { setCockpitOpen } from "../cockpitStore";
 import { editCurrentSidebarView, openSidebarViewEditor } from "./SidebarViewDialog";
 import { openNewThreadCategoryDialog } from "./ThreadCategoryDialog";
 import { CategorySwatch } from "./CategorySwatch";
@@ -1849,13 +1850,13 @@ function OpenCommandPaletteDialog(props: {
 
   actionItems.push({
     kind: "action",
-    value: "action:you-queue",
-    searchTerms: ["you", "queue", "waiting", "todo", "todos", "overview", "triage", "inbox"],
-    title: "Show You queue",
+    value: "action:cockpit",
+    searchTerms: ["cockpit", "waiting", "tasks", "todo", "todos", "overview", "inbox", "queue"],
+    title: "Open cockpit",
     icon: <InboxIcon className={ITEM_ICON_CLASS} />,
-    shortcutCommand: "sidebar.toggleYouQueue",
+    shortcutCommand: "cockpit.toggle",
     run: async () => {
-      useUiStateStore.getState().setSidebarMode("you");
+      setCockpitOpen(true);
     },
   });
 

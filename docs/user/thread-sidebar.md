@@ -386,35 +386,53 @@ side chats.
 On mobile, a thread lists its side chats above the composer. Tap one to open it and
 answer its questions.
 
-## See what waits on you
+## Cockpit
 
-Switch the top of the sidebar from **Threads** to **You** to see everything agents
-are waiting on you for, on every connected machine, and your own todos. The count
-beside **You** is what you can do now. Toggle it with `mod+alt+y`
-(`sidebar.toggleYouQueue`), or choose **Show You queue** in the command palette.
+The cockpit collects everything agents wait on you for, on every connected machine:
+approvals and questions, decisions, manual steps, blocked work and review requests that
+agents filed, proposed plans, failed or rate-limited runs, and your own todos. Open it with
+**Cockpit** at the top of the sidebar, `mod+alt+y` (`cockpit.toggle`), or **Open cockpit**
+in the command palette. The count is what you can do now.
 
-**Now** lists approvals and questions first, then decisions, manual steps and blocked
-work that agents recorded for you, then threads that finished with a plan, a result
-you have not seen, or a failure. Items whose agent is still working come last. Click
-one to open its thread.
+It shows one task at a time, with the thread that asked, the agent's latest message, and
+any details it attached. Answer a question or approve a request right there. For a
+decision, pick an option; for a manual step or blocked work, choose **Done**, with an
+optional note; for a review, **Looks good**, or write feedback first. The agent is woken
+five seconds later, so the toast's **Undo** can take it back. Secret and link requests,
+plans and failures are handled in their thread: **Open there** jumps to the message.
 
-In a thread, **Waiting on you** above the composer lists what its agent recorded. Pick
-an option, or choose **Done…** and add an optional note; the agent is woken five
-seconds later, so the toast's **Undo** can take it back. **Later** snoozes the thread,
-and **Not here** moves the item to **Elsewhere** on this device until you choose
-**Show here again**. Items with a start time wait in **Later** until then.
+**Snooze** puts one task off without snoozing its thread: pick 10 min, 30 min, 1 hour,
+18:00, tomorrow 9:00 or Monday 9:00, or type a time such as `30m`, `14:30` or
+`tomorrow 9`. Snoozes sync to your other devices. Snoozed tasks wait under **Snoozed** in
+**Up next** until their time, or until you choose **Unsnooze**. Tasks an agent gave a start
+time wait there too. In a thread, **Waiting on you** above the composer has the same
+**Snooze**, and hides snoozed tasks behind **n snoozed**.
 
-Turn on **Triage** to open the next item each time you finish one: answer it, resolve
-it, settle or snooze the thread, or reply. **Next** in the thread, or `mod+alt+shift+y`
-(`youQueue.next`), skips ahead without finishing.
+Everything works from the keyboard. Tab moves between the task, **Up next** and the
+overview agent; the arrow keys move inside each. Esc leaves a text field, then closes.
+Press `?` in the cockpit to see every key as you have bound it.
 
-Type in **Add todo…** to keep a task of your own. Click a todo to edit its notes,
-where you need to be, and when it becomes doable, or to mark it done.
+| Key       | Action                                                |
+| --------- | ----------------------------------------------------- |
+| `e`       | Done: answer, approve, resolve or complete            |
+| `1`–`9`   | Pick an option; Space toggles one that allows several |
+| `s`       | Snooze, then `1`–`6` or Tab to type a time            |
+| `o`       | Open there                                            |
+| `j` / `k` | Next / previous task; in **Up next**, the next row    |
+| `y` / `n` | Approve / deny                                        |
+| `shift+y` | Approve for this thread                               |
+| `r`       | Write a note, your own answer, or feedback            |
+| `l`       | Open the first link in the details                    |
+| `u`       | Undo the last outcome                                 |
+| `/`       | Message the overview agent                            |
+| `?`       | Show every key                                        |
 
-**Start overview agent** creates an Overview thread pinned above the list. Tell it
-what you did, such as "the Stripe key is in", and it resolves the matching waits and
-wakes those threads. Every morning at 09:00 it sweeps your threads for asks nobody
-recorded; change or pause that in **Settings → Scheduled tasks**.
+Change any of them in **Settings → Keybindings**.
+
+**Start overview agent**, at the bottom right of the cockpit, creates an Overview thread.
+Tell it what you did, such as "the Stripe key is in", and it resolves the matching waits and
+wakes those threads. It can also add todos for you. Every morning at 09:00 it sweeps your
+threads for asks nobody recorded; change or pause that in **Settings → Scheduled tasks**.
 
 ## Snooze until later
 

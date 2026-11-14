@@ -160,6 +160,15 @@ export const DEFAULT_SNOOZE_PRESETS: ReadonlyArray<SnoozePresetSetting> = [
   { kind: "at", day: "tomorrow", time: "09:00" },
   { kind: "at", day: "monday", time: "09:00" },
 ];
+/** For one task rather than a thread: shorter, since a task is often minutes from doable. */
+export const TASK_SNOOZE_PRESETS: ReadonlyArray<SnoozePresetSetting> = [
+  { kind: "after", minutes: 10 },
+  { kind: "after", minutes: 30 },
+  { kind: "after", minutes: 60 },
+  { kind: "at", day: "today", time: "18:00" },
+  { kind: "at", day: "tomorrow", time: "09:00" },
+  { kind: "at", day: "monday", time: "09:00" },
+];
 
 export const MIN_GLASS_OPACITY = 40;
 export const MAX_GLASS_OPACITY = 100;

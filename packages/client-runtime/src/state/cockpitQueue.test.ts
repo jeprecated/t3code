@@ -1,5 +1,7 @@
 import {
   EnvironmentId,
+  taskTodoKey,
+  taskWaitKey,
   RunId,
   RuntimeRequestId,
   ThreadId,
@@ -14,12 +16,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { threadKey } from "./entities.ts";
 import { presentThreadShell, type PendingSubagentRequest } from "./models.ts";
 import { v2ThreadShell } from "./orchestrationV2TestFixtures.ts";
-import {
-  deriveYouQueue,
-  nextYouQueueItem,
-  youQueueTriageTarget,
-  type YouQueueInput,
-} from "./youQueue.ts";
+import { deriveCockpitQueue, type CockpitQueueInput } from "./cockpitQueue.ts";
 
 const env = EnvironmentId.make("env-1");
 const NOW = "2026-06-20T12:00:00.000Z";
@@ -89,12 +86,12 @@ const todo = (id: string, overrides: Partial<UserTodo> = {}): UserTodo => ({
   ...overrides,
 });
 
-function derive(input: Partial<YouQueueInput>) {
-  return deriveYouQueue({
+function derive(input: Partial<CockpitQueueInput>) {
+  return deriveCockpitQueue({
     threads: [],
     todos: [],
+    snoozes: [],
     now: NOW,
-    notHereKeys: new Set(),
     delegatedUnderParent: new Set(),
     projectTitles: new Map(),
     ...input,
@@ -103,8 +100,8 @@ function derive(input: Partial<YouQueueInput>) {
 
 const keys = (items: ReadonlyArray<{ key: string }>) => items.map((item) => item.key);
 
-describe("deriveYouQueue", () => {
-  it("lists live asks, each wait, returned threads and open todos", () => {
+describe("deriveCockpitQueue", () => {
+  it("lists live asks, each wait, plans, failures and open todos", () => {
     const queue = derive({
       threads: [
         shell("approve", ask("command", "2026-06-20T11:00:00.000Z")),
@@ -116,10 +113,10 @@ describe("deriveYouQueue", () => {
             "2026-06-20T09:30:00.000Z",
             { id: "pick", options: ["a", "b"] },
             { id: "run", kind: "manual_step" },
+            { id: "look", kind: "review" },
           ),
         ),
         shell("done", completed("2026-06-20T11:00:00.000Z")),
-        shell("seen", completed("2026-06-20T09:00:00.000Z")),
         shell("settled", { ...completed("2026-06-20T11:00:00.000Z"), settledOverride: "settled" }),
         shell("plan", {
           ...completed("2026-06-20T09:00:00.000Z"),
@@ -138,22 +135,24 @@ describe("deriveYouQueue", () => {
       projectTitles: new Map([[`${env}:${v2ThreadShell.projectId}`, "Project"]]),
     });
     expect(queue.now.map((item) => [item.key, item.kind, item.title])).toEqual([
-      ["env-1:approve:ask", "approval", "Approve a command"],
-      ["env-1:question:ask", "question", "Answer the agent"],
-      ["env-1:waits:wait:pick", "decision", "pick"],
-      ["env-1:waits:wait:run", "manual_step", "run"],
-      ["env-1:auth:ask", "request", "Sign in to the provider again"],
-      ["env-1:plan:returned", "plan", "Review the plan"],
-      ["env-1:done:returned", "review", "Review the result"],
-      ["env-1:failed:returned", "fix", "Boom"],
+      ["env-1:request:approve:request", "approval", "Approve a command"],
+      ["env-1:request:question:request", "question", "Answer the agent"],
+      ["env-1:wait:waits:pick", "decision", "pick"],
+      ["env-1:wait:waits:run", "manual_step", "run"],
+      ["env-1:request:auth:request", "request", "Sign in to the provider again"],
+      ["env-1:thread:plan", "plan", "Review the plan"],
+      ["env-1:wait:waits:look", "review", "look"],
+      ["env-1:thread:failed", "fix", "Boom"],
+      ["env-1:todo:call", "todo", "call"],
     ]);
     expect(queue.now[2]).toMatchObject({
+      taskKey: "wait:waits:pick",
       projectTitle: "Project",
       threadTitle: "waits",
       since: "2026-06-20T09:30:00.000Z",
       wait: { options: ["a", "b"] },
     });
-    expect(keys(queue.todos)).toEqual(["env-1:todo:call"]);
+    expect(queue.now[0]?.requestId).toBe("request");
   });
 
   it("lists a subagent's ask once, on its parent", () => {
@@ -172,40 +171,34 @@ describe("deriveYouQueue", () => {
       delegatedUnderParent: new Set([threadKey({ environmentId: env, threadId: delegated.id })]),
     });
     expect(queue.now.map((item) => [item.key, item.title])).toEqual([
-      ["env-1:parent:ask", "A subagent needs approval"],
+      ["env-1:thread:parent", "A subagent needs approval"],
     ]);
   });
 
-  it("keeps returned threads off the queue while they wait on something else", () => {
+  it("keeps plans and failures off the queue while the thread waits on something else", () => {
+    const failed = { status: "failed" as const, lastError: "Boom" };
     const queue = derive({
       threads: [
         shell("waits", {
           ...waits("2026-06-20T09:30:00.000Z", { id: "pick" }),
-          ...completed("2026-06-20T11:00:00.000Z"),
+          ...failed,
         }),
-        shell("overview", completed("2026-06-20T11:00:00.000Z")),
+        shell("overview", { ...completed("2026-06-20T11:00:00.000Z"), ...failed }),
       ],
       overviewThreadKey: "env-1:overview",
     });
-    expect(keys(queue.now)).toEqual(["env-1:waits:wait:pick"]);
+    expect(keys(queue.now)).toEqual(["env-1:wait:waits:pick"]);
   });
 
-  it("keeps a seen completion listed for the thread opened from the queue", () => {
-    const seen = shell("seen", completed("2026-06-20T09:00:00.000Z"));
-    expect(derive({ threads: [seen] }).now).toEqual([]);
-    expect(keys(derive({ threads: [seen], retainedThreadKey: "env-1:seen" }).now)).toEqual([
-      "env-1:seen:returned",
-    ]);
-  });
-
-  it("groups not-here, time-gated and snoozed items apart from now", () => {
+  it("holds task-snoozed, time-gated and thread-snoozed items apart from now", () => {
     const queue = derive({
       threads: [
         shell(
           "waits",
           waits(
             "2026-06-20T09:30:00.000Z",
-            { id: "phone", kind: "manual_step", where: "iPhone in hand" },
+            { id: "later", kind: "manual_step" },
+            { id: "expired" },
             { id: "evening", kind: "manual_step", notBefore: "2026-06-20T18:00:00.000Z" },
             { id: "past", notBefore: "2026-06-20T11:00:00.000Z" },
             { id: "answered" },
@@ -225,24 +218,56 @@ describe("deriveYouQueue", () => {
       todos: [
         {
           environmentId: env,
-          todos: [
-            todo("tomorrow", { notBefore: "2026-06-21T09:00:00.000Z" }),
-            todo("office"),
-            todo("home"),
+          todos: [todo("tomorrow", { notBefore: "2026-06-21T09:00:00.000Z" }), todo("home")],
+        },
+      ],
+      snoozes: [
+        {
+          environmentId: env,
+          snoozes: [
+            {
+              key: taskWaitKey("waits", "later"),
+              snoozedUntil: "2026-06-20T13:00:00.000Z",
+              snoozedAt: NOW,
+            },
+            {
+              key: taskWaitKey("waits", "expired"),
+              snoozedUntil: "2026-06-20T11:59:00.000Z",
+              snoozedAt: NOW,
+            },
+            {
+              key: taskTodoKey("home"),
+              snoozedUntil: "2026-06-22T09:00:00.000Z",
+              snoozedAt: NOW,
+            },
+          ],
+        },
+        // Another environment's snooze of the same key leaves this one alone.
+        {
+          environmentId: EnvironmentId.make("env-2"),
+          snoozes: [
+            {
+              key: taskWaitKey("waits", "past"),
+              snoozedUntil: "2026-06-20T13:00:00.000Z",
+              snoozedAt: NOW,
+            },
           ],
         },
       ],
-      notHereKeys: new Set(["env-1:waits:wait:phone", "env-1:todo:office"]),
-      hiddenKeys: new Set(["env-1:waits:wait:answered"]),
+      hiddenKeys: new Set(["env-1:wait:waits:answered"]),
     });
-    expect(keys(queue.now)).toEqual(["env-1:woke:ask", "env-1:waits:wait:past"]);
-    expect(queue.later.map((item) => [item.key, item.notBefore])).toEqual([
-      ["env-1:snoozed:wait:pick", "2026-06-20T15:00:00.000Z"],
-      ["env-1:waits:wait:evening", "2026-06-20T18:00:00.000Z"],
-      ["env-1:todo:tomorrow", "2026-06-21T09:00:00.000Z"],
+    expect(keys(queue.now)).toEqual([
+      "env-1:request:woke:request",
+      "env-1:wait:waits:expired",
+      "env-1:wait:waits:past",
     ]);
-    expect(keys(queue.elsewhere)).toEqual(["env-1:waits:wait:phone", "env-1:todo:office"]);
-    expect(keys(queue.todos)).toEqual(["env-1:todo:home"]);
+    expect(queue.snoozed.map((item) => [item.key, item.until, item.snoozedBy])).toEqual([
+      ["env-1:wait:waits:later", "2026-06-20T13:00:00.000Z", "task"],
+      ["env-1:wait:snoozed:pick", "2026-06-20T15:00:00.000Z", "thread"],
+      ["env-1:wait:waits:evening", "2026-06-20T18:00:00.000Z", "time"],
+      ["env-1:todo:tomorrow", "2026-06-21T09:00:00.000Z", "time"],
+      ["env-1:todo:home", "2026-06-22T09:00:00.000Z", "task"],
+    ]);
   });
 
   it("puts idle threads before working ones, then kind, then the longest wait", () => {
@@ -261,38 +286,11 @@ describe("deriveYouQueue", () => {
       ],
     });
     expect(keys(queue.now)).toEqual([
-      "env-1:decision-old:wait:pick",
-      "env-1:decision-new:wait:pick",
-      "env-1:blocked-old:wait:ci",
-      "env-1:working:wait:pick",
+      "env-1:wait:decision-old:pick",
+      "env-1:wait:decision-new:pick",
+      "env-1:wait:blocked-old:ci",
+      "env-1:wait:working:pick",
     ]);
     expect(queue.now.at(-1)?.working).toBe(true);
-  });
-});
-
-describe("triage", () => {
-  const queue = derive({
-    threads: [
-      shell("a", waits("2026-06-20T08:00:00.000Z", { id: "one" }, { id: "two" })),
-      shell("b", waits("2026-06-20T09:00:00.000Z", { id: "one" })),
-      shell("c", waits("2026-06-20T10:00:00.000Z", { id: "one" })),
-    ],
-  }).now;
-
-  it("steps to the next thread's item and wraps", () => {
-    expect(nextYouQueueItem(queue, "env-1:a")?.key).toBe("env-1:b:wait:one");
-    expect(nextYouQueueItem(queue, "env-1:c")?.key).toBe("env-1:a:wait:one");
-    expect(nextYouQueueItem(queue, null)?.key).toBe("env-1:a:wait:one");
-    expect(nextYouQueueItem(queue.slice(0, 2), "env-1:a")).toBeNull();
-  });
-
-  it("advances only once the open thread's last item leaves", () => {
-    const withoutOne = queue.filter((item) => item.key !== "env-1:a:wait:one");
-    expect(youQueueTriageTarget(queue, withoutOne, "env-1:a")).toBeNull();
-    const withoutA = queue.filter((item) => item.threadKey !== "env-1:a");
-    expect(youQueueTriageTarget(queue, withoutA, "env-1:a")?.key).toBe("env-1:b:wait:one");
-    const withoutAB = withoutA.filter((item) => item.threadKey !== "env-1:b");
-    expect(youQueueTriageTarget(queue, withoutAB, "env-1:a")?.key).toBe("env-1:c:wait:one");
-    expect(youQueueTriageTarget(withoutA, withoutA, "env-1:a")).toBeNull();
   });
 });

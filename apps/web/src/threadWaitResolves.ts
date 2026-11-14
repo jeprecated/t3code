@@ -1,10 +1,10 @@
-import { youQueueWaitKey } from "@t3tools/client-runtime/state/you-queue";
+import { cockpitItemKey } from "@t3tools/client-runtime/state/cockpit-queue";
 import {
   isAtomCommandInterrupted,
   runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { taskWaitKey, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import * as Predicate from "effect/Predicate";
 import { create } from "zustand";
 
@@ -25,7 +25,7 @@ interface PendingWaitResolve {
   readonly toastId: string | null;
 }
 
-/** Answers held for Undo, and those sent until the wait leaves the thread, by You queue key. */
+/** Answers held for Undo, and those sent until the wait leaves the thread, by cockpit item key. */
 export const usePendingWaitResolves = create<{
   readonly pending: ReadonlyMap<string, PendingWaitResolve>;
 }>(() => ({ pending: new Map() }));
@@ -81,17 +81,22 @@ function flush(key: string) {
   void send(key, sent);
 }
 
-function undo(key: string) {
+export const waitResolveKey = (environmentId: EnvironmentId, threadId: ThreadId, waitId: string) =>
+  cockpitItemKey(environmentId, taskWaitKey(threadId, waitId));
+
+/** False once the answer was sent. */
+export function undoWaitResolve(key: string): boolean {
   const entry = usePendingWaitResolves.getState().pending.get(key);
-  if (entry === undefined || entry.timer === null) return;
+  if (entry === undefined || entry.timer === null) return false;
   clearTimeout(entry.timer);
   if (entry.toastId !== null) toastManager.close(entry.toastId);
   update(key, null);
+  return true;
 }
 
 /**
- * Hides the wait at once and wakes the thread after an Undo window. It survives navigation,
- * so triage can move on; closing the page sends what is still held.
+ * Hides the wait at once and wakes the thread after an Undo window. It survives navigation and
+ * the cockpit moving on; closing the page sends what is still held. Returns the wait's key.
  */
 export function scheduleWaitResolve(input: {
   readonly environmentId: EnvironmentId;
@@ -101,14 +106,14 @@ export function scheduleWaitResolve(input: {
   readonly setAt: string;
   readonly note?: string | undefined;
 }) {
-  const key = youQueueWaitKey(input.environmentId, input.threadId, input.waitId);
+  const key = waitResolveKey(input.environmentId, input.threadId, input.waitId);
   flush(key);
   const timer = setTimeout(() => flush(key), UNDO_WINDOW_MS);
   const toastId = toastManager.add({
     type: "info",
     title: `Waking ${input.threadTitle} in 5s`,
     timeout: UNDO_WINDOW_MS,
-    actionProps: { children: "Undo", onClick: () => undo(key) },
+    actionProps: { children: "Undo", onClick: () => undoWaitResolve(key) },
   });
   update(key, {
     environmentId: input.environmentId,
@@ -119,6 +124,7 @@ export function scheduleWaitResolve(input: {
     timer,
     toastId,
   });
+  return key;
 }
 
 if (typeof window !== "undefined") {

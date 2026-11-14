@@ -20,6 +20,7 @@ import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { GuestShareDialogHost } from "../components/chat/GuestShareControls";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
 import { SnoozePromptHost } from "../components/SnoozePrompt";
+import { CockpitHost } from "../components/cockpit/Cockpit";
 import { NewThreadPresetNameDialogHost } from "../components/NewThreadPresetNameDialog";
 import { SidebarViewDialogHost } from "../components/SidebarViewDialog";
 import { ThreadCategoryDialogHost } from "../components/ThreadCategoryDialog";
@@ -218,6 +219,7 @@ function RootRouteBranch() {
         <ConfirmDialogHost />
         <CustomSnoozeDialogHost />
         <SnoozePromptHost />
+        <CockpitHost />
         <NewThreadPresetNameDialogHost />
         <SidebarViewDialogHost />
         <ThreadCategoryDialogHost />

@@ -350,6 +350,38 @@ describe("snooze thread shortcut", () => {
   });
 });
 
+describe("cockpit shortcuts", () => {
+  const resolve = (overrides: Partial<ShortcutEventLike>, context: Record<string, boolean>) =>
+    resolveShortcutCommand(event(overrides), DEFAULT_RESOLVED_KEYBINDINGS, {
+      platform: "Linux",
+      context,
+    });
+
+  it("act only while the cockpit is open and no field has the keyboard", () => {
+    assert.strictEqual(resolve({ key: "e" }, { cockpitOpen: true }), "cockpit.primary");
+    assert.strictEqual(
+      resolve({ key: "Y", shiftKey: true }, { cockpitOpen: true }),
+      "cockpit.approveForThread",
+    );
+    assert.strictEqual(
+      resolve({ key: "?", code: "Slash", shiftKey: true }, { cockpitOpen: true }),
+      "cockpit.help",
+    );
+    assert.isNull(resolve({ key: "e" }, { cockpitOpen: false }));
+    assert.isNull(resolve({ key: "e" }, { cockpitOpen: true, editableFocus: true }));
+    // The usage page's L stays its own unless the cockpit is open over it.
+    assert.strictEqual(resolve({ key: "l" }, { usagePageOpen: true }), "usage.limits");
+    assert.strictEqual(
+      resolve({ key: "l" }, { usagePageOpen: true, cockpitOpen: true }),
+      "cockpit.openLink",
+    );
+    assert.strictEqual(
+      resolve({ key: "y", ctrlKey: true, altKey: true }, { terminalFocus: false }),
+      "cockpit.toggle",
+    );
+  });
+});
+
 describe("thread undo shortcut", () => {
   it("leaves native undo alone inside text fields and terminals", () => {
     assert.isNull(

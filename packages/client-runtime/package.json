@@ -331,9 +331,9 @@
       "types": "./src/state/threadInbox.ts",
       "default": "./src/state/threadInbox.ts"
     },
-    "./state/you-queue": {
-      "types": "./src/state/youQueue.ts",
-      "default": "./src/state/youQueue.ts"
+    "./state/cockpit-queue": {
+      "types": "./src/state/cockpitQueue.ts",
+      "default": "./src/state/cockpitQueue.ts"
     },
     "./state/thread-relationships": {
       "types": "./src/state/threadRelationships.ts",

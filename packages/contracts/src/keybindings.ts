@@ -60,6 +60,24 @@ const THREAD_KEYBINDING_COMMANDS = [
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
 ] as const;
 
+/** Act on the cockpit's current task; their defaults hold only while the cockpit is open. */
+export const COCKPIT_KEYBINDING_COMMANDS = [
+  "cockpit.primary",
+  "cockpit.snooze",
+  "cockpit.openThere",
+  "cockpit.next",
+  "cockpit.previous",
+  "cockpit.approve",
+  "cockpit.approveForThread",
+  "cockpit.deny",
+  "cockpit.reply",
+  "cockpit.openLink",
+  "cockpit.undo",
+  "cockpit.focusOverview",
+  "cockpit.help",
+] as const;
+export type CockpitKeybindingCommand = (typeof COCKPIT_KEYBINDING_COMMANDS)[number];
+
 const MODEL_PICKER_KEYBINDING_COMMANDS = [
   "modelPicker.toggle",
   "modelPicker.previousProvider",
@@ -73,8 +91,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "sidebar.toggle",
   "sidebar.nextCategory",
   "sidebar.previousCategory",
-  "sidebar.toggleYouQueue",
-  "youQueue.next",
+  "cockpit.toggle",
   "navigation.back",
   "navigation.forward",
   "terminal.toggle",
@@ -137,6 +154,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "usage.period.quarter",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
+  ...COCKPIT_KEYBINDING_COMMANDS,
 ] as const;
 
 export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([

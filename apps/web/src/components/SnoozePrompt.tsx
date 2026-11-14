@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { create } from "zustand";
 import { ClockIcon } from "lucide-react";
 import type { EnvironmentId, ThreadSnoozePresetKeybindingCommand } from "@t3tools/contracts";
@@ -69,21 +69,26 @@ type Request = {
   readonly environmentId: EnvironmentId;
   /** Focus returns here when the picker closes, like a menu opened from it. */
   readonly returnFocus: Element | null;
+  readonly presets: ReadonlyArray<SnoozePresetSetting> | undefined;
 };
 const useRequest = create<{ request: Request | null }>(() => ({ request: null }));
 
 /**
  * Keyboard snooze picker: arrows or Tab turn a wheel of the shared presets,
  * and any typing switches to free text ("5d", "tomorrow 14"). Custom… hands
- * over to the thread menu's dialog. Resolves null on Esc.
+ * over to the thread menu's dialog. Resolves null on Esc. `presets` replaces the
+ * environment's with a numbered list, as for one task.
  */
 export async function requestSnoozeTime(
   environmentId: EnvironmentId,
+  options: { readonly presets?: ReadonlyArray<SnoozePresetSetting> } = {},
 ): Promise<SnoozeChoice | null> {
   useRequest.getState().request?.resolve(null);
   const returnFocus = document.activeElement;
   const result = await new Promise<PickerResult>((resolve) =>
-    useRequest.setState({ request: { resolve, returnFocus, environmentId } }),
+    useRequest.setState({
+      request: { resolve, returnFocus, environmentId, presets: options.presets },
+    }),
   );
   return result === "custom" ? requestCustomSnooze() : result;
 }
@@ -106,7 +111,12 @@ export function SnoozePromptHost() {
       }}
     >
       {request ? (
-        <SnoozePrompt returnFocus={request.returnFocus} environmentId={request.environmentId} />
+        <SnoozePrompt
+          returnFocus={request.returnFocus}
+          environmentId={request.environmentId}
+          presets={request.presets}
+          onFinish={finish}
+        />
       ) : null}
     </CommandDialog>
   );
@@ -114,10 +124,26 @@ export function SnoozePromptHost() {
 
 const CUSTOM_CHOICE = { id: "custom", label: "Custom…", whenLabel: "Pick a time" } as const;
 
-function SnoozePrompt(props: {
+/** Render inside a `CommandDialog`; a dialog that opens it nests it, so focus stays trapped. */
+export function SnoozePrompt(props: {
   readonly returnFocus: Element | null;
   readonly environmentId: EnvironmentId;
+  readonly presets?: ReadonlyArray<SnoozePresetSetting> | undefined;
+  readonly onFinish: (result: PickerResult) => void;
 }) {
+  return props.presets === undefined ? (
+    <SnoozeWheel {...props} />
+  ) : (
+    <NumberedSnoozePrompt {...props} presets={props.presets} />
+  );
+}
+
+function SnoozeWheel(props: {
+  readonly returnFocus: Element | null;
+  readonly environmentId: EnvironmentId;
+  readonly onFinish: (result: PickerResult) => void;
+}) {
+  const finish = props.onFinish;
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   // Presets resolve once per opening so the wheel does not shift while it is open.
   const [presets] = useState(() =>
@@ -215,25 +241,8 @@ function SnoozePrompt(props: {
               );
             })}
           </div>
-        ) : typed?._tag === "Wake" ? (
-          <div className="flex w-full items-center gap-2.5 text-sm">
-            <span aria-hidden className="text-muted-foreground">
-              →
-            </span>
-            <span className="min-w-0 truncate">
-              Until {snoozeWakeDescription(typed.snoozedUntil, now, timestampFormat)}
-            </span>
-            <span className="ms-auto shrink-0 text-muted-foreground text-xs">
-              {timeFromNow(typed.snoozedUntil, now)}
-            </span>
-          </div>
         ) : (
-          <p className="text-muted-foreground text-sm">
-            <span className="font-medium text-destructive-foreground">
-              {typed?._tag === "Past" ? "That time has passed." : "Not sure when that is."}
-            </span>{" "}
-            Try 5d, 3h, tomorrow 14, mon 9.
-          </p>
+          <TypedSnooze typed={typed} now={now} timestampFormat={timestampFormat} />
         )}
       </div>
       <CommandFooter>
@@ -255,6 +264,182 @@ function SnoozePrompt(props: {
               <Kbd>↵</Kbd> snooze
             </>
           )}
+          <Kbd>Esc</Kbd>
+        </KbdGroup>
+      </CommandFooter>
+    </CommandDialogPopup>
+  );
+}
+
+function TypedSnooze(props: {
+  readonly typed: ReturnType<typeof parseTypedSnooze> | null;
+  readonly now: Date;
+  readonly timestampFormat: TimestampFormat;
+}) {
+  const { typed, now } = props;
+  return typed?._tag === "Wake" ? (
+    <div className="flex w-full items-center gap-2.5 text-sm">
+      <span aria-hidden className="text-muted-foreground">
+        →
+      </span>
+      <span className="min-w-0 truncate">
+        Until {snoozeWakeDescription(typed.snoozedUntil, now, props.timestampFormat)}
+      </span>
+      <span className="ms-auto shrink-0 text-muted-foreground text-xs">
+        {timeFromNow(typed.snoozedUntil, now)}
+      </span>
+    </div>
+  ) : (
+    <p className="text-muted-foreground text-sm">
+      <span className="font-medium text-destructive-foreground">
+        {typed?._tag === "Past" ? "That time has passed." : "Not sure when that is."}
+      </span>{" "}
+      Try 30m, 14:30, tomorrow 9, mon 9.
+    </p>
+  );
+}
+
+/**
+ * Number keys pick a preset at once. Typing a letter, or Tab, goes to the field, where a
+ * typed time ("30m", "14:30", "tomorrow 9") snoozes on Enter.
+ */
+function NumberedSnoozePrompt(props: {
+  readonly returnFocus: Element | null;
+  readonly environmentId: EnvironmentId;
+  readonly presets: ReadonlyArray<SnoozePresetSetting>;
+  readonly onFinish: (result: PickerResult) => void;
+}) {
+  const finish = props.onFinish;
+  const timestampFormat = useClientSettings((s) => s.timestampFormat);
+  const [shown] = useState(() =>
+    resolveSnoozePresets(new Date(), timestampFormat, props.environmentId, props.presets),
+  );
+  const [index, setIndex] = useState(0);
+  const [text, setText] = useState("");
+  const [now, setNow] = useState(() => new Date());
+  const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const typing = text.trim() !== "";
+  const typed = typing ? parseTypedSnooze(text, now) : null;
+
+  const pick = (presetIndex: number) => {
+    const choice = shown[presetIndex];
+    if (choice === undefined) return;
+    const picked = pickSnoozePreset(
+      shown,
+      choice.id,
+      timestampFormat,
+      props.environmentId,
+      props.presets,
+    );
+    finish(picked ? { snoozedUntil: picked.snoozedUntil } : null);
+  };
+  const type = (value: string) => {
+    setText(value);
+    setNow(new Date());
+  };
+
+  const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+    const step =
+      event.key === "ArrowDown" || event.key === "j"
+        ? 1
+        : event.key === "ArrowUp" || event.key === "k"
+          ? -1
+          : 0;
+    if (step !== 0) {
+      event.preventDefault();
+      setIndex((current) => Math.max(0, Math.min(shown.length - 1, current + step)));
+    } else if (/^[1-9]$/.test(event.key)) {
+      event.preventDefault();
+      pick(Number(event.key) - 1);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      pick(index);
+    } else if (event.key === "Tab" || (event.key.length === 1 && event.key !== " ")) {
+      event.preventDefault();
+      if (event.key !== "Tab") type(event.key);
+      inputRef.current?.focus();
+    }
+  };
+  const onInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (typed?._tag === "Wake") finish({ snoozedUntil: typed.snoozedUntil });
+    } else if (event.key === "Tab" || (event.key === "ArrowDown" && !typing)) {
+      event.preventDefault();
+      listRef.current?.focus();
+    }
+  };
+
+  return (
+    <CommandDialogPopup
+      aria-label="Snooze"
+      className="max-w-sm overflow-hidden"
+      initialFocus={listRef}
+      finalFocus={() => {
+        if (props.returnFocus instanceof HTMLElement && props.returnFocus.isConnected) {
+          props.returnFocus.focus();
+        }
+        return false;
+      }}
+    >
+      <label className="flex h-11 items-center gap-2 border-b px-3">
+        <ClockIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+        <input
+          ref={inputRef}
+          autoComplete="off"
+          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          data-testid="snooze-prompt"
+          placeholder="Snooze until… 30m, 14:30, tomorrow 9"
+          spellCheck={false}
+          value={text}
+          onChange={(event) => type(event.target.value)}
+          onKeyDown={onInputKeyDown}
+        />
+      </label>
+      {typing ? (
+        <div aria-live="polite" className="flex h-11 items-center px-3">
+          <TypedSnooze typed={typed} now={now} timestampFormat={timestampFormat} />
+        </div>
+      ) : null}
+      <div
+        ref={listRef}
+        role="listbox"
+        tabIndex={0}
+        aria-label="Snooze presets"
+        aria-activedescendant={`snooze-preset-${index}`}
+        className="flex flex-col p-1 outline-none"
+        onKeyDown={onListKeyDown}
+      >
+        {shown.map((preset, presetIndex) => (
+          <div
+            key={preset.id}
+            id={`snooze-preset-${presetIndex}`}
+            role="option"
+            aria-selected={presetIndex === index}
+            className={cn(
+              "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+              presetIndex === index && "bg-foreground/[0.08]",
+            )}
+            onMouseMove={() => setIndex(presetIndex)}
+            onClick={() => pick(presetIndex)}
+          >
+            {presetIndex < 9 ? <Kbd>{presetIndex + 1}</Kbd> : null}
+            <span className="min-w-0 flex-1 truncate">{preset.label}</span>
+            <span className="shrink-0 text-muted-foreground text-xs">{preset.whenLabel}</span>
+          </div>
+        ))}
+      </div>
+      <CommandFooter>
+        <KbdGroup>
+          <Kbd>1</Kbd>–<Kbd>{Math.min(9, shown.length)}</Kbd> pick
+        </KbdGroup>
+        <KbdGroup>
+          <Kbd>Tab</Kbd> type a time
+        </KbdGroup>
+        <KbdGroup>
           <Kbd>Esc</Kbd>
         </KbdGroup>
       </CommandFooter>

@@ -1,43 +1,35 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
-import { canSnooze } from "@t3tools/client-runtime/state/thread-settled";
 import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
-import { youQueueWaitKey } from "@t3tools/client-runtime/state/you-queue";
-import {
-  AuthOrchestrationOperateScope,
+  taskWaitKey,
   type OrchestrationV2ThreadWait,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import { useRouter } from "@tanstack/react-router";
+import { TASK_SNOOZE_PRESETS } from "@t3tools/contracts/settings";
+import { AsyncResult } from "effect/reactivity";
 import { ChevronDownIcon, HandIcon, MapPinIcon } from "lucide-react";
 import { useState } from "react";
 
-import { useThreadActions } from "../../hooks/useThreadActions";
+import { COCKPIT_KINDS } from "../../cockpitKinds";
 import { useClientSettings } from "../../hooks/useSettings";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { cn } from "../../lib/utils";
 import { useQuietThreadShell } from "../../state/entities";
 import { serverEnvironment } from "../../state/server";
-import { useEnvironmentScope } from "../../state/session";
+import { clearTaskSnooze, snoozeTask } from "../../taskOutcomes";
 import {
   isWaitResolvePending,
   scheduleWaitResolve,
   usePendingWaitResolves,
+  waitResolveKey,
 } from "../../threadWaitResolves";
-import { useNowMinute } from "../../hooks/useNowMinute";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
-import { useUiStateStore } from "../../uiStateStore";
-import { openNextYouQueueItem } from "../../youQueue";
-import { YOU_QUEUE_KINDS } from "../../youQueueKinds";
 import ChatMarkdown from "../ChatMarkdown";
 import { requestSnoozeTime } from "../SnoozePrompt";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { toastManager } from "../ui/toast";
 import { ComposerBanner } from "./ComposerBanner";
 
 /** What the thread's agent declared it waits on from the user, above the composer. */
@@ -47,17 +39,27 @@ export function ThreadWaitsStrip(props: {
 }) {
   const shell = useQuietThreadShell(props.threadRef);
   const pending = usePendingWaitResolves((state) => state.pending);
+  const snoozes = useAtomValue(
+    serverEnvironment.taskSnoozesLive({ environmentId: props.threadRef.environmentId, input: {} }),
+  );
+  // The subscription does not re-send when a snooze ends.
+  const nowMs = Date.parse(`${useNowMinute()}:00.000Z`);
   const waiting = shell?.waiting ?? null;
   if (shell === null || waiting === null) return null;
   const waits = waiting.items.filter(
     (wait) =>
       !isWaitResolvePending(
         pending,
-        youQueueWaitKey(shell.environmentId, shell.id, wait.id),
+        waitResolveKey(shell.environmentId, shell.id, wait.id),
         waiting.setAt,
       ),
   );
   if (waits.length === 0) return null;
+  const snoozedUntil = new Map(
+    (AsyncResult.getOrElse(snoozes, () => null)?.snoozes ?? []).flatMap((snooze) =>
+      Date.parse(snooze.snoozedUntil) > nowMs ? [[snooze.key, snooze.snoozedUntil] as const] : [],
+    ),
+  );
   return (
     <WaitsStrip
       threadRef={props.threadRef}
@@ -65,6 +67,7 @@ export function ThreadWaitsStrip(props: {
       shell={shell}
       setAt={waiting.setAt}
       waits={waits}
+      snoozedUntil={snoozedUntil}
     />
   );
 }
@@ -75,17 +78,24 @@ function WaitsStrip(props: {
   readonly shell: EnvironmentThreadShell;
   readonly setAt: string;
   readonly waits: ReadonlyArray<OrchestrationV2ThreadWait>;
+  /** By task key, snoozes still in effect. */
+  readonly snoozedUntil: ReadonlyMap<string, string>;
 }) {
   const { threadRef, shell, waits } = props;
-  const router = useRouter();
-  const notHereKeys = useUiStateStore((state) => state.youNotHereKeys);
-  const setYouNotHere = useUiStateStore((state) => state.setYouNotHere);
+  const [showSnoozed, setShowSnoozed] = useState(false);
   const canResolve = useAtomValue(
     serverEnvironment.resolveThreadWait.permissionAtom(threadRef.environmentId),
   );
-  const canOperate = useEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope);
-  const { snoozeThread } = useThreadActions();
+  const canSnooze = useAtomValue(
+    serverEnvironment.setTaskSnooze.permissionAtom(threadRef.environmentId),
+  );
   const working = isThreadWorking(shell);
+  const snoozedCount = waits.filter((wait) =>
+    props.snoozedUntil.has(taskWaitKey(threadRef.threadId, wait.id)),
+  ).length;
+  const shown = showSnoozed
+    ? waits
+    : waits.filter((wait) => !props.snoozedUntil.has(taskWaitKey(threadRef.threadId, wait.id)));
 
   const resolve = (wait: OrchestrationV2ThreadWait, note: string | undefined) =>
     scheduleWaitResolve({
@@ -96,29 +106,23 @@ function WaitsStrip(props: {
       setAt: props.setAt,
       note,
     });
-  const later = async () => {
-    const now = new Date().toISOString();
-    if (!canSnooze(shell, { now })) {
-      toastManager.add({ type: "error", title: "This thread cannot be snoozed right now" });
-      return;
-    }
-    const choice = await requestSnoozeTime(threadRef.environmentId);
+  const snooze = async (wait: OrchestrationV2ThreadWait) => {
+    const choice = await requestSnoozeTime(threadRef.environmentId, {
+      presets: TASK_SNOOZE_PRESETS,
+    });
     if (!choice) return;
-    const result = await snoozeThread(threadRef, choice.snoozedUntil);
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      const error = squashAtomCommandFailure(result);
-      toastManager.add({
-        type: "error",
-        title: "Failed to snooze thread",
-        description: error instanceof Error ? error.message : "An error occurred.",
-      });
-    }
+    await snoozeTask({
+      environmentId: threadRef.environmentId,
+      key: taskWaitKey(threadRef.threadId, wait.id),
+      snoozedUntil: choice.snoozedUntil,
+    });
   };
 
+  if (shown.length === 0 && snoozedCount === 0) return null;
   return (
     <ComposerBanner.Attachment>
       <ComposerBanner.Root
-        variant={working ? "default" : "warning"}
+        variant={working || shown.length === 0 ? "default" : "warning"}
         density="comfortable"
         data-chat-composer-collapsed-controls="true"
       >
@@ -127,36 +131,46 @@ function WaitsStrip(props: {
             <HandIcon />
           </ComposerBanner.Icon>
           <ComposerBanner.Content>
-            <span className="font-medium">Waiting on you · {waits.length}</span>
+            <span className="font-medium">Waiting on you · {waits.length - snoozedCount}</span>
             {working ? (
               <span className="truncate text-muted-foreground">The agent is still working</span>
             ) : null}
           </ComposerBanner.Content>
-          <ComposerBanner.Actions>
-            <Button size="xs" variant="ghost" onClick={() => openNextYouQueueItem(router)}>
-              Next
-            </Button>
-          </ComposerBanner.Actions>
+          {snoozedCount > 0 ? (
+            <ComposerBanner.Actions>
+              <Button
+                size="xs"
+                variant="ghost-muted"
+                aria-expanded={showSnoozed}
+                onClick={() => setShowSnoozed((value) => !value)}
+              >
+                {snoozedCount} snoozed
+              </Button>
+            </ComposerBanner.Actions>
+          ) : null}
         </ComposerBanner.Row>
         <ComposerBanner.Children>
-          {waits.map((wait) => {
-            const key = youQueueWaitKey(threadRef.environmentId, threadRef.threadId, wait.id);
-            const notHere = notHereKeys.includes(key);
-            return (
-              <ThreadWaitCard
-                key={wait.id}
-                wait={wait}
-                cwd={props.cwd}
-                threadRef={threadRef}
-                canResolve={canResolve}
-                canSnooze={canOperate}
-                notHere={notHere}
-                onResolve={(note) => resolve(wait, note)}
-                onLater={() => void later()}
-                onToggleNotHere={() => setYouNotHere(key, !notHere)}
-              />
-            );
-          })}
+          {shown.map((wait) => (
+            <ThreadWaitCard
+              key={wait.id}
+              wait={wait}
+              cwd={props.cwd}
+              threadRef={threadRef}
+              canResolve={canResolve}
+              canSnooze={canSnooze}
+              snoozedUntil={
+                props.snoozedUntil.get(taskWaitKey(threadRef.threadId, wait.id)) ?? null
+              }
+              onResolve={(note) => resolve(wait, note)}
+              onSnooze={() => void snooze(wait)}
+              onUnsnooze={() =>
+                void clearTaskSnooze(
+                  threadRef.environmentId,
+                  taskWaitKey(threadRef.threadId, wait.id),
+                )
+              }
+            />
+          ))}
         </ComposerBanner.Children>
       </ComposerBanner.Root>
     </ComposerBanner.Attachment>
@@ -169,10 +183,10 @@ function ThreadWaitCard(props: {
   readonly threadRef: ScopedThreadRef;
   readonly canResolve: boolean;
   readonly canSnooze: boolean;
-  readonly notHere: boolean;
+  readonly snoozedUntil: string | null;
   readonly onResolve: (note: string | undefined) => void;
-  readonly onLater: () => void;
-  readonly onToggleNotHere: () => void;
+  readonly onSnooze: () => void;
+  readonly onUnsnooze: () => void;
 }) {
   const { wait } = props;
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
@@ -180,7 +194,7 @@ function ThreadWaitCard(props: {
   const [detailOpen, setDetailOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
-  const { icon: Icon, label, className } = YOU_QUEUE_KINDS[wait.kind];
+  const { icon: Icon, label, className } = COCKPIT_KINDS[wait.kind];
   const done = () => props.onResolve(note);
 
   return (
@@ -190,9 +204,14 @@ function ThreadWaitCard(props: {
           <Icon aria-label={label} />
         </ComposerBanner.Icon>
         <ComposerBanner.Content className="min-w-0 flex-wrap">
-          <span className={cn("min-w-0 truncate", props.notHere && "text-muted-foreground")}>
+          <span className={cn("min-w-0 truncate", props.snoozedUntil && "text-muted-foreground")}>
             {wait.summary}
           </span>
+          {props.snoozedUntil ? (
+            <Badge variant="outline" size="sm">
+              {`until ${formatUpcomingTimestamp(props.snoozedUntil, timestampFormat)}`}
+            </Badge>
+          ) : null}
           {wait.where ? (
             <Badge variant="outline" size="sm">
               <MapPinIcon aria-hidden />
@@ -241,12 +260,9 @@ function ThreadWaitCard(props: {
             size="xs"
             variant="ghost-muted"
             disabled={!props.canSnooze}
-            onClick={props.onLater}
+            onClick={props.snoozedUntil ? props.onUnsnooze : props.onSnooze}
           >
-            Later
-          </Button>
-          <Button size="xs" variant="ghost-muted" onClick={props.onToggleNotHere}>
-            {props.notHere ? "Here again" : "Not here"}
+            {props.snoozedUntil ? "Unsnooze" : "Snooze"}
           </Button>
         </ComposerBanner.Actions>
       </ComposerBanner.Row>
