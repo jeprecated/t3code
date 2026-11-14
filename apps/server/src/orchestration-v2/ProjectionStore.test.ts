@@ -4241,6 +4241,40 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       assert.isNull(shell?.latestRunCompletedAt);
 
       const requestId = RuntimeRequestId.make("request:projection-shell-question");
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-shell-question:item"),
+        type: "turn-item.updated",
+        threadId,
+        nodeId: rootNodeId,
+        occurredAt: now,
+        payload: {
+          id: TurnItemId.make("item:projection-shell-question"),
+          type: "user_input_request",
+          threadId,
+          runId,
+          nodeId: rootNodeId,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 1,
+          status: "waiting",
+          title: null,
+          startedAt: now,
+          completedAt: null,
+          updatedAt: now,
+          requestId,
+          questions: [
+            {
+              id: "base",
+              header: "Branch",
+              question: `Which   base ${"x".repeat(200)}`,
+              options: [],
+            },
+            { id: "push", header: "Push", question: "Push it?", options: [] },
+          ],
+        },
+      });
       for (const [responseCapability, blocking] of [
         [{ type: "message" }, false],
         [{ type: "live", providerSessionId: ProviderSessionId.make("session:question") }, true],
@@ -4279,6 +4313,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
             kind: "user_input",
             createdAt: now,
             blocking,
+            title: `Which base ${"x".repeat(98)}… (+1 more)`,
           });
         }
       }

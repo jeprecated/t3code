@@ -10,22 +10,27 @@ import type {
   ProviderApprovalDecision,
 } from "@t3tools/contracts";
 
-export type CockpitRegion = "card" | "upNext" | "overview";
+export type CockpitRegion = "list" | "main";
 
-const REGIONS: ReadonlyArray<CockpitRegion> = ["card", "upNext", "overview"];
+/** The overview agent's row, pinned first in the list. */
+export const OVERVIEW_ENTRY = "overview";
 
-/** Tab and Shift+Tab: each region is one stop, and an empty one is skipped. */
-export function cycleRegion(
-  current: CockpitRegion,
-  step: 1 | -1,
-  available: (region: CockpitRegion) => boolean,
-): CockpitRegion {
-  const at = REGIONS.indexOf(current);
-  for (let offset = 1; offset < REGIONS.length; offset += 1) {
-    const candidate = REGIONS[(at + step * offset + REGIONS.length * 2) % REGIONS.length]!;
-    if (available(candidate)) return candidate;
-  }
-  return current;
+export interface CockpitSelection {
+  readonly key: string;
+  /** Where it was, so the entry that closes the gap takes over when it goes. */
+  readonly index: number;
+}
+
+/** The selected entry, or the one now at its place; the same object while nothing moved. */
+export function resolveSelection(
+  entries: ReadonlyArray<string>,
+  selection: CockpitSelection,
+): CockpitSelection {
+  const at = entries.indexOf(selection.key);
+  if (at === selection.index) return selection;
+  if (at >= 0) return { key: selection.key, index: at };
+  const index = Math.max(0, Math.min(selection.index, entries.length - 1));
+  return { key: entries[index] ?? OVERVIEW_ENTRY, index };
 }
 
 /**
@@ -55,13 +60,6 @@ export function optionIndexForKey(key: string, count: number): number | null {
   if (!/^[1-9]$/.test(key)) return null;
   const index = Number(key) - 1;
   return index < count ? index : null;
-}
-
-/** The key after `current`, else the one before it: where the cockpit goes once it is done. */
-export function keyAfter(keys: ReadonlyArray<string>, current: string): string | null {
-  const at = keys.indexOf(current);
-  if (at < 0) return keys[0] ?? null;
-  return keys[at + 1] ?? keys[at - 1] ?? null;
 }
 
 /** j/k: the neighbouring key, wrapping. */

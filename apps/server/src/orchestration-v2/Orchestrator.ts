@@ -3542,21 +3542,36 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             updatedAt: unchanged ? thread.updatedAt : now,
           };
         }
-        case "thread.waiting.set":
+        case "thread.waiting.set": {
+          const setAt = DateTime.formatIso(now);
+          const previous = thread.waiting;
+          const filedAt = Object.fromEntries(
+            command.items.map((item) => [
+              item.id,
+              previous?.filedAt?.[item.id] ??
+                (previous?.items.some((old) => old.id === item.id) ? previous.setAt : setAt),
+            ]),
+          );
           return {
             ...thread,
-            waiting:
-              command.items.length === 0
-                ? null
-                : { items: command.items, setAt: DateTime.formatIso(now) },
+            waiting: command.items.length === 0 ? null : { items: command.items, setAt, filedAt },
             updatedAt: now,
           };
+        }
         case "thread.waiting.resolve": {
           const items = (thread.waiting?.items ?? []).filter((item) => item.id !== command.waitId);
+          const filedAt =
+            thread.waiting?.filedAt === undefined
+              ? undefined
+              : Object.fromEntries(
+                  Object.entries(thread.waiting.filedAt).filter(([id]) => id !== command.waitId),
+                );
           return {
             ...thread,
             waiting:
-              thread.waiting == null || items.length === 0 ? null : { ...thread.waiting, items },
+              thread.waiting == null || items.length === 0
+                ? null
+                : { ...thread.waiting, items, ...(filedAt === undefined ? {} : { filedAt }) },
             updatedAt: now,
           };
         }

@@ -394,23 +394,27 @@ agents filed, proposed plans, failed or rate-limited runs, and your own todos. O
 **Cockpit** at the top of the sidebar, `mod+alt+y` (`cockpit.toggle`), or **Open cockpit**
 in the command palette. The count is what you can do now.
 
-It shows one task at a time, with the thread that asked, the agent's latest message, and
-any details it attached. Answer a question or approve a request right there. For a
-decision, pick an option; for a manual step or blocked work, choose **Done**, with an
-optional note; for a review, **Looks good**, or write feedback first. The agent is woken
-five seconds later, so the toast's **Undo** can take it back. Secret and link requests,
-plans and failures are handled in their thread: **Open there** jumps to the message.
+The list on the left reads like the thread sidebar: **Overview agent** first, then every
+task waiting on you, then **Snoozed**. Select an entry to see it on the right. A task shows
+the thread that asked, the agent's latest message, and any details it attached. Answer a
+question or approve a request right there. For a decision, pick an option; for a manual step
+or blocked work, choose **Done**, with an optional note; for a review, **Looks good**, or
+write feedback first. The agent is woken five seconds later, so the toast's **Undo** can
+take it back. Secret and link requests, plans and failures are handled in their thread:
+**Open there** jumps to the message. When a task is done, the next one in the list takes
+its place.
 
 **Snooze** puts one task off without snoozing its thread: pick 10 min, 30 min, 1 hour,
 18:00, tomorrow 9:00 or Monday 9:00, or type a time such as `30m`, `14:30` or
-`tomorrow 9`. Snoozes sync to your other devices. Snoozed tasks wait under **Snoozed** in
-**Up next** until their time, or until you choose **Unsnooze**. Tasks an agent gave a start
-time wait there too. In a thread, **Waiting on you** above the composer has the same
-**Snooze**, and hides snoozed tasks behind **n snoozed**.
+`tomorrow 9`. Snoozes sync to your other devices. Snoozed tasks wait under **Snoozed** at
+the bottom of the list until their time, or until you choose **Unsnooze**. Tasks an agent
+gave a start time wait there too. In a thread, **Waiting on you** above the composer has
+the same **Snooze**, and hides snoozed tasks behind **n snoozed**.
 
-Everything works from the keyboard. Tab moves between the task, **Up next** and the
-overview agent; the arrow keys move inside each. Esc leaves a text field, then closes.
-Press `?` in the cockpit to see every key as you have bound it.
+Everything works from the keyboard. Tab moves between the list and the selected entry. In
+the list, the arrow keys select and Enter goes in; in a task, they move between its
+controls. Esc goes back to the list, then closes. Press `?` in the cockpit to see every key
+as you have bound it.
 
 | Key       | Action                                                |
 | --------- | ----------------------------------------------------- |
@@ -418,21 +422,22 @@ Press `?` in the cockpit to see every key as you have bound it.
 | `1`–`9`   | Pick an option; Space toggles one that allows several |
 | `s`       | Snooze, then `1`–`6` or Tab to type a time            |
 | `o`       | Open there                                            |
-| `j` / `k` | Next / previous task; in **Up next**, the next row    |
+| `j` / `k` | Next / previous entry in the list                     |
 | `y` / `n` | Approve / deny                                        |
 | `shift+y` | Approve for this thread                               |
 | `r`       | Write a note, your own answer, or feedback            |
 | `l`       | Open the first link in the details                    |
 | `u`       | Undo the last outcome                                 |
-| `/`       | Message the overview agent                            |
+| `/`       | Select the overview agent and write to it             |
 | `?`       | Show every key                                        |
 
 Change any of them in **Settings → Keybindings**.
 
-**Start overview agent**, at the bottom right of the cockpit, creates an Overview thread.
+Select **Overview agent** and choose **Start overview agent** to create an Overview thread.
 Tell it what you did, such as "the Stripe key is in", and it resolves the matching waits and
-wakes those threads. It can also add todos for you. Every morning at 09:00 it sweeps your
-threads for asks nobody recorded; change or pause that in **Settings → Scheduled tasks**.
+wakes those threads. It can also add todos for you. Its row shows when it is working or has
+replied. Every morning at 09:00 it sweeps your threads for asks nobody recorded; change or
+pause that in **Settings → Scheduled tasks**.
 
 ## Snooze until later
 

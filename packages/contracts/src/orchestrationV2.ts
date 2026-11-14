@@ -469,6 +469,8 @@ export const OrchestrationV2ThreadWaiting = Schema.Struct({
     Schema.isMaxLength(MAX_THREAD_WAITS),
   ),
   setAt: IsoDateTime,
+  /** When each wait id was first filed; a re-set keeps it, so re-filing does not reorder queues. */
+  filedAt: Schema.optional(Schema.Record(Schema.String, IsoDateTime)),
 });
 export type OrchestrationV2ThreadWaiting = typeof OrchestrationV2ThreadWaiting.Type;
 
@@ -2184,6 +2186,8 @@ export const OrchestrationV2PendingRuntimeRequestSummary = Schema.Struct({
   createdAt: Schema.DateTimeUtc,
   /** False for async questions the run keeps working past. Absent from older servers. */
   blocking: Schema.optional(Schema.Boolean),
+  /** The question, or what is being approved, for lists. Absent from older servers. */
+  title: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(120))),
 });
 export type OrchestrationV2PendingRuntimeRequestSummary =
   typeof OrchestrationV2PendingRuntimeRequestSummary.Type;

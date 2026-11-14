@@ -704,7 +704,15 @@ it.effect(
       assert.isNull(yield* shellWaits);
 
       yield* setWaits([step, decision]);
+      const firstSetAt = (yield* projections.getThread(threadId)).waiting?.setAt;
+      yield* TestClock.adjust("1 second");
+      yield* setWaits([step, decision]);
       const setAt = (yield* projections.getThread(threadId)).waiting?.setAt;
+      assert.notEqual(setAt, firstSetAt);
+      assert.deepEqual((yield* projections.getThread(threadId)).waiting?.filedAt, {
+        switch: firstSetAt!,
+        pick: firstSetAt!,
+      });
       yield* TestClock.adjust("1 second");
       const resolve = (waitId: string) =>
         orchestrator.dispatch({ ...next(), type: "thread.waiting.resolve", waitId });
@@ -717,6 +725,7 @@ it.effect(
       assert.deepEqual((yield* projections.getThread(threadId)).waiting, {
         items: [decision],
         setAt: setAt!,
+        filedAt: { pick: firstSetAt! },
       });
       assert.equal(yield* rejected("switch"), `Thread ${threadId} is not waiting on switch.`);
       yield* resolve("pick");

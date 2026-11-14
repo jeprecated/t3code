@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
+import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ThreadStructureVisibleTurnItem } from "@t3tools/client-runtime/state/models";
 import { isThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
 import {
@@ -15,10 +15,12 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { ArrowUpIcon, BotIcon, ChevronRightIcon, CircleDashedIcon } from "lucide-react";
-import { useRef, useState, type Ref } from "react";
+import { useRef, useState } from "react";
 
 import { overviewEnvironmentIdAtom, overviewThreadKeyAtom } from "../../cockpit";
 import { cn, newMessageId } from "../../lib/utils";
+import { hasUnseenCompletion, resolveThreadLastVisitedAt } from "../Sidebar.logic";
+import { useUiStateStore } from "../../uiStateStore";
 import {
   resolveDefaultProviderModelSelection,
   resolveProjectDefaultProviderModelSelection,
@@ -34,7 +36,9 @@ import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import ChatMarkdown from "../ChatMarkdown";
+import { ThreadVisitWatermark } from "../chat/ThreadVisitWatermark";
 import { Button } from "../ui/button";
+import { Kbd } from "../ui/kbd";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 
@@ -65,37 +69,72 @@ function newThreadModelSelection(environmentId: EnvironmentId) {
     : resolveProjectDefaultProviderModelSelection(providers, settings, null);
 }
 
-/** The overview agent: its recent transcript and a composer to tell it what you did. */
-export function CockpitOverview({ regionRef }: { readonly regionRef: Ref<HTMLElement> }) {
+/** The overview thread, once the user has started one and while it is not archived. */
+export function useOverviewThread() {
   const environmentId = useAtomValue(overviewEnvironmentIdAtom);
   const overviewKey = useAtomValue(overviewThreadKeyAtom);
   const threadRef = overviewKey === null ? null : parseScopedThreadKey(overviewKey);
   const shell = useQuietThreadShell(threadRef);
   const live = shell !== null && shell.archivedAt === null && shell.deletedAt === null;
+  return {
+    environmentId,
+    threadRef: live ? threadRef : null,
+    shell: live ? shell : null,
+  };
+}
 
+export type OverviewStatus = "notStarted" | "working" | "unread" | "idle";
+
+export function useOverviewStatus(): OverviewStatus {
+  const { threadRef, shell } = useOverviewThread();
+  const localLastVisitedAt = useUiStateStore((state) =>
+    threadRef === null ? undefined : state.threadLastVisitedAtById[scopedThreadKey(threadRef)],
+  );
+  if (shell === null) return "notStarted";
+  if (isThreadWorking(shell)) return "working";
+  const lastVisitedAt = resolveThreadLastVisitedAt(shell.lastVisitedAt, localLastVisitedAt);
+  return hasUnseenCompletion({ ...shell, lastVisitedAt }) ? "unread" : "idle";
+}
+
+/** The overview agent in the main pane: its transcript and a composer to tell it what you did. */
+export function CockpitOverview(props: {
+  readonly openThreadLabel: string | null;
+  readonly onOpenThread: () => void;
+}) {
+  const { environmentId, threadRef, shell } = useOverviewThread();
   return (
     <section
-      ref={regionRef}
-      data-cockpit-region="overview"
+      tabIndex={-1}
+      data-cockpit-region="main"
       aria-label="Overview agent"
-      className="flex min-h-0 flex-col"
+      className="flex h-full min-h-0 flex-col outline-none"
     >
-      <h3 className="flex items-center gap-1.5 border-b px-3 py-2 text-xs font-semibold">
-        <BotIcon aria-hidden className="size-3.5" />
-        Overview agent
-        {live && isThreadWorking(shell) ? (
-          <span className="ms-auto inline-flex items-center gap-1 font-normal text-info-foreground">
+      <header className="flex items-center gap-2 border-b px-6 py-3">
+        <BotIcon aria-hidden className="size-4" />
+        <h3 className="text-sm font-semibold">Overview agent</h3>
+        {shell !== null && isThreadWorking(shell) ? (
+          <span className="inline-flex items-center gap-1 text-xs text-info-foreground">
             <CircleDashedIcon aria-hidden className="size-3" />
             Working
           </span>
         ) : null}
-      </h3>
-      {live && threadRef !== null ? (
-        <OverviewThread
-          threadRef={threadRef}
-          runtimeMode={shell.runtimeMode}
-          interactionMode={shell.interactionMode}
-        />
+        <span className="flex-1" />
+        {threadRef !== null ? (
+          <Button size="xs" variant="ghost" data-roving onClick={props.onOpenThread}>
+            Open thread
+            {props.openThreadLabel ? <Kbd>{props.openThreadLabel}</Kbd> : null}
+          </Button>
+        ) : null}
+      </header>
+      {threadRef !== null && shell !== null ? (
+        <>
+          <ThreadVisitWatermark threadRef={threadRef} />
+          <OverviewThread
+            threadRef={threadRef}
+            runtimeMode={shell.runtimeMode}
+            interactionMode={shell.interactionMode}
+          />
+        </>
       ) : environmentId !== null ? (
         <StartOverview environmentId={environmentId} />
       ) : null}
@@ -109,7 +148,7 @@ function StartOverview(props: { readonly environmentId: EnvironmentId }) {
   const start = useAtomCommand(serverEnvironment.startOverview, { reportFailure: false });
   const [starting, setStarting] = useState(false);
   return (
-    <div className="flex flex-1 flex-col items-start gap-2 p-3 text-sm text-muted-foreground">
+    <div className="flex max-w-190 flex-col items-start gap-3 px-6 py-5 text-sm text-muted-foreground">
       <p>
         Tell it what you did, such as “the Stripe key is in”, and it resolves the matching waits and
         wakes those threads. It also sweeps your threads every morning for asks nobody recorded.
@@ -118,7 +157,7 @@ function StartOverview(props: { readonly environmentId: EnvironmentId }) {
         size="sm"
         variant="outline"
         data-roving
-        data-cockpit-entry
+        data-cockpit-composer
         disabled={!canStart || starting}
         onClick={async () => {
           setStarting(true);
@@ -187,12 +226,14 @@ function OverviewThread(props: {
   const lastId = items.at(-1)?.item.id;
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-sm">
-        {items.length === 0 ? (
-          <p className="text-muted-foreground">No messages yet.</p>
-        ) : (
-          items.map((row) => <TranscriptRow key={row.item.id} threadRef={threadRef} row={row} />)
-        )}
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4 text-sm">
+        <div className="max-w-190">
+          {items.length === 0 ? (
+            <p className="text-muted-foreground">No messages yet.</p>
+          ) : (
+            items.map((row) => <TranscriptRow key={row.item.id} threadRef={threadRef} row={row} />)
+          )}
+        </div>
         {/* Remounts with each new item, so the transcript opens and stays at its end. */}
         <div
           key={lastId}
@@ -202,57 +243,59 @@ function OverviewThread(props: {
           }}
         />
       </div>
-      <div className="flex flex-col gap-1.5 border-t p-2">
-        <div className="flex flex-wrap gap-1">
-          {QUICK_PROMPTS.map((prompt) => (
+      <div className="border-t px-6 py-3">
+        <div className="flex max-w-190 flex-col gap-2">
+          <div className="flex flex-wrap gap-1">
+            {QUICK_PROMPTS.map((prompt) => (
+              <Button
+                key={prompt}
+                size="xs"
+                variant="outline"
+                data-roving
+                disabled={sending}
+                onClick={() => void send(prompt)}
+              >
+                {prompt}
+              </Button>
+            ))}
             <Button
-              key={prompt}
               size="xs"
               variant="outline"
               data-roving
-              disabled={sending}
-              onClick={() => void send(prompt)}
+              onClick={() => {
+                setText(ADD_TODO_PREFIX);
+                textareaRef.current?.focus();
+              }}
             >
-              {prompt}
+              Add todo…
             </Button>
-          ))}
-          <Button
-            size="xs"
-            variant="outline"
-            data-roving
-            onClick={() => {
-              setText(ADD_TODO_PREFIX);
-              textareaRef.current?.focus();
-            }}
-          >
-            Add todo…
-          </Button>
-        </div>
-        <div className="flex items-end gap-1.5">
-          <Textarea
-            ref={textareaRef}
-            size="sm"
-            data-roving
-            data-cockpit-entry
-            aria-label="Message the overview agent"
-            placeholder="Tell the overview agent what you did…"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
-              event.preventDefault();
-              void send(text);
-            }}
-          />
-          <Button
-            size="icon-sm"
-            aria-label="Send"
-            data-roving
-            disabled={sending || !text.trim()}
-            onClick={() => void send(text)}
-          >
-            <ArrowUpIcon />
-          </Button>
+          </div>
+          <div className="flex items-end gap-1.5">
+            <Textarea
+              ref={textareaRef}
+              data-roving
+              data-cockpit-composer
+              aria-label="Message the overview agent"
+              placeholder="Tell the overview agent what you did…"
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing)
+                  return;
+                event.preventDefault();
+                void send(text);
+              }}
+            />
+            <Button
+              size="icon-sm"
+              aria-label="Send"
+              data-roving
+              disabled={sending || !text.trim()}
+              onClick={() => void send(text)}
+            >
+              <ArrowUpIcon />
+            </Button>
+          </div>
         </div>
       </div>
     </>

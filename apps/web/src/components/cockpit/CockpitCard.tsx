@@ -328,8 +328,10 @@ export function CockpitCard({
 
   return (
     <article
+      tabIndex={-1}
+      data-cockpit-region="main"
       aria-label={`${kindLabel}: ${item.title}`}
-      className="mx-auto flex w-full max-w-3xl flex-col gap-3 rounded-xl border bg-card p-5"
+      className="flex w-full flex-col gap-3 rounded-xl border bg-card p-5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span

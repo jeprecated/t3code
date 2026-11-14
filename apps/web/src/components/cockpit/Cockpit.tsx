@@ -7,6 +7,7 @@ import {
   COCKPIT_KEYBINDING_COMMANDS,
   type CockpitKeybindingCommand,
   type KeybindingCommand,
+  type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { TASK_SNOOZE_PRESETS } from "@t3tools/contracts/settings";
 import { useRouter } from "@tanstack/react-router";
@@ -14,13 +15,11 @@ import { useEffect, useEffectEvent, useRef, useState, type KeyboardEvent } from 
 import { flushSync } from "react-dom";
 
 import { useCockpitQueue } from "../../cockpit";
-import { COCKPIT_KINDS } from "../../cockpitKinds";
 import { setCockpitOpen, useCockpitStore } from "../../cockpitStore";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { assistantCitationNavigation } from "../../lib/assistantCitationNavigation";
 import { isEditableFocused } from "../../lib/editableFocus";
-import { cn } from "../../lib/utils";
 import { registerCommands } from "../../shortcuts/dispatcher";
 import { useQuietThreadProjection, useQuietThreadShell } from "../../state/entities";
 import { primaryServerKeybindingsAtom } from "../../state/server";
@@ -34,18 +33,19 @@ import { Dialog, DialogPopup } from "../ui/dialog";
 import { Kbd } from "../ui/kbd";
 import { toastManager } from "../ui/toast";
 import { CockpitCard, cardHasReply, type CockpitCardHandle } from "./CockpitCard";
-import { CockpitOverview } from "./CockpitOverview";
-import { CockpitUpNext } from "./CockpitUpNext";
+import { CockpitList } from "./CockpitList";
+import { CockpitOverview, useOverviewThread } from "./CockpitOverview";
 import {
   citationQuote,
   cockpitCardCommands,
-  cycleRegion,
   detailLinks,
-  keyAfter,
+  OVERVIEW_ENTRY,
   resolveCockpitCard,
+  resolveSelection,
   rovingTarget,
   stepKey,
   type CockpitRegion,
+  type CockpitSelection,
 } from "./cockpit.logic";
 
 const LABEL_CONTEXT = { context: { cockpitOpen: true, editableFocus: false } } as const;
@@ -54,31 +54,31 @@ const COMMAND_DESCRIPTIONS: Record<CockpitKeybindingCommand | "cockpit.toggle", 
   "cockpit.toggle": "Open or close the cockpit",
   "cockpit.primary": "Done: answer, approve, resolve or complete the task",
   "cockpit.snooze": "Snooze the task",
-  "cockpit.openThere": "Open its thread at the message",
-  "cockpit.next": "Next task; in Up next, the next row",
-  "cockpit.previous": "Previous task; in Up next, the previous row",
+  "cockpit.openThere": "Open its thread at the message; on the overview agent, its thread",
+  "cockpit.next": "Next entry in the list",
+  "cockpit.previous": "Previous entry in the list",
   "cockpit.approve": "Approve",
   "cockpit.approveForThread": "Approve for this thread",
   "cockpit.deny": "Deny",
   "cockpit.reply": "Write a note, your own answer, or feedback",
   "cockpit.openLink": "Open the first link in the details",
   "cockpit.undo": "Undo the last outcome",
-  "cockpit.focusOverview": "Message the overview agent",
+  "cockpit.focusOverview": "Select the overview agent and write to it",
   "cockpit.help": "Show or hide these keys",
 };
 
 const FIXED_KEYS: ReadonlyArray<readonly [string, string]> = [
   ["1–9", "Pick an option"],
   ["Space", "Toggle an option that allows several"],
-  ["Enter", "Send the answer or note; in Up next, open the row"],
-  ["Tab / Shift+Tab", "Move between the card, Up next and the overview agent"],
-  ["Arrows", "Move within an area"],
-  ["Esc", "Leave a field, then close"],
+  ["Enter", "In the list, go into the entry; in a field, send"],
+  ["Tab / Shift+Tab", "Move between the list and the selected entry"],
+  ["Arrows", "In the list, select; in the entry, move between its controls"],
+  ["Esc", "Back to the list, then close"],
 ];
 
 function regionOf(element: Element | null): CockpitRegion | null {
   const region = element?.closest("[data-cockpit-region]")?.getAttribute("data-cockpit-region");
-  return region === "card" || region === "upNext" || region === "overview" ? region : null;
+  return region === "list" || region === "main" ? region : null;
 }
 
 function rovingItems(region: Element): HTMLElement[] {
@@ -86,6 +86,9 @@ function rovingItems(region: Element): HTMLElement[] {
     (element) => !(element as HTMLButtonElement).disabled,
   );
 }
+
+const selectedRow = (root: Element | null | undefined) =>
+  root?.querySelector<HTMLElement>('[data-cockpit-region="list"] [aria-current="true"]') ?? null;
 
 /** Mounted with the app; the cockpit itself mounts only while open. */
 export function CockpitHost() {
@@ -106,15 +109,15 @@ export function CockpitHost() {
             return;
           }
           const active = document.activeElement;
-          const card = popupRef.current?.querySelector<HTMLElement>('[data-cockpit-region="card"]');
+          const row = selectedRow(popupRef.current);
           if (
-            card &&
-            active !== card &&
+            row &&
+            active !== row &&
             popupRef.current?.contains(active) &&
-            (isEditableFocused(active) || regionOf(active) !== "card")
+            regionOf(active) !== "list"
           ) {
             details.cancel();
-            card.focus();
+            row.focus();
             return;
           }
         }
@@ -126,9 +129,7 @@ export function CockpitHost() {
         aria-label="Cockpit"
         showCloseButton={false}
         className="h-[92vh] w-[92vw] max-w-[92vw]"
-        initialFocus={() =>
-          popupRef.current?.querySelector<HTMLElement>('[data-cockpit-region="card"]') ?? true
-        }
+        initialFocus={() => selectedRow(popupRef.current) ?? true}
         finalFocus={() => {
           const target = useCockpitStore.getState().returnFocus;
           if (target instanceof HTMLElement && target.isConnected) target.focus();
@@ -144,29 +145,44 @@ export function CockpitHost() {
 function Cockpit() {
   const router = useRouter();
   const queue = useCockpitQueue();
+  const overview = useOverviewThread();
   const nowMs = Date.parse(`${useNowMinute()}:00.000Z`);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const helpOpen = useCockpitStore((state) => state.helpOpen);
-  const [currentKey, setCurrentKey] = useState<string | null>(null);
   const [acted, setActed] = useState<ReadonlySet<string>>(() => new Set());
   const [snoozedExpanded, setSnoozedExpanded] = useState(false);
   const [snoozing, setSnoozing] = useState<{
     readonly item: CockpitItem;
     readonly returnFocus: Element | null;
   } | null>(null);
-  const [focusedRegion, setFocusedRegion] = useState<CockpitRegion>("card");
+  const [focused, setFocused] = useState<{
+    readonly region: CockpitRegion;
+    readonly field: boolean;
+  }>({
+    region: "list",
+    field: false,
+  });
   const lastUndo = useRef<{ readonly key: string; readonly undo: UndoOutcome } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const cardRegionRef = useRef<HTMLDivElement>(null);
   const cardHandle = useRef<CockpitCardHandle>(null);
-  const upNextRef = useRef<HTMLDivElement>(null);
-  const overviewRef = useRef<HTMLElement>(null);
 
   const now = queue.now.filter((item) => !acted.has(item.key));
-  const keys = now.map((item) => item.key);
-  const current =
-    [...now, ...queue.snoozed].find((item) => item.key === currentKey) ?? now[0] ?? null;
-  const next = now.filter((item) => item !== current);
+  const entries = [
+    OVERVIEW_ENTRY,
+    ...now.map((item) => item.key),
+    ...(snoozedExpanded ? queue.snoozed.map((item) => item.key) : []),
+  ];
+  // Reopening keeps the last entry; otherwise the first task, just after the overview.
+  const [storedSelection, setSelection] = useState<CockpitSelection>(() => ({
+    key: useCockpitStore.getState().lastSelectedKey ?? "",
+    index: 1,
+  }));
+  const selection = resolveSelection(entries, storedSelection);
+  if (selection !== storedSelection) setSelection(selection);
+  const onOverview = selection.key === OVERVIEW_ENTRY;
+  const current = onOverview
+    ? null
+    : ([...now, ...queue.snoozed].find((item) => item.key === selection.key) ?? null);
 
   const threadRef =
     current?.threadId == null ? null : scopeThreadRef(current.environmentId, current.threadId);
@@ -203,45 +219,58 @@ function Cockpit() {
       null,
     );
 
-  const focusCard = () => cardRegionRef.current?.focus();
+  const mainElement = () =>
+    rootRef.current?.querySelector<HTMLElement>('[data-cockpit-region="main"]') ?? null;
   const focusRegion = (region: CockpitRegion) => {
-    if (region === "card") focusCard();
-    else if (region === "upNext") {
-      const items = upNextRef.current ? rovingItems(upNextRef.current) : [];
-      const currentRow = items.find((element) => element.dataset.cockpitItem === current?.key);
-      (currentRow ?? items[0])?.focus();
-    } else {
-      overviewRef.current?.querySelector<HTMLElement>("[data-cockpit-entry]")?.focus();
+    if (region === "list") {
+      selectedRow(rootRef.current)?.focus();
+      return;
     }
-  };
-  const regionAvailable = (region: CockpitRegion) => {
-    const element = region === "upNext" ? upNextRef.current : overviewRef.current;
-    return region === "card" || (element !== null && rovingItems(element).length > 0);
-  };
-  /** After an outcome, unless the user already moved to another area. */
-  const refocusCard = () => {
-    const region = regionOf(document.activeElement);
-    if (region === null || region === "card") focusCard();
+    const main = mainElement();
+    // On the overview agent, going in means writing to it.
+    (main?.querySelector<HTMLElement>("[data-cockpit-composer]") ?? main)?.focus();
   };
 
-  const select = (key: string) => {
-    flushSync(() => setCurrentKey(key));
-    focusCard();
+  const selectInPlace = (key: string) => {
+    if (key === selection.key && key === storedSelection.key) return;
+    const at = entries.indexOf(key);
+    setSelection({ key, index: at < 0 ? selection.index : at });
+    useCockpitStore.setState({ lastSelectedKey: key });
+  };
+  /** Moves the selection; focus stays in the region it was in. */
+  const select = (key: string, focusIn = regionOf(document.activeElement)) => {
+    flushSync(() => selectInPlace(key));
+    const row = selectedRow(rootRef.current);
+    row?.scrollIntoView({ block: "nearest" });
+    if (focusIn === "list") row?.focus();
+    else if (focusIn === "main") mainElement()?.focus();
   };
   const step = (direction: 1 | -1) => {
-    const target = stepKey(keys, current?.key ?? null, direction);
+    const target = stepKey(entries, selection.key, direction);
     if (target !== null) select(target);
   };
   const finish = (item: CockpitItem, undo: UndoOutcome | null) => {
+    const region = regionOf(document.activeElement) ?? "main";
     flushSync(() => {
       setActed((previous) => new Set(previous).add(item.key));
       // An answer can land after the user stepped elsewhere; stay where they are then.
-      setCurrentKey((previous) =>
-        (previous ?? keys[0]) === item.key ? keyAfter(keys, item.key) : previous,
+      setSelection((previous) =>
+        previous.key === item.key
+          ? resolveSelection(
+              entries.filter((key) => key !== item.key),
+              previous,
+            )
+          : previous,
       );
     });
     lastUndo.current = undo === null ? null : { key: item.key, undo };
-    refocusCard();
+    if (
+      !rootRef.current?.contains(document.activeElement) ||
+      regionOf(document.activeElement) === null
+    ) {
+      if (region === "list") selectedRow(rootRef.current)?.focus();
+      else mainElement()?.focus();
+    }
   };
   const undoLast = () => {
     const last = lastUndo.current;
@@ -251,40 +280,43 @@ function Cockpit() {
     }
     lastUndo.current = null;
     last.undo();
-    flushSync(() => {
+    flushSync(() =>
       setActed((previous) => {
         const nextActed = new Set(previous);
         nextActed.delete(last.key);
         return nextActed;
-      });
-      setCurrentKey(last.key);
-    });
-    focusCard();
+      }),
+    );
+    select(last.key);
+  };
+  const openThread = (ref: ScopedThreadRef) => {
+    useCockpitStore.setState({ open: false, returnFocus: null });
+    void router.navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) });
   };
   const openThere = (item: CockpitItem, threadShell: EnvironmentThreadShell | null) => {
     if (item.threadId === null) return;
-    useCockpitStore.setState({ open: false, returnFocus: null });
     const ref = scopeThreadRef(item.environmentId, item.threadId);
     const message = threadShell?.source.latestVisibleMessage;
     const quote = message?.role === "assistant" ? citationQuote(message.text) : null;
-    if (message && quote !== null) {
-      const start = Math.max(0, message.text.indexOf(quote));
-      void router.navigate(
-        assistantCitationNavigation({
-          version: 1,
-          environmentId: item.environmentId,
-          threadId: item.threadId,
-          messageId: message.id,
-          text: quote,
-          start,
-          end: start + quote.length,
-          prefix: "",
-          suffix: "",
-        }),
-      );
+    if (!message || quote === null) {
+      openThread(ref);
       return;
     }
-    void router.navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) });
+    useCockpitStore.setState({ open: false, returnFocus: null });
+    const start = Math.max(0, message.text.indexOf(quote));
+    void router.navigate(
+      assistantCitationNavigation({
+        version: 1,
+        environmentId: item.environmentId,
+        threadId: item.threadId,
+        messageId: message.id,
+        text: quote,
+        start,
+        end: start + quote.length,
+        prefix: "",
+        suffix: "",
+      }),
+    );
   };
   const snooze = async (item: CockpitItem, snoozedUntil: string) => {
     const undo = await snoozeTask({
@@ -298,31 +330,24 @@ function Cockpit() {
   const runCommand = useEffectEvent((command: CockpitKeybindingCommand): boolean => {
     switch (command) {
       case "cockpit.next":
-      case "cockpit.previous": {
-        const direction = command === "cockpit.next" ? 1 : -1;
-        const active = document.activeElement;
-        const upNext = upNextRef.current;
-        if (upNext !== null && regionOf(active) === "upNext") {
-          const items = rovingItems(upNext);
-          const at = items.indexOf(active as HTMLElement);
-          const target = rovingTarget(at, items.length, direction === 1 ? "ArrowDown" : "ArrowUp");
-          if (target !== null) items[target]?.focus();
-          return true;
-        }
-        step(direction);
+      case "cockpit.previous":
+        step(command === "cockpit.next" ? 1 : -1);
         return true;
-      }
       case "cockpit.undo":
         undoLast();
         return true;
       case "cockpit.focusOverview":
-        focusRegion("overview");
+        select(OVERVIEW_ENTRY, null);
+        focusRegion("main");
         return true;
       case "cockpit.help":
         useCockpitStore.setState({ helpOpen: !useCockpitStore.getState().helpOpen });
         return true;
       default:
-        return cardHandle.current?.run(command) ?? false;
+        if (!onOverview) return cardHandle.current?.run(command) ?? false;
+        if (command !== "cockpit.openThere" || overview.threadRef === null) return false;
+        openThread(overview.threadRef);
+        return true;
     }
   });
   const blocked = useEffectEvent(() => snoozing !== null);
@@ -354,9 +379,7 @@ function Cockpit() {
     if (event.nativeEvent.isComposing || event.defaultPrevented) return;
     if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
-      focusRegion(
-        cycleRegion(regionOf(target) ?? "card", event.shiftKey ? -1 : 1, regionAvailable),
-      );
+      focusRegion(regionOf(target) === "list" ? "main" : "list");
       return;
     }
     if (event.altKey || event.ctrlKey || event.metaKey) return;
@@ -367,6 +390,11 @@ function Cockpit() {
     }
     const regionElement = target.closest("[data-cockpit-region]");
     if (regionElement === null) return;
+    if (event.key === "Enter" && target.dataset.cockpitRow !== undefined) {
+      event.preventDefault();
+      focusRegion("main");
+      return;
+    }
     // A field keeps its arrows, except to step out of it while it is empty.
     if (
       editable &&
@@ -377,6 +405,7 @@ function Cockpit() {
     ) {
       return;
     }
+    // In the list, focus is the selection: each row selects itself as it gains focus.
     const items = rovingItems(regionElement);
     const at = items.indexOf(target.closest<HTMLElement>("[data-roving]") ?? target);
     const goTo = rovingTarget(at, items.length, event.key);
@@ -387,32 +416,43 @@ function Cockpit() {
 
   const hintKey = (...commands: ReadonlyArray<KeybindingCommand>) =>
     commands.flatMap((command) => keyLabel(command) ?? []).join(" ") || null;
+  const moveHints: ReadonlyArray<readonly [string | null, string]> = [
+    [
+      [hintKey("cockpit.next", "cockpit.previous"), focused.region === "list" ? "↑↓" : null]
+        .filter(Boolean)
+        .join(" / ") || null,
+      "Move",
+    ],
+    ["Tab", focused.region === "list" ? "Go in" : "To the list"],
+  ];
   const hints: ReadonlyArray<readonly [string | null, string]> =
-    focusedRegion === "upNext"
+    onOverview && focused.region === "main" && focused.field
       ? [
-          [[hintKey("cockpit.next", "cockpit.previous"), "↑↓"].filter(Boolean).join(" / "), "Move"],
-          ["Enter", "Open"],
-          ["Tab", "Next area"],
-          ["Esc", "Back to the card"],
+          ["Enter", "Send"],
+          ["Shift+Enter", "New line"],
+          ["↑", "Quick prompts, when empty"],
+          ["Tab", "To the list"],
+          ["Esc", "Back to the list"],
         ]
-      : focusedRegion === "overview"
-        ? [
-            ["Enter", "Send"],
-            ["Shift+Enter", "New line"],
-            ["↑", "Quick prompts, when empty"],
-            ["Tab", "Next area"],
-            ["Esc", "Back to the card"],
-          ]
-        : [
-            ...cardCommands.map(
-              (command) => [hintKey(command), COMMAND_SHORT_LABELS[command]] as const,
-            ),
-            ...(optionCount > 0 ? [[`1–${Math.min(9, optionCount)}`, "Pick"] as const] : []),
-            [hintKey("cockpit.previous", "cockpit.next"), "Back / Skip"],
-            [hintKey("cockpit.focusOverview"), "Overview agent"],
-            [hintKey("cockpit.help"), "All keys"],
-            ["Esc", "Close"],
-          ];
+      : [
+          ...(onOverview
+            ? [
+                [hintKey("cockpit.focusOverview"), "Write to it"] as const,
+                ...(overview.threadRef === null
+                  ? []
+                  : [[hintKey("cockpit.openThere"), "Open thread"] as const]),
+              ]
+            : [
+                ...cardCommands.map(
+                  (command) => [hintKey(command), COMMAND_SHORT_LABELS[command]] as const,
+                ),
+                ...(optionCount > 0 ? [[`1–${Math.min(9, optionCount)}`, "Pick"] as const] : []),
+                [hintKey("cockpit.focusOverview"), "Overview agent"] as const,
+              ]),
+          ...moveHints,
+          [hintKey("cockpit.help"), "All keys"],
+          ["Esc", focused.region === "list" ? "Close" : "Back to the list"],
+        ];
 
   return (
     <div
@@ -421,98 +461,76 @@ function Cockpit() {
       onKeyDown={onKeyDown}
       onFocus={(event) => {
         const region = regionOf(event.target);
-        if (region !== null && region !== focusedRegion) setFocusedRegion(region);
+        const field = isEditableFocused(event.target);
+        if (region !== null && (region !== focused.region || field !== focused.field)) {
+          setFocused({ region, field });
+        }
       }}
     >
-      <header className="flex flex-col gap-2.5 border-b px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <h2 className="text-sm font-semibold">Cockpit</h2>
-          <span className="text-sm text-muted-foreground">
-            <span className="font-semibold text-foreground tabular-nums">{now.length}</span> waiting
-            on you
-            {longest ? (
-              <>
-                {" "}
-                · longest{" "}
-                <span className="font-semibold text-foreground tabular-nums">
-                  {formatElapsedDurationLabel(longest.since, nowMs)}
-                </span>
-              </>
-            ) : null}
-          </span>
-          <span className="flex-1" />
-          <Button size="xs" variant="ghost" onClick={() => setCockpitOpen(false)}>
-            Close
-            <Kbd>Esc</Kbd>
-          </Button>
-        </div>
-        {now.length > 0 ? (
-          <div className="flex gap-0.5" aria-hidden>
-            {now.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                tabIndex={-1}
-                className={cn(
-                  "h-2 min-w-1 flex-1 cursor-pointer rounded-sm opacity-70",
-                  COCKPIT_KINDS[item.kind].barClassName,
-                  item === current && "opacity-100 ring-2 ring-foreground ring-inset",
-                )}
-                onClick={() => select(item.key)}
-              />
-            ))}
-          </div>
-        ) : null}
+      <header className="flex flex-wrap items-center gap-2.5 border-b px-4 py-3">
+        <h2 className="text-sm font-semibold">Cockpit</h2>
+        <span className="text-sm text-muted-foreground">
+          <span className="font-semibold text-foreground tabular-nums">{now.length}</span> waiting
+          on you
+          {longest ? (
+            <>
+              {" "}
+              · longest{" "}
+              <span className="font-semibold text-foreground tabular-nums">
+                {formatElapsedDurationLabel(longest.since, nowMs)}
+              </span>
+            </>
+          ) : null}
+        </span>
+        <span className="flex-1" />
+        <Button size="xs" variant="ghost" onClick={() => setCockpitOpen(false)}>
+          Close
+          <Kbd>Esc</Kbd>
+        </Button>
       </header>
 
-      <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_340px] max-md:grid-cols-1">
-        <div className="min-h-0 overflow-y-auto px-6 py-5">
-          <div
-            ref={cardRegionRef}
-            tabIndex={-1}
-            data-cockpit-region="card"
-            className="rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-          >
-            {current !== null && card !== null ? (
-              <CockpitCard
-                key={current.key}
-                ref={cardHandle}
-                item={current}
-                card={card}
-                shell={shell}
-                structure={structure}
-                nowMs={nowMs}
-                keyLabel={keyLabel}
-                onOutcome={(outcome) => finish(current, outcome.undo)}
-                onSnooze={() => setSnoozing({ item: current, returnFocus: document.activeElement })}
-                onUnsnooze={() => void clearTaskSnooze(current.environmentId, current.taskKey)}
-                onOpenThere={() => openThere(current, shell)}
-                onStep={step}
-              />
-            ) : (
-              <div className="flex flex-col items-center gap-2 py-16 text-center text-sm text-muted-foreground">
-                <p className="text-base font-medium text-foreground">Nothing is waiting on you.</p>
-                <p>Snoozed tasks come back on their own.</p>
-                <Button size="sm" variant="outline" onClick={() => setCockpitOpen(false)}>
-                  Close cockpit
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
-        <aside className="grid min-h-0 grid-rows-[minmax(0,42%)_minmax(0,1fr)] border-s max-md:border-s-0 max-md:border-t">
-          <CockpitUpNext
-            regionRef={upNextRef}
-            next={next}
-            snoozed={queue.snoozed}
-            snoozedExpanded={snoozedExpanded}
-            nowMs={nowMs}
-            onToggleSnoozed={() => setSnoozedExpanded((value) => !value)}
-            onSelect={(item) => select(item.key)}
-            onUnsnooze={(item) => void clearTaskSnooze(item.environmentId, item.taskKey)}
+      <div className="grid min-h-0 grid-cols-[288px_minmax(0,1fr)] max-md:grid-cols-1 max-md:grid-rows-[minmax(0,40%)_minmax(0,1fr)]">
+        <CockpitList
+          now={now}
+          snoozed={queue.snoozed}
+          snoozedExpanded={snoozedExpanded}
+          selectedKey={selection.key}
+          nowMs={nowMs}
+          onToggleSnoozed={() => setSnoozedExpanded((value) => !value)}
+          onSelect={selectInPlace}
+        />
+        {onOverview ? (
+          <CockpitOverview
+            openThreadLabel={keyLabel("cockpit.openThere")}
+            onOpenThread={() => {
+              if (overview.threadRef !== null) openThread(overview.threadRef);
+            }}
           />
-          <CockpitOverview regionRef={overviewRef} />
-        </aside>
+        ) : (
+          <div className="min-h-0 overflow-y-auto px-6 py-5">
+            {current !== null && card !== null ? (
+              <div className="max-w-190">
+                <CockpitCard
+                  key={current.key}
+                  ref={cardHandle}
+                  item={current}
+                  card={card}
+                  shell={shell}
+                  structure={structure}
+                  nowMs={nowMs}
+                  keyLabel={keyLabel}
+                  onOutcome={(outcome) => finish(current, outcome.undo)}
+                  onSnooze={() =>
+                    setSnoozing({ item: current, returnFocus: document.activeElement })
+                  }
+                  onUnsnooze={() => void clearTaskSnooze(current.environmentId, current.taskKey)}
+                  onOpenThere={() => openThere(current, shell)}
+                  onStep={step}
+                />
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
 
       <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t px-4 py-2 text-xs text-muted-foreground">
@@ -556,8 +574,8 @@ const COMMAND_SHORT_LABELS: Record<CockpitKeybindingCommand, string> = {
   "cockpit.primary": "Done",
   "cockpit.snooze": "Snooze",
   "cockpit.openThere": "Open there",
-  "cockpit.next": "Skip",
-  "cockpit.previous": "Back",
+  "cockpit.next": "Next",
+  "cockpit.previous": "Previous",
   "cockpit.approve": "Approve",
   "cockpit.approveForThread": "For this thread",
   "cockpit.deny": "Deny",

@@ -5,7 +5,9 @@ export const useCockpitStore = create<{
   /** Focus goes back here on close, unless the cockpit navigated away. */
   readonly returnFocus: Element | null;
   readonly helpOpen: boolean;
-}>(() => ({ open: false, returnFocus: null, helpOpen: false }));
+  /** The list's selection, kept for reopening in this session. */
+  readonly lastSelectedKey: string | null;
+}>(() => ({ open: false, returnFocus: null, helpOpen: false, lastSelectedKey: null }));
 
 export function setCockpitOpen(open: boolean) {
   if (open === useCockpitStore.getState().open) return;

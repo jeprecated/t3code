@@ -130,14 +130,14 @@ function liveAsk(thread: EnvironmentThreadShell): Ask | null {
   if (thread.hasPendingApprovals) {
     return {
       kind: "approval",
-      title: APPROVAL_TITLES[request?.kind ?? ""] ?? "Approve a request",
+      title: request?.title ?? APPROVAL_TITLES[request?.kind ?? ""] ?? "Approve a request",
       since,
       requestId,
     };
   }
   // Secret and link cards arrive as questions too; the shell cannot tell them apart.
   if (thread.hasPendingUserInput) {
-    return { kind: "question", title: "Answer the agent", since, requestId };
+    return { kind: "question", title: request?.title ?? "Answer the agent", since, requestId };
   }
   if (thread.pendingSubagentRequest === "approval") {
     return { kind: "approval", title: "A subagent needs approval", since, requestId: null };
@@ -268,7 +268,7 @@ export function deriveCockpitQueue(input: CockpitQueueInput): CockpitQueue {
           taskKey: taskWaitKey(thread.id, wait.id),
           kind: wait.kind,
           title: wait.summary,
-          since: waiting?.setAt ?? thread.updatedAt,
+          since: waiting?.filedAt?.[wait.id] ?? waiting?.setAt ?? thread.updatedAt,
           where: wait.where ?? null,
           notBefore: wait.notBefore ?? null,
           wait,
