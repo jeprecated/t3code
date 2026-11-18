@@ -498,6 +498,11 @@ T3_RUNTIME_DIR="$HOME/.t3/runtime/versions/$T3_ARCHIVE_VERSION"
 t3_runtime_ready() {
   [ -x "$T3_RUNTIME_DIR/t3" ] && [ "$(cat "$T3_RUNTIME_DIR/.install-complete" 2>/dev/null)" = "$T3_ARCHIVE_VERSION" ]
 }
+# Fork: a host with its own t3 runs that rather than download this exact
+# version. The fork publishes no releases, and hosts may run different builds.
+if ! t3_runtime_ready && T3_HOST_T3="$(command -v t3 2>/dev/null)"; then
+  exec "$T3_HOST_T3" "$@"
+fi
 if ! t3_runtime_ready; then
   mkdir -p "$HOME/.t3/runtime/versions"
   T3_LOCK="$HOME/.t3/runtime/versions/.$T3_ARCHIVE_VERSION.install.lock"
@@ -615,6 +620,30 @@ LAUNCHER_ID="\${2:-}"
 STATE_DIR="$HOME/.t3/ssh-launch/$STATE_KEY"
 DEFAULT_SERVER_HOME="$HOME/.t3"
 DEFAULT_RUNTIME_FILE="$DEFAULT_SERVER_HOME/userdata/server-runtime.json"
+if [ -e "$DEFAULT_SERVER_HOME/@@T3_ATTACH_ONLY_FILE@@" ]; then
+  # The host's own T3 Code owns its server. A client may tunnel to the one
+  # running, but never installs, starts or replaces one, so an older client
+  # cannot take the port or rewrite settings while that app restarts. Plain
+  # shell reads the runtime file because the client's runtime is not installed.
+  RUNTIME_JSON="$(tr -d ' \\t\\r\\n' <"$DEFAULT_RUNTIME_FILE" 2>/dev/null || true)"
+  ATTACH_PID="$(printf '%s' "$RUNTIME_JSON" | sed -n 's/.*"pid":\\([0-9][0-9]*\\).*/\\1/p')"
+  ATTACH_PORT="$(printf '%s' "$RUNTIME_JSON" | sed -n 's/.*"port":\\([0-9][0-9]*\\).*/\\1/p')"
+  case "$RUNTIME_JSON" in
+    *'"origin":"http://127.0.0.1:'* | *'"origin":"http://localhost:'*) ATTACH_LOOPBACK=1 ;;
+    *) ATTACH_LOOPBACK=0 ;;
+  esac
+  if [ "$ATTACH_LOOPBACK" = 1 ] && [ -n "$ATTACH_PORT" ] && [ -n "$ATTACH_PID" ] && kill -0 "$ATTACH_PID" 2>/dev/null; then
+    case "$(ps -o stat= -p "$ATTACH_PID" 2>/dev/null || true)" in
+      *Z*) ;;
+      *)
+        printf '{"remotePort":%s,"serverKind":"external"}\\n' "$ATTACH_PORT"
+        exit 0
+        ;;
+    esac
+  fi
+  printf 'T3 Code is not running on this host, and it only accepts connections to its own server. Start T3 Code there, then reconnect.\\n' >&2
+  exit 1
+fi
 PORT_FILE="$STATE_DIR/port"
 PID_FILE="$STATE_DIR/pid"
 MANAGED_FILE="$STATE_DIR/managed"
@@ -1079,6 +1108,15 @@ printf '{"remotePort":%s,"serverKind":"%s"}\\n' "$REMOTE_PORT" "\${REMOTE_MANAGE
 const REMOTE_PAIRING_SCRIPT = `set -eu
 STATE_DIR="$HOME/.t3/ssh-launch/@@T3_STATE_KEY@@"
 DEFAULT_SERVER_HOME="$HOME/.t3"
+if [ -e "$DEFAULT_SERVER_HOME/@@T3_ATTACH_ONLY_FILE@@" ]; then
+  # The host's own t3 mints the token, so a client's runtime never opens the
+  # host's state. A login shell finds it where an interactive one would.
+  exec sh -lc 'if ! command -v t3 >/dev/null 2>&1; then
+  printf "This host only accepts connections to its own T3 Code, and t3 is not on its PATH.\\n" >&2
+  exit 1
+fi
+exec t3 auth pairing create --base-dir "$1" --json' sh "$DEFAULT_SERVER_HOME"
+fi
 RUNNER_FILE="$STATE_DIR/run-t3.sh"
 @@T3_ENSURE_T3_HOME_SCRIPT@@
 mkdir -p "$STATE_DIR"
@@ -1095,6 +1133,12 @@ STATE_DIR="$HOME/.t3/ssh-launch/@@T3_STATE_KEY@@"
 PID_FILE="$STATE_DIR/pid"
 PORT_FILE="$STATE_DIR/port"
 MANAGED_FILE="$STATE_DIR/managed"
+if [ -e "$STATE_DIR/../../@@T3_ATTACH_ONLY_FILE@@" ]; then
+  # Every server on an attach-only host belongs to the host.
+  rm -f "$PID_FILE" "$PORT_FILE" "$MANAGED_FILE"
+  printf '{"stopped":true}\\n'
+  exit 0
+fi
 LAUNCHER_ID="@@T3_LAUNCHER_ID@@"
 RECORDED_LAUNCHER="$(cat "$STATE_DIR/launcher" 2>/dev/null || true)"
 # Another desktop with the same connection details launched this server.
@@ -1188,8 +1232,15 @@ export function buildRemoteNodeEnvScript(input?: RemoteT3RunnerOptions): string 
   );
 }
 
+/**
+ * A host with this file under its default T3 home only lets SSH clients
+ * attach to the server it already runs.
+ */
+export const REMOTE_ATTACH_ONLY_FILE = "ssh-attach-only";
+
 export function buildRemoteLaunchScript(input?: RemoteT3RunnerOptions): string {
   return applyScriptPlaceholders(REMOTE_LAUNCH_SCRIPT, {
+    T3_ATTACH_ONLY_FILE: REMOTE_ATTACH_ONLY_FILE,
     T3_UPDATE_MARKER_FILE: DESKTOP_UPDATE_IN_PROGRESS_MARKER_FILE,
     T3_UPDATE_TTL_MS: String(DESKTOP_UPDATE_IN_PROGRESS_TTL_MS),
     T3_UPDATE_TTL_SECONDS: String(DESKTOP_UPDATE_IN_PROGRESS_TTL_MS / 1000),
@@ -1216,6 +1267,7 @@ function buildRemotePairingScript(stateKey: string, input?: RemoteT3RunnerOption
   return applyScriptPlaceholders(REMOTE_PAIRING_SCRIPT, {
     T3_STATE_KEY: stateKey,
     T3_ENSURE_T3_HOME_SCRIPT: REMOTE_ENSURE_T3_HOME_SCRIPT,
+    T3_ATTACH_ONLY_FILE: REMOTE_ATTACH_ONLY_FILE,
     T3_RUNNER_SCRIPT: stripTrailingNewlines(buildRemoteT3RunnerScript(input)),
   });
 }
@@ -1224,10 +1276,11 @@ function buildRemotePairingScript(stateKey: string, input?: RemoteT3RunnerOption
 const validLauncherId = (launcherId: string | null | undefined) =>
   typeof launcherId === "string" && /^[0-9a-f]{32}$/u.test(launcherId) ? launcherId : null;
 
-function buildRemoteStopScript(stateKey: string, launcherId: string | null): string {
+export function buildRemoteStopScript(stateKey: string, launcherId: string | null): string {
   return applyScriptPlaceholders(REMOTE_STOP_SCRIPT, {
     T3_STATE_KEY: stateKey,
     T3_LAUNCHER_ID: launcherId ?? "",
+    T3_ATTACH_ONLY_FILE: REMOTE_ATTACH_ONLY_FILE,
     T3_MANAGED_SERVER_RUNNING_SCRIPT: REMOTE_MANAGED_SERVER_RUNNING_SCRIPT,
   });
 }

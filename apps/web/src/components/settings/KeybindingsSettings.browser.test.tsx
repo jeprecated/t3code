@@ -29,6 +29,7 @@ vi.mock(import("./SettingsScopeContext"), async (original) => ({
         ]),
         keybindingsConfigPath: null,
         availableEditors: [],
+        settings: { newThreadPresets: [] },
       },
     };
     return {

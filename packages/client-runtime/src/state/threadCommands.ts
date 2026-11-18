@@ -10,6 +10,7 @@ import {
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 
+import { applyThreadCategoryChanges } from "@t3tools/shared/threadCategories";
 import { createOptimisticThreadLifecycle } from "./threadLifecycle.ts";
 import type { EnvironmentShellStatus } from "./shell.ts";
 import { createThreadTriageOutbox } from "./threadTriageOutbox.ts";
@@ -54,6 +55,7 @@ import {
   reorderActiveThread,
   setThreadAutoSettle,
   settleThread,
+  updateThreadCategories,
   snoozeThread,
   startThreadTurn,
   stopThreadSession,
@@ -315,6 +317,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     reorderPin: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:reorder-pin",
       execute: reorderPinnedThread,
+      scheduler,
+      concurrency,
+    }),
+    updateCategories: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:update-categories",
+      execute: updateThreadCategories,
       scheduler,
       concurrency,
     }),
@@ -638,6 +646,14 @@ export function createThreadEnvironmentAtoms<R, E>(
       })),
       "snooze",
     ),
+    updateCategories: optimistic.wrap(commands.updateCategories, (thread, input) => ({
+      ...thread,
+      categories: applyThreadCategoryChanges(
+        thread.categories,
+        input.changes ?? [],
+        input.resolveSuggestion === true,
+      ),
+    })),
     setAutoSettle: optimistic.wrap(commands.setAutoSettle, (thread, input, now) => ({
       ...thread,
       autoSettleDisabledAt: input.enabled ? null : (thread.autoSettleDisabledAt ?? now),

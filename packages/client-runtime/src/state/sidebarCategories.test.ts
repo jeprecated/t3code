@@ -1,0 +1,158 @@
+import type { ThreadCategory } from "@t3tools/contracts";
+import { describe, expect, it } from "vite-plus/test";
+
+import {
+  resolveSidebarCategoryScope,
+  sidebarCategoryScopeIncludes,
+  stepSidebarCategoryScope,
+  type SidebarCategoryScope,
+} from "./sidebarCategories.ts";
+
+function category(id: string, branch: string): ThreadCategory {
+  return {
+    id,
+    name: id,
+    description: "",
+    color: "teal",
+    rules: [
+      {
+        repositories: [],
+        environments: [],
+        providerInstances: [],
+        branches: [branch],
+        workspacePaths: [],
+        projects: [],
+      },
+    ],
+  };
+}
+
+describe("sidebar category scope", () => {
+  const categories = [category("a", "a"), category("b", "b")];
+  const views = [
+    { id: "ab", name: "Both", categoryIds: ["a", "b"], excludedCategoryIds: [] },
+    { id: "b", name: "Just b", categoryIds: ["b"], excludedCategoryIds: [] },
+  ];
+
+  it("steps through everything, each category, and uncategorized threads, in both directions", () => {
+    const forward = [];
+    let scope = null as Parameters<typeof stepSidebarCategoryScope>[0]["scope"];
+    for (let index = 0; index < 4; index += 1) {
+      scope = stepSidebarCategoryScope({ scope, categories, views: [], direction: 1 });
+      forward.push(scope);
+    }
+    expect(forward).toEqual([
+      { type: "category", categoryId: "a" },
+      { type: "category", categoryId: "b" },
+      { type: "uncategorized" },
+      null,
+    ]);
+    expect(stepSidebarCategoryScope({ scope: null, categories, views: [], direction: -1 })).toEqual(
+      {
+        type: "uncategorized",
+      },
+    );
+  });
+
+  it("steps through everything and each view once views exist, starting from a lone category", () => {
+    const forward = [];
+    let scope = null as Parameters<typeof stepSidebarCategoryScope>[0]["scope"];
+    for (let index = 0; index < 3; index += 1) {
+      scope = stepSidebarCategoryScope({ scope, categories, views, direction: 1 });
+      forward.push(scope);
+    }
+    expect(forward).toEqual([{ type: "view", viewId: "ab" }, { type: "view", viewId: "b" }, null]);
+    expect(stepSidebarCategoryScope({ scope: null, categories, views, direction: -1 })).toEqual({
+      type: "view",
+      viewId: "b",
+    });
+    expect(
+      stepSidebarCategoryScope({
+        scope: { type: "category", categoryId: "a" },
+        categories,
+        views,
+        direction: 1,
+      }),
+    ).toEqual({ type: "view", viewId: "ab" });
+  });
+
+  it("passes over idle views, but steps on from one that went idle while showing", () => {
+    const viewIsIdle = (view: { id: string }) => view.id === "ab";
+    expect(
+      stepSidebarCategoryScope({ scope: null, categories, views, direction: 1, viewIsIdle }),
+    ).toEqual({ type: "view", viewId: "b" });
+    expect(
+      stepSidebarCategoryScope({
+        scope: { type: "view", viewId: "b" },
+        categories,
+        views,
+        direction: -1,
+        viewIsIdle,
+      }),
+    ).toBeNull();
+    expect(
+      stepSidebarCategoryScope({
+        scope: { type: "view", viewId: "ab" },
+        categories,
+        views,
+        direction: 1,
+        viewIsIdle,
+      }),
+    ).toEqual({ type: "view", viewId: "b" });
+    expect(
+      stepSidebarCategoryScope({
+        scope: null,
+        categories,
+        views,
+        direction: 1,
+        viewIsIdle: () => true,
+      }),
+    ).toBeNull();
+  });
+
+  it("stays on everything when there are no categories", () => {
+    expect(
+      stepSidebarCategoryScope({ scope: null, categories: [], views: [], direction: 1 }),
+    ).toBeNull();
+    expect(resolveSidebarCategoryScope({ type: "uncategorized" }, [], [])).toBeNull();
+  });
+
+  it("falls back to everything when the focused category was deleted", () => {
+    expect(
+      resolveSidebarCategoryScope({ type: "category", categoryId: "gone" }, categories, views),
+    ).toBeNull();
+    expect(
+      resolveSidebarCategoryScope({ type: "view", viewId: "gone" }, categories, views),
+    ).toBeNull();
+    expect(
+      stepSidebarCategoryScope({
+        scope: { type: "category", categoryId: "gone" },
+        categories,
+        views: [],
+        direction: 1,
+      }),
+    ).toEqual({ type: "category", categoryId: "a" });
+  });
+
+  it("includes a thread when it belongs to the scope's category, or to any of its view's categories and none it excludes", () => {
+    const includes = (scope: SidebarCategoryScope, categoryIds: string[]) =>
+      sidebarCategoryScopeIncludes(scope, categoryIds, [
+        ...views,
+        { id: "b-not-a", name: "b but not a", categoryIds: ["b"], excludedCategoryIds: ["a"] },
+        { id: "not-a", name: "Not a", categoryIds: [], excludedCategoryIds: ["a"] },
+      ]);
+    expect(includes({ type: "category", categoryId: "a" }, ["b", "a"])).toBe(true);
+    expect(includes({ type: "category", categoryId: "a" }, ["b"])).toBe(false);
+    expect(includes({ type: "uncategorized" }, [])).toBe(true);
+    expect(includes({ type: "uncategorized" }, ["a"])).toBe(false);
+    expect(includes({ type: "view", viewId: "b" }, ["a", "b"])).toBe(true);
+    expect(includes({ type: "view", viewId: "b" }, ["a"])).toBe(false);
+    expect(includes({ type: "view", viewId: "b" }, [])).toBe(false);
+    expect(includes({ type: "view", viewId: "gone" }, ["a"])).toBe(false);
+    expect(includes({ type: "view", viewId: "b-not-a" }, ["b"])).toBe(true);
+    expect(includes({ type: "view", viewId: "b-not-a" }, ["b", "a"])).toBe(false);
+    expect(includes({ type: "view", viewId: "not-a" }, [])).toBe(true);
+    expect(includes({ type: "view", viewId: "not-a" }, ["b"])).toBe(true);
+    expect(includes({ type: "view", viewId: "not-a" }, ["a", "b"])).toBe(false);
+  });
+});

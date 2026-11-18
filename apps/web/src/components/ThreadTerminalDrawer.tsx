@@ -17,6 +17,9 @@ import {
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
 import {
+  LayoutGrid,
+  PanelBottom,
+  PictureInPicture2,
   Plus,
   Square,
   SquareSplitHorizontal,
@@ -87,6 +90,7 @@ import { FileMetadataThreadContext } from "../hooks/FileMetadataThreadProvider";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { attachedTerminalSessionAtom } from "../state/terminalSessions";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { selectThreadTerminalFloating, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { serverEnvironment } from "../state/server";
 import { previewEnvironment } from "../state/preview";
 import { readEnvironmentScope } from "../state/session";
@@ -594,6 +598,9 @@ function TerminalSessionViewport({
   const selectionActionRequestIdRef = useRef(0);
   const readKeybindings = useEffectEvent(() => keybindings);
   const readThreadShortcutContext = useEffectEvent(() => threadShortcutContext(threadRef));
+  const readFloating = useEffectEvent(() =>
+    selectThreadTerminalFloating(useTerminalUiStateStore.getState(), threadRef),
+  );
   const handleSessionExited = useEffectEvent(() => {
     if (hasTerminalWriteAccess()) onSessionExited();
   });
@@ -1025,7 +1032,9 @@ function TerminalSessionViewport({
 
       function handleBeforeKey(event: KeyboardEvent): boolean {
         const currentKeybindings = readKeybindings();
-        const options = { context: { terminalFocus: true, terminalOpen: true } };
+        const options = {
+          context: { terminalFocus: true, terminalOpen: true, terminalFloating: readFloating() },
+        };
         if (preventTerminalCloseShortcut(event, currentKeybindings)) {
           return false;
         }
@@ -1227,7 +1236,8 @@ function TerminalSessionViewport({
 }
 
 interface ThreadTerminalDrawerProps {
-  mode?: "drawer" | "panel";
+  /** `floating` fills its container like `panel` but keeps the drawer's terminals and shortcuts; the container draws the frame. */
+  mode?: "drawer" | "panel" | "floating";
   threadRef: ScopedThreadRef;
   threadId: ThreadId;
   cwd: string;
@@ -1244,6 +1254,11 @@ interface ThreadTerminalDrawerProps {
   onSplitTerminal: () => void;
   onSplitTerminalVertical: () => void;
   onNewTerminal: () => void;
+  /** Moves the drawer's terminals between the dock and the floating popover. */
+  onToggleDocked?: (() => void) | undefined;
+  onCycleLayout?: (() => void) | undefined;
+  toggleDockedShortcutLabel?: string | undefined;
+  cycleLayoutShortcutLabel?: string | undefined;
   splitShortcutLabel?: string | undefined;
   splitVerticalShortcutLabel?: string | undefined;
   newShortcutLabel?: string | undefined;
@@ -1506,6 +1521,10 @@ export default function ThreadTerminalDrawer({
   onSplitTerminal,
   onSplitTerminalVertical,
   onNewTerminal,
+  onToggleDocked,
+  onCycleLayout,
+  toggleDockedShortcutLabel,
+  cycleLayoutShortcutLabel,
   splitShortcutLabel,
   splitVerticalShortcutLabel,
   newShortcutLabel,
@@ -1523,6 +1542,8 @@ export default function ThreadTerminalDrawer({
   const canOperateTerminal = useEnvironmentScope(threadRef.environmentId, AuthTerminalOperateScope);
   const terminalArea = workspaceAreaProps("terminal", 5, gt("Terminal"));
   const isPanel = mode === "panel";
+  const isFloating = mode === "floating";
+  const isDocked = mode === "drawer";
   const [advancedTypography] = useLocalStorage(
     TYPOGRAPHY_ADVANCED_STORAGE_KEY,
     false,
@@ -1691,6 +1712,17 @@ export default function ThreadTerminalDrawer({
   const closeTerminalActionLabel = closeShortcutLabel
     ? gt("Close Terminal ({shortcut})", { shortcut: closeShortcutLabel })
     : gt("Close Terminal");
+  const toggleDockedActionLabel = isFloating
+    ? toggleDockedShortcutLabel
+      ? gt("Dock Terminal ({shortcut})", { shortcut: toggleDockedShortcutLabel })
+      : gt("Dock Terminal")
+    : toggleDockedShortcutLabel
+      ? gt("Float Terminal ({shortcut})", { shortcut: toggleDockedShortcutLabel })
+      : gt("Float Terminal");
+  const cycleLayoutActionLabel = cycleLayoutShortcutLabel
+    ? gt("Next Terminal Layout ({shortcut})", { shortcut: cycleLayoutShortcutLabel })
+    : gt("Next Terminal Layout");
+  const ToggleDockedIcon = isFloating ? PanelBottom : PictureInPicture2;
   const onSplitTerminalAction = () => {
     if (!canOperateTerminal || hasReachedSplitLimit) return;
     onSplitTerminal();
@@ -1805,7 +1837,7 @@ export default function ThreadTerminalDrawer({
     };
   }, [isPanel, visible]);
 
-  const resizeHandle = isPanel ? null : (
+  const resizeHandle = isDocked ? (
     <div
       className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize touch-none any-pointer-coarse:h-4"
       onPointerDown={handleResizePointerDown}
@@ -1814,7 +1846,7 @@ export default function ThreadTerminalDrawer({
       onPointerCancel={handleResizePointerEnd}
       onLostPointerCapture={handleResizePointerEnd}
     />
-  );
+  ) : null;
 
   if (normalizedTerminalIds.length === 0) {
     return (
@@ -1825,9 +1857,9 @@ export default function ThreadTerminalDrawer({
         data-terminal-owner={isPanel ? "right-panel" : "drawer"}
         className={cn(
           "relative flex min-w-0 flex-col overflow-hidden bg-background",
-          isPanel ? "h-full flex-1" : "z-45 shrink-0 border-t border-border/80",
+          isDocked ? "z-45 shrink-0 border-t border-border/80" : "h-full flex-1",
         )}
-        style={isPanel ? undefined : { height: `var(${DRAG_HEIGHT_PROPERTY}, ${drawerHeight}px)` }}
+        style={isDocked ? { height: `var(${DRAG_HEIGHT_PROPERTY}, ${drawerHeight}px)` } : undefined}
       >
         {resizeHandle}
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 py-6 text-center text-sm text-muted-foreground">
@@ -1855,15 +1887,39 @@ export default function ThreadTerminalDrawer({
       data-terminal-owner={isPanel ? "right-panel" : "drawer"}
       className={cn(
         "relative flex min-w-0 flex-col overflow-hidden bg-background",
-        isPanel ? "h-full flex-1" : "z-45 shrink-0 border-t border-border/80",
+        isDocked ? "z-45 shrink-0 border-t border-border/80" : "h-full flex-1",
       )}
-      style={isPanel ? undefined : { height: `var(${DRAG_HEIGHT_PROPERTY}, ${drawerHeight}px)` }}
+      style={isDocked ? { height: `var(${DRAG_HEIGHT_PROPERTY}, ${drawerHeight}px)` } : undefined}
     >
       {resizeHandle}
 
       {!hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
           <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background shadow-xs">
+            {isFloating && onCycleLayout ? (
+              <>
+                <TerminalActionButton
+                  className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+                  onClick={onCycleLayout}
+                  label={cycleLayoutActionLabel}
+                >
+                  <LayoutGrid className="size-3.25" />
+                </TerminalActionButton>
+                <div className="h-4 w-px bg-border/80" />
+              </>
+            ) : null}
+            {onToggleDocked ? (
+              <>
+                <TerminalActionButton
+                  className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+                  onClick={onToggleDocked}
+                  label={toggleDockedActionLabel}
+                >
+                  <ToggleDockedIcon className="size-3.25" />
+                </TerminalActionButton>
+                <div className="h-4 w-px bg-border/80" />
+              </>
+            ) : null}
             <TerminalActionButton
               disabled={!canOperateTerminal}
               className={`p-1 text-foreground/90 transition-colors ${
@@ -1941,6 +1997,24 @@ export default function ThreadTerminalDrawer({
               <div className="flex h-[22px] items-stretch justify-end border-b border-border/70">
                 {/* Sits above the taller touch resize handle so its buttons keep their taps. */}
                 <div className="inline-flex h-full items-stretch any-pointer-coarse:relative any-pointer-coarse:z-30">
+                  {isFloating && onCycleLayout ? (
+                    <TerminalActionButton
+                      className="inline-flex h-full items-center border-r border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
+                      onClick={onCycleLayout}
+                      label={cycleLayoutActionLabel}
+                    >
+                      <LayoutGrid className="size-3.25" />
+                    </TerminalActionButton>
+                  ) : null}
+                  {onToggleDocked ? (
+                    <TerminalActionButton
+                      className="inline-flex h-full items-center border-r border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
+                      onClick={onToggleDocked}
+                      label={toggleDockedActionLabel}
+                    >
+                      <ToggleDockedIcon className="size-3.25" />
+                    </TerminalActionButton>
+                  ) : null}
                   <TerminalActionButton
                     disabled={!canOperateTerminal}
                     className={`inline-flex h-full items-center px-1 text-foreground/90 transition-colors ${

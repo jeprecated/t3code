@@ -77,10 +77,10 @@ export function browseInputEndPaddingClass(input: {
   return "*:data-[slot=autocomplete-input]:pe-24!";
 }
 
-export type SearchOverlayMode = "command" | "files" | "content";
+export type SearchOverlayMode = "command" | "files" | "content" | "threads";
 
 export type CommandPaletteOpenIntent =
-  | { readonly kind: "add-project" | "new-thread-in" | "change-theme" }
+  | { readonly kind: "add-project" | "new-thread-in" | "new-thread-preset" | "change-theme" }
   | {
       readonly kind: "search";
       readonly query: string;
@@ -108,6 +108,7 @@ export type CommandPaletteUiAction =
     }
   | { readonly _tag: "OpenAddProject" }
   | { readonly _tag: "OpenNewThreadIn" }
+  | { readonly _tag: "OpenNewThreadPreset" }
   | { readonly _tag: "OpenChangeTheme" }
   | {
       readonly _tag: "OpenChildSearch";
@@ -164,6 +165,8 @@ export function reduceCommandPaletteUiState(
       return openWithIntent({ kind: "add-project" });
     case "OpenNewThreadIn":
       return openWithIntent({ kind: "new-thread-in" });
+    case "OpenNewThreadPreset":
+      return openWithIntent({ kind: "new-thread-preset" });
     case "OpenChangeTheme":
       return openWithIntent({ kind: "change-theme" });
   }
@@ -917,6 +920,7 @@ const OVERLAY_MODE_BY_COMMAND = {
   "commandPalette.toggle": "command",
   "filePicker.toggle": "files",
   "projectSearch.toggle": "content",
+  "threadSwitcher.toggle": "threads",
 } as const satisfies Partial<Record<string, SearchOverlayMode>>;
 
 export function overlayModeForCommand(command: string | null): SearchOverlayMode | null {
