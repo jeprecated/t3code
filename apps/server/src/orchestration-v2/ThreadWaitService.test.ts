@@ -130,10 +130,7 @@ it.effect("resolves one wait, wakes the thread as T3, and leaves its other waits
       const [wake] = yield* Ref.get(sent);
       assert.notEqual(wake?.createdBy, "user");
       assert.equal(wake?.mode, "auto");
-      assert.include(
-        wake?.text,
-        '"Run nix switch." (switch) via the overview agent: Done on Lattice',
-      );
+      assert.equal(wake?.text, "> Run nix switch.\n\nDone on Lattice\n\n(via the overview agent)");
       // The wake is in the thread now, and the decision still stands.
       assert.deepEqual((yield* orchestrator.getThreadShell(threadId))?.waiting?.items, [decision]);
 

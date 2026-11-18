@@ -156,8 +156,7 @@ export function waitResolveNote(
   note: string,
   option?: string,
 ): string | undefined {
-  if (option !== undefined)
-    return note.trim() ? `Chose: ${option}\n\n${note.trim()}` : `Chose: ${option}`;
+  if (option !== undefined) return note.trim() ? `${option}\n\n${note.trim()}` : option;
   if (note.trim()) return note.trim();
   return kind === "review" ? "Looks good." : undefined;
 }
