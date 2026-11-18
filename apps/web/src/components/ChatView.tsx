@@ -1,6 +1,6 @@
 import { m } from "../i18n/messages";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
-import { useGT, useMessages } from "gt-react";
+import { msg, useGT, useMessages } from "gt-react";
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
@@ -62,6 +62,7 @@ import { freshSessionBannerItem } from "./chat/ComposerFreshSession";
 import { heldComposerSendBannerItem } from "./chat/ComposerHeldSendBanner";
 import { armFreshSession, disarmFreshSession, useFreshSessionArmed } from "./chat/freshSessionArms";
 import { cancelHeldComposerSend, useComposerSendHeld } from "./chat/preparingComposerImages";
+import { useThreadCategorySuggestionBanner } from "./chat/ThreadCategorySuggestion";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
 import { useChatShortcuts } from "./chat/useChatShortcuts";
@@ -232,7 +233,12 @@ import {
   useClientSettings,
   useClientSettingsHydrated,
   useEnvironmentSettings,
+  usePrimarySettings,
+  useUpdatePrimarySettings,
 } from "../hooks/useSettings";
+import { commandForNewThreadPreset, saveNewThreadPreset } from "../newThreadPresets";
+import { requestNewThreadPresetSave } from "./NewThreadPresetNameDialog";
+import { subscribeSaveDraftAsNewThreadPreset } from "./chat/newThreadPresetActionBus";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
@@ -2008,7 +2014,8 @@ export default function ChatView(props: ChatViewProps) {
     runShellCommandStable,
     splitPanelTerminalStable,
     splitPanelTerminalVerticalStable,
-    toggleTerminalVisibilityStable,
+    toggleDockedTerminalStable,
+    terminalPlacement,
     shortcuts: terminalShortcuts,
   } = useChatTerminalActions({
     environmentId,
@@ -2720,6 +2727,19 @@ export default function ChatView(props: ChatViewProps) {
       : null,
     messages,
   );
+  const categorySuggestionBanner = useThreadCategorySuggestionBanner({
+    threadRef: activeThreadShell ? activeThreadRef : null,
+    subject: activeThreadShell
+      ? {
+          environmentId: activeThreadShell.environmentId,
+          providerInstanceId: activeThreadShell.providerInstanceId,
+          branch: activeThreadShell.branch,
+          project: activeProject,
+        }
+      : null,
+    state: activeThreadShell?.categories,
+    messages: serverProjection?.messages ?? null,
+  });
   const composerBannerItems = (() => {
     const fallbackSelection = draftFallback?.selection;
     const defaultSelection =
@@ -2789,6 +2809,8 @@ export default function ChatView(props: ChatViewProps) {
           ),
         ]
       : [];
+    const categorySuggestionItems =
+      categorySuggestionBanner === null ? [] : [categorySuggestionBanner];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,
@@ -2800,6 +2822,7 @@ export default function ChatView(props: ChatViewProps) {
         ...freshSessionItems,
         ...heldSendItems,
         ...systemComposerBannerItems,
+        ...categorySuggestionItems,
       ];
     }
     return [
@@ -2812,6 +2835,7 @@ export default function ChatView(props: ChatViewProps) {
       ...freshSessionItems,
       ...heldSendItems,
       ...systemComposerBannerItems,
+      ...categorySuggestionItems,
       branchMismatchBannerItem(
         {
           mismatchKey: activeBranchMismatchKey,
@@ -2846,6 +2870,7 @@ export default function ChatView(props: ChatViewProps) {
   const getShortcutContext = (eventTarget: EventTarget | null = document.activeElement) => ({
     terminalFocus: getTerminalFocusOwner() !== null,
     terminalOpen: Boolean(terminalUiState.terminalOpen),
+    terminalFloating: Boolean(terminalUiState.terminalOpen) && terminalPlacement === "floating",
     previewFocus: isPreviewFocused(),
     previewOpen: previewPanelOpen,
     rightPanelOpen,
@@ -2903,6 +2928,22 @@ export default function ChatView(props: ChatViewProps) {
         if (!isServerThread || serverConfig?.threadFind !== true || activeThreadKey === null)
           return false;
         openThreadFind(activeThreadKey);
+      },
+      "composer.project": ({ event }) => {
+        // The draft heading owns the project menu; it is absent once a thread exists.
+        const trigger = draftId
+          ? document.querySelector<HTMLElement>("[data-draft-project-trigger]")
+          : null;
+        if (!trigger) return false;
+        if (event.repeat) return;
+        trigger.focus({ preventScroll: true });
+        trigger.click();
+      },
+      "composer.toggleStartFromOrigin": ({ event }) => {
+        if (!isLocalDraftThread || envMode !== "worktree") return false;
+        if (!event.repeat) {
+          setDraftThreadContext(composerDraftTarget, { startFromOrigin: !startFromOrigin });
+        }
       },
       "composer.cycleHost": ({ event }) => {
         if (!canChangeEnvironment) return false;
@@ -3276,6 +3317,67 @@ export default function ChatView(props: ChatViewProps) {
     workLocallyResendReady,
   ]);
 
+  const newThreadPresets = usePrimarySettings((settings) => settings.newThreadPresets);
+  const updatePrimarySettings = useUpdatePrimarySettings();
+  const saveDraftAsNewThreadPreset = async () => {
+    const modelSelection = composerRef.current?.getSendContext().selectedModelSelection;
+    if (!isLocalDraftThread || !modelSelection || !activeProject) return;
+    const environmentLabel = environmentById.get(activeProject.environmentId)?.label;
+    const choice = await requestNewThreadPresetSave({
+      existingNames: newThreadPresets.map((preset) => preset.name),
+      projectLabel: activeProjectIsScratch
+        ? null
+        : environmentLabel
+          ? m(
+              msg("{project} on {machine}", {
+                project: activeProject.title,
+                machine: environmentLabel,
+              }),
+            )
+          : activeProject.title,
+      environmentId: activeProject.environmentId,
+    });
+    if (choice === null) return;
+    const { name } = choice;
+    const workspace = { envMode, startFromOrigin: envMode === "worktree" && startFromOrigin };
+    const machine = choice.environmentId ? { environmentId: choice.environmentId } : {};
+    const presets = saveNewThreadPreset(
+      newThreadPresets,
+      activeProjectIsScratch
+        ? { name, modelSelection, project: "none", ...machine }
+        : choice.pinProject
+          ? {
+              name,
+              modelSelection,
+              project: "pinned",
+              environmentId: activeProject.environmentId,
+              projectId: activeProject.id,
+              ...workspace,
+            }
+          : { name, modelSelection, project: "current", ...machine, ...workspace },
+    );
+    updatePrimarySettings({ newThreadPresets: presets });
+    const saved = presets.find((preset) => preset.name.toLowerCase() === name.toLowerCase());
+    toastManager.add({
+      type: "success",
+      title: m(msg("Saved preset “{name}”", { name })),
+      ...(saved
+        ? {
+            description: m(
+              msg("Bind {command} in Settings → Keybindings to start it from the keyboard.", {
+                command: commandForNewThreadPreset(saved.id),
+              }),
+            ),
+          }
+        : {}),
+    });
+  };
+  const saveDraftAsNewThreadPresetStable = useStableCallback(saveDraftAsNewThreadPreset);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to the palette's save-as-preset action for this chat's lifetime
+  useEffect(
+    () => subscribeSaveDraftAsNewThreadPreset(() => void saveDraftAsNewThreadPresetStable()),
+    [saveDraftAsNewThreadPresetStable],
+  );
   const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
   const hasThreadNow =
     attentionNow !== null || workNow !== null || goalNow !== null || shownThreadSyncPhase !== null;
@@ -3445,10 +3547,16 @@ export default function ChatView(props: ChatViewProps) {
       }}
     />
   ) : null;
+  const terminalDocked = terminalUiState.terminalOpen && terminalPlacement === "drawer";
   const panelToggleControlProps = {
     terminalAvailable: activeProject !== null,
-    terminalOpen: terminalUiState.terminalOpen,
-    terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
+    // The button always docks. `terminal.toggle` does the same only while the
+    // terminal's place is the dock, so the shortcut is advertised only then.
+    terminalOpen: terminalDocked,
+    terminalShortcutLabel:
+      terminalPlacement === "drawer"
+        ? shortcutLabelForCommand(keybindings, "terminal.toggle")
+        : null,
     threadPanelOpen,
     threadPanelPresentation,
     threadPanelPopoverHandle,
@@ -3456,7 +3564,7 @@ export default function ChatView(props: ChatViewProps) {
     rightPanelAvailable: activeProject !== null,
     rightPanelOpen,
     rightPanelShortcutLabel: shortcutLabelForCommand(keybindings, "rightPanel.toggle"),
-    onToggleTerminal: toggleTerminalVisibilityStable,
+    onToggleTerminal: toggleDockedTerminalStable,
     onToggleThreadPanel: toggleThreadPanelStable,
     onToggleRightPanel: toggleRightPanelStable,
   } satisfies PanelLayoutControlsProps;

@@ -25,6 +25,7 @@ import {
   orchestrationV2RunWorkStartedAt,
   type RunId,
   type ThreadId,
+  type TurnItemId,
 } from "@t3tools/contracts";
 import {
   backgroundWorkHoldsCompletion,
@@ -674,6 +675,8 @@ export interface PendingBackgroundWorkItem {
   readonly kind: BackgroundWorkKind;
   readonly label: string;
   readonly childThreadId: ThreadId | undefined;
+  /** The command line, omitted when the label already is the command. */
+  readonly command: string | undefined;
 }
 
 export interface PendingBackgroundWorkPresentation {
@@ -709,6 +712,29 @@ export function isBackgroundWorkStopPending(
   return request.retryAt === null || tasks.some((task) => request.taskIds.includes(task.taskId));
 }
 
+export type BackgroundWorkOutputSource =
+  | { readonly kind: "item"; readonly threadId: ThreadId | undefined; readonly itemId: TurnItemId }
+  | { readonly kind: "task"; readonly taskId: string };
+
+/**
+ * Where a background task's live output streams from. A running command row streams its own;
+ * a command the provider lists without one (Claude's background Bash) is read by task id.
+ */
+export function backgroundWorkOutputSource(
+  task: OrchestrationV2PendingBackgroundTask,
+  turnItems: ReadonlyArray<ThreadStructure["turnItems"][number]>,
+): BackgroundWorkOutputSource | null {
+  const item = turnItems.findLast((candidate) =>
+    task.itemId === undefined
+      ? (candidate.nativeItemRef?.nativeId || candidate.id) === task.taskId
+      : candidate.id === task.itemId,
+  );
+  if (item?.type === "command_execution" && item.status === "running") {
+    return { kind: "item", threadId: task.sourceThreadId ?? item.threadId, itemId: item.id };
+  }
+  return task.kind === "command" ? { kind: "task", taskId: task.taskId } : null;
+}
+
 export function presentPendingBackgroundWork(
   tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>,
   resolve: MFunctionType = mFallback,
@@ -726,6 +752,11 @@ export function presentPendingBackgroundWork(
             : task.kind === "command" || task.kind === "monitor"
               ? commandDisplayText(description)
               : description;
+      // Shown as the label is, so a shell wrapper alone doesn't count as adding to it.
+      const command =
+        task.kind === "command" && task.command !== undefined
+          ? commandDisplayText(task.command)
+          : undefined;
       return {
         taskId: task.taskId,
         kind: task.kind,
@@ -734,6 +765,8 @@ export function presentPendingBackgroundWork(
             ? resolve(BACKGROUND_WORK_KINDS[task.kind].singular)
             : label,
         childThreadId: task.kind === "subagent" ? task.childThreadId : undefined,
+        command:
+          command === undefined || command.length === 0 || command === label ? undefined : command,
       };
     })
     // `map` returned a new array; Hermes has no `toSorted`.

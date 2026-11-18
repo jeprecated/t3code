@@ -60,6 +60,7 @@ const HTML_RENDER_SHORTCUT_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
   "commandPalette.toggle",
   "filePicker.toggle",
   "projectSearch.toggle",
+  "threadSwitcher.toggle",
   "chat.find",
   "sidebar.toggle",
   "rightPanel.toggle",
@@ -72,6 +73,7 @@ const HTML_RENDER_SHORTCUT_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
   "thread.previous",
   "thread.next",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
+  "thread.jump.last",
   ...MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
 ]);
 

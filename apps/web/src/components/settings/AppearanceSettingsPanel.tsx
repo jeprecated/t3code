@@ -7,10 +7,13 @@ import {
   type ChatWidth,
   type EffortDisplay,
   type EnvironmentIdentificationMode,
+  type FloatingTerminalBorderColor,
   MAX_APPEARANCE_CONTRAST,
+  MAX_FLOATING_TERMINAL_BORDER_WIDTH,
   MAX_GLASS_OPACITY,
   MAX_PANEL_ANIMATION_DURATION_MS,
   MIN_APPEARANCE_CONTRAST,
+  MIN_FLOATING_TERMINAL_BORDER_WIDTH,
   MIN_GLASS_OPACITY,
   MIN_PANEL_ANIMATION_DURATION_MS,
 } from "@t3tools/contracts/settings";
@@ -78,6 +81,17 @@ const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = {
   comfortable: msg("Comfortable"),
   wide: msg("Wide"),
   full: msg("Full", { $context: "chat width" }),
+};
+
+const FLOATING_TERMINAL_BORDER_WIDTHS = Array.from(
+  { length: MAX_FLOATING_TERMINAL_BORDER_WIDTH - MIN_FLOATING_TERMINAL_BORDER_WIDTH + 1 },
+  (_, index) => MIN_FLOATING_TERMINAL_BORDER_WIDTH + index,
+);
+
+const FLOATING_TERMINAL_BORDER_COLOR_LABELS: Record<FloatingTerminalBorderColor, string> = {
+  subtle: msg("Subtle", { $context: "border color" }),
+  accent: msg("Accent", { $context: "border color" }),
+  text: msg("Text", { $context: "border color, matches text" }),
 };
 
 const EFFORT_DISPLAY_LABELS: Record<EffortDisplay, string> = {
@@ -289,6 +303,90 @@ export function AppearanceSettingsPanel() {
                   <SelectItem value="comfortable">{gt("Comfortable (default)")}</SelectItem>
                   <SelectItem value="wide">{m(CHAT_WIDTH_LABELS.wide)}</SelectItem>
                   <SelectItem value="full">{m(CHAT_WIDTH_LABELS.full)}</SelectItem>
+                </SelectPopup>
+              </Select>
+            </div>
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("floating-terminal-border")}
+          description={gt("Set the frame around the terminal when it floats over the workspace.")}
+          resetAction={
+            settings.floatingTerminalBorderWidth !==
+              DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderWidth ||
+            settings.floatingTerminalBorderColor !==
+              DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderColor ? (
+              <SettingResetButton
+                ariaLabel={gt("Reset floating terminal border to default")}
+                onClick={() =>
+                  updateSettings({
+                    floatingTerminalBorderWidth:
+                      DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderWidth,
+                    floatingTerminalBorderColor:
+                      DEFAULT_UNIFIED_SETTINGS.floatingTerminalBorderColor,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="flex w-full items-center gap-2 sm:w-64">
+              <Select
+                value={String(settings.floatingTerminalBorderWidth)}
+                onValueChange={(value) => {
+                  const floatingTerminalBorderWidth = Number(value);
+                  if (
+                    Number.isInteger(floatingTerminalBorderWidth) &&
+                    floatingTerminalBorderWidth >= MIN_FLOATING_TERMINAL_BORDER_WIDTH &&
+                    floatingTerminalBorderWidth <= MAX_FLOATING_TERMINAL_BORDER_WIDTH
+                  ) {
+                    updateSettings({ floatingTerminalBorderWidth });
+                  }
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-full min-w-0"
+                  aria-label={gt("Floating terminal border width")}
+                >
+                  <SelectValue>
+                    {gt("{width} px", { width: settings.floatingTerminalBorderWidth })}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {FLOATING_TERMINAL_BORDER_WIDTHS.map((width) => (
+                    <SelectItem key={width} value={String(width)}>
+                      {width === 0 ? gt("No border") : gt("{width} px", { width })}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <Select
+                value={settings.floatingTerminalBorderColor}
+                onValueChange={(value) => {
+                  if (value === "subtle" || value === "accent" || value === "text")
+                    updateSettings({ floatingTerminalBorderColor: value });
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-full min-w-0"
+                  aria-label={gt("Floating terminal border color")}
+                >
+                  <SelectValue>
+                    {m(FLOATING_TERMINAL_BORDER_COLOR_LABELS[settings.floatingTerminalBorderColor])}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem value="subtle">
+                    {m(FLOATING_TERMINAL_BORDER_COLOR_LABELS.subtle)}
+                  </SelectItem>
+                  <SelectItem value="accent">
+                    {gt("Accent (default)", { $context: "border color" })}
+                  </SelectItem>
+                  <SelectItem value="text">
+                    {m(FLOATING_TERMINAL_BORDER_COLOR_LABELS.text)}
+                  </SelectItem>
                 </SelectPopup>
               </Select>
             </div>
