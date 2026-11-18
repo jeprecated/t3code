@@ -172,9 +172,9 @@ describe("cards", () => {
   });
 
   it("tells the agent what was chosen, and that a review looks good", () => {
-    expect(waitResolveNote("decision", "", "Flat seats")).toBe("Chose: Flat seats");
+    expect(waitResolveNote("decision", "", "Flat seats")).toBe("Flat seats");
     expect(waitResolveNote("decision", " and ship it ", "Flat seats")).toBe(
-      "Chose: Flat seats\n\nand ship it",
+      "Flat seats\n\nand ship it",
     );
     expect(waitResolveNote("manual_step", "  ")).toBeUndefined();
     expect(waitResolveNote("review", "")).toBe("Looks good.");
