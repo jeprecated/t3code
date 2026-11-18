@@ -150,7 +150,7 @@ function WaitsStrip(props: {
             </ComposerBanner.Actions>
           ) : null}
         </ComposerBanner.Row>
-        <ComposerBanner.Children>
+        <ComposerBanner.Children className="grid-cols-[minmax(0,1fr)]">
           {shown.map((wait) => (
             <ThreadWaitCard
               key={wait.id}
@@ -200,57 +200,52 @@ function ThreadWaitCard(props: {
 
   return (
     <div className="flex flex-col gap-1 py-0.5">
-      <ComposerBanner.Row layout="wrap-actions">
+      <ComposerBanner.Row>
         <ComposerBanner.Icon className={className}>
           <Icon aria-label={label} />
         </ComposerBanner.Icon>
-        <ComposerBanner.Content className="min-w-0 flex-wrap">
-          <span className={cn("min-w-0 truncate", props.snoozedUntil && "text-muted-foreground")}>
-            {wait.summary}
-          </span>
+        <ComposerBanner.Content>
+          {wait.detail ? (
+            <button
+              type="button"
+              className={cn(
+                "line-clamp-2 min-w-0 cursor-pointer text-start hover:text-foreground/80 focus-visible:underline focus-visible:outline-none",
+                props.snoozedUntil && "text-muted-foreground",
+              )}
+              aria-expanded={detailOpen}
+              onClick={() => setDetailOpen((open) => !open)}
+            >
+              {wait.summary}
+              <ChevronDownIcon
+                aria-hidden
+                className={cn(
+                  "ms-1 inline size-3 align-[-2px] text-muted-foreground",
+                  !detailOpen && "-rotate-90",
+                )}
+              />
+            </button>
+          ) : (
+            <span
+              className={cn("line-clamp-2 min-w-0", props.snoozedUntil && "text-muted-foreground")}
+            >
+              {wait.summary}
+            </span>
+          )}
           {props.snoozedUntil ? (
-            <Badge variant="outline" size="sm">
+            <Badge variant="outline" size="sm" className="flex-none">
               {`until ${formatUpcomingTimestamp(props.snoozedUntil, timestampFormat)}`}
             </Badge>
           ) : null}
-          {wait.where ? (
-            <Badge variant="outline" size="sm">
-              <MapPinIcon aria-hidden />
-              {wait.where}
-            </Badge>
-          ) : null}
           {wait.notBefore && Date.parse(wait.notBefore) > nowMs ? (
-            <Badge variant="outline" size="sm">
+            <Badge variant="outline" size="sm" className="flex-none">
               {`after ${formatUpcomingTimestamp(wait.notBefore, timestampFormat)}`}
             </Badge>
           ) : null}
-          {wait.detail ? (
-            <Button
-              size="icon-xs"
-              variant="ghost-muted"
-              aria-expanded={detailOpen}
-              aria-label={detailOpen ? "Hide details" : "Show details"}
-              onClick={() => setDetailOpen((open) => !open)}
-            >
-              <ChevronDownIcon className={cn(!detailOpen && "-rotate-90")} />
-            </Button>
-          ) : null}
         </ComposerBanner.Content>
-        <ComposerBanner.Actions>
-          {wait.options?.map((option) => (
-            <Button
-              key={option}
-              size="xs"
-              variant="outline"
-              disabled={!props.canResolve}
-              onClick={() => props.onResolve(`Chose: ${option}`)}
-            >
-              {option}
-            </Button>
-          ))}
+        <ComposerBanner.Actions className="flex-nowrap">
           <Button
             size="xs"
-            variant={wait.options?.length ? "ghost" : "outline"}
+            variant="outline"
             disabled={!props.canResolve}
             aria-expanded={noteOpen}
             onClick={() => setNoteOpen((open) => !open)}
@@ -267,6 +262,27 @@ function ThreadWaitCard(props: {
           </Button>
         </ComposerBanner.Actions>
       </ComposerBanner.Row>
+      {wait.where || wait.options?.length ? (
+        <ComposerBanner.Body className="flex flex-wrap items-center gap-1">
+          {wait.where ? (
+            <Badge variant="outline" size="sm" className="max-w-full">
+              <MapPinIcon aria-hidden />
+              <span className="truncate">{wait.where}</span>
+            </Badge>
+          ) : null}
+          {wait.options?.map((option) => (
+            <Button
+              key={option}
+              size="xs"
+              variant="outline"
+              disabled={!props.canResolve}
+              onClick={() => props.onResolve(`Chose: ${option}`)}
+            >
+              {option}
+            </Button>
+          ))}
+        </ComposerBanner.Body>
+      ) : null}
       {detailOpen && wait.detail ? (
         <ComposerBanner.Body>
           <ChatMarkdown text={wait.detail} cwd={props.cwd} threadRef={props.threadRef} />
