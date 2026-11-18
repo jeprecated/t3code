@@ -8,9 +8,13 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
   shouldCreateNewThreadInCurrentProject,
+  countSidebarThreadsNeedingUserOutsideScope,
   deleteSelectedThreadEntries,
+  filterSidebarV2VisibleThreads,
+  sidebarOlderSettledCountedThreads,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
+  lastSidebarJumpThread,
   orderItemsByPreferredIds,
   pinOrderKeyBetween,
   resolveSidebarSweepKeys,
@@ -44,6 +48,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-sort";
 import { resolveProjectExpanded } from "../uiStateStore";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+import { unloadedOlderSettledCount } from "@t3tools/client-runtime/state/threads";
 import { EnvironmentId, ProjectId, ProviderInstanceId, RunId, ThreadId } from "@t3tools/contracts";
 
 import {
@@ -472,6 +477,28 @@ describe("resolveThreadStatusPill", () => {
       dotClass: "bg-sidebar-muted-foreground",
       pulse: false,
     });
+  });
+
+  it("shows a command left running once its completion is seen", () => {
+    const thread = {
+      ...baseThread,
+      interactionMode: "default" as const,
+      latestRun: makeLatestRun(),
+      pendingBackgroundTasks: [
+        { taskId: "bg-1", description: "Upload build", kind: "command" as const },
+      ],
+      runtime: { ...baseThread.runtime, status: "completed" as const, activeRunId: null },
+    };
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...thread, lastVisitedAt: "2026-03-09T10:00:00.000Z" },
+      }),
+    ).toMatchObject({ label: "Completed" });
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...thread, lastVisitedAt: "2026-03-09T10:06:00.000Z" },
+      }),
+    ).toMatchObject({ label: "Running", pulse: false });
   });
 
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {
@@ -1057,6 +1084,17 @@ describe("Working shelf (beta)", () => {
     ).toBe(false);
   });
 
+  it("jumps to the last open Working row, else the last main row, never further down", () => {
+    const last = (workingShelfExpanded: boolean, working: string[], main = ["pin", "a", "b"]) =>
+      lastSidebarJumpThread({ mainThreads: main, workingThreads: working, workingShelfExpanded });
+
+    expect(last(true, ["w1", "w2"])).toBe("w2");
+    expect(last(false, ["w1", "w2"])).toBe("b");
+    expect(last(true, [])).toBe("b");
+    expect(last(true, ["w1"], [])).toBe("w1");
+    expect(last(false, ["w1"], [])).toBeNull();
+  });
+
   describe("sortInboxThreadsByReturn", () => {
     const thread = (
       id: string,
@@ -1500,6 +1538,8 @@ describe("pendingSidebarRouteReveal", () => {
 
 describe("resolveSidebarRouteReveal", () => {
   const scopedProjectKeys = new Set(["environment-test:project-scoped"]);
+  const inScope = (thread: { environmentId: string; projectId: string }) =>
+    scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`);
   const hidden = makeThreadFixture({ projectId: ProjectId.make("project-other") });
   const hiddenKey = "environment-test:thread-test";
   const findThread = (key: string) => (key === hiddenKey ? hidden : undefined);
@@ -1511,7 +1551,7 @@ describe("resolveSidebarRouteReveal", () => {
         routeKey: hiddenKey,
         routeKeyInPlace: false,
         isSearching: false,
-        scopedProjectKeys,
+        inScope,
         delegatedUnderParent: new Set(),
         findThread,
       }),
@@ -1526,7 +1566,7 @@ describe("resolveSidebarRouteReveal", () => {
         routeKey: hiddenKey,
         routeKeyInPlace: false,
         isSearching: false,
-        scopedProjectKeys,
+        inScope,
         delegatedUnderParent: new Set(),
         findThread,
       }),
@@ -1543,7 +1583,7 @@ describe("resolveSidebarRouteReveal", () => {
         routeKey,
         routeKeyInPlace: false,
         isSearching: false,
-        scopedProjectKeys,
+        inScope,
         delegatedUnderParent: new Set(),
         findThread,
       });
@@ -1558,7 +1598,7 @@ describe("resolveSidebarRouteReveal", () => {
         routeKey: hiddenKey,
         routeKeyInPlace: false,
         isSearching: true,
-        scopedProjectKeys,
+        inScope,
         delegatedUnderParent: new Set(),
         findThread,
       }),
@@ -1680,5 +1720,83 @@ describe("shouldCreateNewThreadInCurrentProject", () => {
     expect(shouldCreateNewThreadInCurrentProject(false, 1, 3)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(false, 0, 0)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(true, 2, 2)).toBe(true);
+  });
+});
+
+describe("sidebarOlderSettledCountedThreads", () => {
+  const environmentId = EnvironmentId.make("environment-test");
+  const projectId = ProjectId.make("project-test");
+  const olderSettled = (id: string) =>
+    makeThreadFixture({
+      id: ThreadId.make(id),
+      settledOverride: "settled",
+      settledAt: "2026-01-01T00:00:00.000Z",
+    });
+  // Two older settled threads in one project: one in the category, one outside it.
+  const inCategory = olderSettled("in-category");
+  const outsideCategory = olderSettled("outside-category");
+  const threads = [inCategory, outsideCategory];
+  const inScope = (thread: (typeof threads)[number]) => thread.id === inCategory.id;
+  const unloaded = (held: ReadonlyArray<(typeof threads)[number]>) =>
+    unloadedOlderSettledCount({
+      olderSettled: () => ({
+        before: "2026-02-01T00:00:00.000Z",
+        beforeMs: Date.parse("2026-02-01T00:00:00.000Z"),
+        counts: new Map([[projectId, 2]]),
+      }),
+      scopes: [{ environmentId, projectIds: null }],
+      threads: held,
+    });
+
+  it("leaves nothing unloaded under a category once every page has loaded", () => {
+    const visibleThreads = filterSidebarV2VisibleThreads(threads, inScope, new Set());
+    expect(unloaded(visibleThreads)).toBe(1);
+    const counted = sidebarOlderSettledCountedThreads({
+      threads,
+      visibleThreads,
+      inScope,
+      pagesEveryProject: true,
+      delegatedUnderParent: new Set(),
+    });
+    expect(unloaded(counted)).toBe(0);
+  });
+
+  it("keeps the scope's own threads when pages follow a project scope", () => {
+    const visibleThreads = filterSidebarV2VisibleThreads(threads, inScope, new Set());
+    expect(
+      sidebarOlderSettledCountedThreads({
+        threads,
+        visibleThreads,
+        inScope,
+        pagesEveryProject: false,
+        delegatedUnderParent: new Set(),
+      }),
+    ).toBe(visibleThreads);
+  });
+});
+
+describe("countSidebarThreadsNeedingUserOutsideScope", () => {
+  it("counts only hidden threads that are blocked on the user", () => {
+    const inScope = makeThreadFixture({ id: ThreadId.make("in"), hasPendingUserInput: true });
+    const hiddenInput = makeThreadFixture({
+      id: ThreadId.make("input"),
+      hasPendingUserInput: true,
+    });
+    const hiddenApproval = makeThreadFixture({
+      id: ThreadId.make("approval"),
+      hasPendingApprovals: true,
+    });
+    const hiddenIdle = makeThreadFixture({ id: ThreadId.make("idle") });
+    const hiddenArchived = makeThreadFixture({
+      id: ThreadId.make("archived"),
+      hasPendingUserInput: true,
+      archivedAt: "2026-01-02T00:00:00.000Z",
+    });
+    const threads = [inScope, hiddenInput, hiddenApproval, hiddenIdle, hiddenArchived];
+
+    expect(
+      countSidebarThreadsNeedingUserOutsideScope(threads, (thread) => thread.id === inScope.id),
+    ).toBe(2);
+    expect(countSidebarThreadsNeedingUserOutsideScope(threads, null)).toBe(0);
   });
 });

@@ -27,6 +27,29 @@ This setting belongs to the machine hosting the server, including when you
 connect from another device. It does not change provider-run commands or the
 shell used by automatic project setup and settle scripts.
 
+## Floating terminal
+
+The terminal normally docks below the chat and takes space from it. You can
+instead pop it over the workspace when you need it and hide it again when you
+are done. The same shells, scrollback, splits and tabs move with it.
+
+| Action                                              | Default shortcut  | Command                        |
+| --------------------------------------------------- | ----------------- | ------------------------------ |
+| Show or hide the terminal where it last was         | `mod+j`           | `terminal.toggle`              |
+| Show the terminal floating, or hide it if it is     | `mod+alt+j`       | `terminal.toggleFloating`      |
+| Move to the next place                              | `mod+alt+k`       | `terminal.cycleFloatingLayout` |
+| Switch between the dock and the last floating place | `mod+alt+shift+j` | `terminal.toggleDocked`        |
+
+The places cycle through the dock, centered, enlarged, right half and bottom
+right. The terminal button in the top bar always shows the terminal in the dock,
+or hides it if it is already docked. The place you last used applies to every
+thread on this device. When the workspace is narrow the floating terminal fills
+it.
+
+Set the width and color of the floating terminal's border under
+**Settings → Appearance**. Change the shortcuts in **Settings → Keybindings**;
+see [Keybindings](keybindings.md).
+
 ## Terminal history
 
 Each terminal keeps up to 5,000 lines and 8 MiB of scrollback on its environment

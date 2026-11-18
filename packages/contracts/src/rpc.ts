@@ -4,6 +4,9 @@ import {
   OrchestrationV2SearchThreadResult,
   OrchestrationV2SearchThreadsInput,
   OrchestrationV2SearchThreadsResult,
+  OrchestrationV2SuggestThreadCategoriesError,
+  OrchestrationV2SuggestThreadCategoriesInput,
+  OrchestrationV2SuggestThreadCategoriesResult,
 } from "./orchestrationV2.ts";
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
 import {
@@ -1980,6 +1983,18 @@ const WsOrchestrationV2SearchThreadStreamRpc = Rpc.make(
   },
 );
 
+const WsOrchestrationV2SuggestThreadCategoriesRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.suggestThreadCategories,
+  {
+    payload: OrchestrationV2SuggestThreadCategoriesInput,
+    success: OrchestrationV2SuggestThreadCategoriesResult,
+    error: Schema.Union([
+      OrchestrationV2SuggestThreadCategoriesError,
+      EnvironmentAuthorizationError,
+    ]),
+  },
+);
+
 const WsOrchestrationV2SearchThreadsRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.searchThreads, {
   payload: OrchestrationV2SearchThreadsInput,
   success: OrchestrationV2SearchThreadsResult,
@@ -2104,6 +2119,16 @@ const WsOrchestrationV2SubscribeCommandOutputRpc = Rpc.make(
   {
     payload: OrchestrationV2RpcSchemas.subscribeCommandOutput.input,
     success: OrchestrationV2RpcSchemas.subscribeCommandOutput.output,
+    error: Schema.Union([OrchestrationV2CommandOutputError, EnvironmentAuthorizationError]),
+    stream: true,
+  },
+);
+
+const WsOrchestrationV2SubscribeBackgroundTaskOutputRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.subscribeBackgroundTaskOutput,
+  {
+    payload: OrchestrationV2RpcSchemas.subscribeBackgroundTaskOutput.input,
+    success: OrchestrationV2RpcSchemas.subscribeBackgroundTaskOutput.output,
     error: Schema.Union([OrchestrationV2CommandOutputError, EnvironmentAuthorizationError]),
     stream: true,
   },
@@ -2466,6 +2491,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2GetTurnDiffRpc,
   WsOrchestrationV2GetFullThreadDiffRpc,
   WsOrchestrationV2SearchThreadsRpc,
+  WsOrchestrationV2SuggestThreadCategoriesRpc,
   WsOrchestrationV2SearchThreadRpc,
   WsOrchestrationV2SearchThreadStreamRpc,
   WsOrchestrationV2GetArchivedShellSnapshotRpc,
@@ -2479,5 +2505,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
   WsOrchestrationV2SubscribeCommandOutputRpc,
+  WsOrchestrationV2SubscribeBackgroundTaskOutputRpc,
   WsOrchestrationV2SubscribePromptSuggestionRpc,
 ).middleware(RpcScopeAuthorization);

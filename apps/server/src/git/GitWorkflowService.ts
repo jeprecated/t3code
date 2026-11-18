@@ -96,6 +96,8 @@ export class GitWorkflowService extends Context.Service<
       readonly remoteName: string;
       readonly refName?: string;
     }) => Effect.Effect<void, GitCommandError>;
+    readonly jujutsuCommandFor: GitManager.GitManager["Service"]["jujutsuCommandFor"];
+    readonly fetchJjBase: GitVcsDriver.GitVcsDriver["Service"]["fetchJjBase"];
     readonly remoteExists: (input: {
       readonly cwd: string;
       readonly remoteName: string;
@@ -447,7 +449,7 @@ export const make = Effect.gen(function* () {
     listRefs: Effect.fn("GitWorkflowService.listRefs")(function (input) {
       return detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>
-          isGitRepository ? git.listRefs(input) : Effect.succeed(nonRepositoryListRefs()),
+          isGitRepository ? gitManager.listRefs(input) : Effect.succeed(nonRepositoryListRefs()),
         ),
       );
     }),
@@ -464,6 +466,12 @@ export const make = Effect.gen(function* () {
     fetchRemote: Effect.fn("GitWorkflowService.fetchRemote")(function (input) {
       return ensureGitCommand("GitWorkflowService.fetchRemote", input.cwd).pipe(
         Effect.andThen(git.fetchRemote(input)),
+      );
+    }),
+    jujutsuCommandFor: gitManager.jujutsuCommandFor,
+    fetchJjBase: Effect.fn("GitWorkflowService.fetchJjBase")(function (input) {
+      return ensureGitCommand("GitWorkflowService.fetchJjBase", input.cwd).pipe(
+        Effect.andThen(git.fetchJjBase(input)),
       );
     }),
     remoteExists: Effect.fn("GitWorkflowService.remoteExists")(function (input) {
@@ -513,7 +521,7 @@ export const make = Effect.gen(function* () {
     ),
     removeWorktree: Effect.fn("GitWorkflowService.removeWorktree")(function (input) {
       return ensureGitCommand("GitWorkflowService.removeWorktree", input.cwd).pipe(
-        Effect.andThen(git.removeWorktree(input)),
+        Effect.andThen(gitManager.removeWorktree(input)),
       );
     }),
     pruneWorktrees: Effect.fn("GitWorkflowService.pruneWorktrees")(function (input) {
