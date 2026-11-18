@@ -26,15 +26,15 @@ export class ThreadWaitService extends Context.Service<
   }
 >()("t3/orchestration-v2/ThreadWaitService") {}
 
+/** Reads as the user's reply to the wait, since the thread shows it as a message from them. */
 function wakeText(input: {
   readonly summary: string;
-  readonly waitId: string;
   readonly note?: string | undefined;
   readonly resolvedBy: "user" | "agent";
 }): string {
-  const via = input.resolvedBy === "agent" ? " via the overview agent" : "";
-  const note = input.note === undefined ? "" : `: ${input.note}`;
-  return `The user resolved "${input.summary}" (${input.waitId})${via}${note}. Continue with what this unblocks, then call set_waiting with whatever is still open, or [].`;
+  const answer = input.note?.trim() || "Done.";
+  const via = input.resolvedBy === "agent" ? "\n\n(via the overview agent)" : "";
+  return `> ${input.summary.replaceAll("\n", " ")}\n\n${answer}${via}`;
 }
 
 const make = Effect.gen(function* () {
@@ -81,7 +81,6 @@ const make = Effect.gen(function* () {
             messageId: MessageId.make(`wait-resolve:${input.threadId}:${uuid}`),
             text: wakeText({
               summary: wait.summary,
-              waitId: input.waitId,
               note: input.note,
               resolvedBy: input.resolvedBy,
             }),

@@ -276,7 +276,7 @@ function ThreadWaitCard(props: {
               size="xs"
               variant="outline"
               disabled={!props.canResolve}
-              onClick={() => props.onResolve(`Chose: ${option}`)}
+              onClick={() => props.onResolve(option)}
             >
               {option}
             </Button>
