@@ -82,7 +82,7 @@ const layerTest = (sent: Ref.Ref<ReadonlyArray<SendInput>>) =>
     Layer.provide(NodeCrypto.layer),
   );
 
-it.effect("resolves one wait, wakes the thread as T3, and leaves its other waits current", () =>
+it.effect("resolves waits, wakes the thread once as T3, and leaves its other waits current", () =>
   Effect.gen(function* () {
     const sent = yield* Ref.make<ReadonlyArray<SendInput>>([]);
     yield* Effect.gen(function* () {
@@ -106,12 +106,13 @@ it.effect("resolves one wait, wakes the thread as T3, and leaves its other waits
       });
       const step = { id: "switch", kind: "manual_step" as const, summary: "Run nix switch." };
       const decision = { id: "pick", kind: "decision" as const, summary: "Pick A or B." };
+      const review = { id: "look", kind: "review" as const, summary: "Check the preview." };
       yield* TestClock.adjust("1 second");
       yield* orchestrator.dispatch({
         type: "thread.waiting.set",
         commandId: CommandId.make("set-wait-service"),
         threadId,
-        items: [step, decision],
+        items: [step, decision, review],
       });
       yield* snoozes.set({
         key: `wait:${threadId}:switch`,
@@ -121,24 +122,32 @@ it.effect("resolves one wait, wakes the thread as T3, and leaves its other waits
 
       const result = yield* waits.resolve({
         threadId,
-        waitId: "switch",
-        note: "Done on Lattice",
+        answers: [{ waitId: "switch", note: "Done on Lattice" }, { waitId: "pick" }],
         resolvedBy: "agent",
       });
-      assert.deepEqual(result.waiting?.items, [decision]);
+      assert.deepEqual(result.waiting?.items, [review]);
       assert.deepEqual((yield* snoozes.list()).snoozes, []);
       const [wake] = yield* Ref.get(sent);
       assert.notEqual(wake?.createdBy, "user");
       assert.equal(wake?.mode, "auto");
-      assert.equal(wake?.text, "> Run nix switch.\n\nDone on Lattice\n\n(via the overview agent)");
-      // The wake is in the thread now, and the decision still stands.
-      assert.deepEqual((yield* orchestrator.getThreadShell(threadId))?.waiting?.items, [decision]);
+      assert.equal(
+        wake?.text,
+        "> Run nix switch.\n\nDone on Lattice\n\n> Pick A or B.\n\nDone.\n\n(via the overview agent)",
+      );
+      // The wake is in the thread now, and the review still stands.
+      assert.deepEqual((yield* orchestrator.getThreadShell(threadId))?.waiting?.items, [review]);
 
       const missing = yield* waits
-        .resolve({ threadId, waitId: "switch", resolvedBy: "user" })
+        .resolve({ threadId, answers: [{ waitId: "switch" }], resolvedBy: "user" })
         .pipe(Effect.flip);
       assert.equal(missing._tag, "ThreadWaitNotFoundError");
-      yield* waits.resolve({ threadId, waitId: "pick", resolvedBy: "user", wake: false });
+      // An answer to a wait that is already gone does not block the others.
+      yield* waits.resolve({
+        threadId,
+        answers: [{ waitId: "switch" }, { waitId: "look" }],
+        resolvedBy: "user",
+        wake: false,
+      });
       assert.isNull((yield* orchestrator.getThreadShell(threadId))?.waiting ?? null);
       assert.lengthOf(yield* Ref.get(sent), 1);
     }).pipe(Effect.provide(layerTest(sent)));

@@ -502,10 +502,16 @@ export const OrchestrationV2ThreadWaiting = Schema.Struct({
 });
 export type OrchestrationV2ThreadWaiting = typeof OrchestrationV2ThreadWaiting.Type;
 
-export const ThreadWaitResolveInput = Schema.Struct({
-  threadId: ThreadId,
+export const ThreadWaitAnswer = Schema.Struct({
   waitId: OrchestrationV2ThreadWaitId,
   note: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2000))),
+});
+export type ThreadWaitAnswer = typeof ThreadWaitAnswer.Type;
+
+export const ThreadWaitResolveInput = Schema.Struct({
+  threadId: ThreadId,
+  /** Several answers to one thread wake its agent once. */
+  answers: Schema.NonEmptyArray(ThreadWaitAnswer).check(Schema.isMaxLength(10)),
   /** Default true: tell the thread's agent so it continues. */
   wake: Schema.optional(Schema.Boolean),
 });

@@ -78,8 +78,7 @@ const make = Effect.gen(function* () {
           Effect.andThen(
             threadWaits.resolve({
               threadId: input.threadId,
-              waitId: input.waitId,
-              note: input.note,
+              answers: [{ waitId: input.waitId, note: input.note }],
               resolvedBy: "agent",
             }),
           ),

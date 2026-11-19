@@ -22,20 +22,48 @@ interface PendingWaitResolve {
   readonly note: string | undefined;
   /** The wait list it answers. A list the agent sets again shows its waits even if ids repeat. */
   readonly setAt: string;
-  readonly timer: ReturnType<typeof setTimeout> | null;
-  readonly toastId: string | null;
+  /** True while Undo can still take it back; false once sent. */
+  readonly held: boolean;
+}
+
+/** One thread's held answers share a window, so they wake its agent once. */
+interface HeldBatch {
+  readonly timer: ReturnType<typeof setTimeout>;
+  readonly toastId: string;
 }
 
 /** Answers held for Undo, and those sent until the wait leaves the thread, by cockpit item key. */
 export const usePendingWaitResolves = create<{
   readonly pending: ReadonlyMap<string, PendingWaitResolve>;
-}>(() => ({ pending: new Map() }));
+  /** By `batchKey`. */
+  readonly batches: ReadonlyMap<string, HeldBatch>;
+}>(() => ({ pending: new Map(), batches: new Map() }));
 
-function update(key: string, entry: PendingWaitResolve | null) {
+const batchKey = (environmentId: EnvironmentId, threadId: ThreadId) =>
+  `${environmentId}\u0000${threadId}`;
+
+function setPending(changes: ReadonlyArray<readonly [string, PendingWaitResolve | null]>) {
   const pending = new Map(usePendingWaitResolves.getState().pending);
-  if (entry === null) pending.delete(key);
-  else pending.set(key, entry);
+  for (const [key, entry] of changes) {
+    if (entry === null) pending.delete(key);
+    else pending.set(key, entry);
+  }
   usePendingWaitResolves.setState({ pending });
+}
+
+function setBatch(key: string, batch: HeldBatch | null) {
+  const batches = new Map(usePendingWaitResolves.getState().batches);
+  if (batch === null) batches.delete(key);
+  else batches.set(key, batch);
+  usePendingWaitResolves.setState({ batches });
+}
+
+/** Held answers to one thread, oldest first. */
+function heldFor(environmentId: EnvironmentId, threadId: ThreadId) {
+  return [...usePendingWaitResolves.getState().pending].filter(
+    ([, entry]) =>
+      entry.held && entry.environmentId === environmentId && entry.threadId === threadId,
+  );
 }
 
 /** Whether the queue and the thread hide this wait because its answer is on the way. */
@@ -47,25 +75,28 @@ export function isWaitResolvePending(
   return pending.get(key)?.setAt === setAt;
 }
 
-async function send(key: string, entry: PendingWaitResolve) {
+async function send(entries: ReadonlyArray<readonly [string, PendingWaitResolve]>) {
+  const [first] = entries;
+  if (first === undefined) return;
+  const [, { environmentId, threadId }] = first;
+  const toAnswer = ([, entry]: readonly [string, PendingWaitResolve]) => ({
+    waitId: entry.waitId,
+    ...(entry.note === undefined ? {} : { note: entry.note }),
+  });
   const result = await runAtomCommand(
     appAtomRegistry,
     serverEnvironment.resolveThreadWait,
     {
-      environmentId: entry.environmentId,
-      input: {
-        threadId: entry.threadId,
-        waitId: entry.waitId,
-        ...(entry.note === undefined ? {} : { note: entry.note }),
-      },
+      environmentId,
+      input: { threadId, answers: [toAnswer(first), ...entries.slice(1).map(toAnswer)] },
     },
     { reportFailure: false },
   );
   if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
   const error = squashAtomCommandFailure(result);
-  // Resolved elsewhere, or the agent already dropped it: either way it is gone.
+  // Resolved elsewhere, or the agent already dropped them: either way they are gone.
   if (Predicate.isTagged(error, "ThreadWaitNotFoundError")) return;
-  update(key, null);
+  setPending(entries.map(([key]) => [key, null] as const));
   toastManager.add({
     type: "error",
     title: "Could not wake the thread",
@@ -73,31 +104,49 @@ async function send(key: string, entry: PendingWaitResolve) {
   });
 }
 
-function flush(key: string) {
-  const entry = usePendingWaitResolves.getState().pending.get(key);
-  if (entry === undefined || entry.timer === null) return;
-  clearTimeout(entry.timer);
-  const sent = { ...entry, timer: null };
-  update(key, sent);
-  void send(key, sent);
+function flushThread(environmentId: EnvironmentId, threadId: ThreadId) {
+  const key = batchKey(environmentId, threadId);
+  const batch = usePendingWaitResolves.getState().batches.get(key);
+  if (batch !== undefined) clearTimeout(batch.timer);
+  setBatch(key, null);
+  const held = heldFor(environmentId, threadId);
+  const sent = held.map(([waitKey, entry]) => [waitKey, { ...entry, held: false }] as const);
+  setPending(sent);
+  void send(sent);
+}
+
+function cancelBatch(environmentId: EnvironmentId, threadId: ThreadId) {
+  const key = batchKey(environmentId, threadId);
+  const batch = usePendingWaitResolves.getState().batches.get(key);
+  if (batch === undefined) return;
+  clearTimeout(batch.timer);
+  toastManager.close(batch.toastId);
+  setBatch(key, null);
 }
 
 export const waitResolveKey = (environmentId: EnvironmentId, threadId: ThreadId, waitId: string) =>
   cockpitItemKey(environmentId, taskWaitKey(threadId, waitId));
 
-/** False once the answer was sent. */
+/** Takes back one held answer; the thread's other held answers still go. False once sent. */
 export function undoWaitResolve(key: string): boolean {
   const entry = usePendingWaitResolves.getState().pending.get(key);
-  if (entry === undefined || entry.timer === null) return false;
-  clearTimeout(entry.timer);
-  if (entry.toastId !== null) toastManager.close(entry.toastId);
-  update(key, null);
+  if (entry === undefined || !entry.held) return false;
+  setPending([[key, null]]);
+  if (heldFor(entry.environmentId, entry.threadId).length === 0) {
+    cancelBatch(entry.environmentId, entry.threadId);
+  }
   return true;
 }
 
+function undoThread(environmentId: EnvironmentId, threadId: ThreadId) {
+  setPending(heldFor(environmentId, threadId).map(([key]) => [key, null] as const));
+  cancelBatch(environmentId, threadId);
+}
+
 /**
- * Hides the wait at once and wakes the thread after an Undo window. It survives navigation and
- * the cockpit moving on; closing the page sends what is still held. Returns the wait's key.
+ * Hides the wait at once and wakes the thread after an Undo window, which restarts with each
+ * answer to the same thread so they reach its agent together. It survives navigation and the
+ * cockpit moving on; closing the page sends what is still held. Returns the wait's key.
  */
 export function scheduleWaitResolve(input: {
   readonly environmentId: EnvironmentId;
@@ -107,29 +156,39 @@ export function scheduleWaitResolve(input: {
   readonly setAt: string;
   readonly note?: string | undefined;
 }) {
-  const key = waitResolveKey(input.environmentId, input.threadId, input.waitId);
-  flush(key);
-  const timer = setTimeout(() => flush(key), UNDO_WINDOW_MS);
+  const { environmentId, threadId } = input;
+  const key = waitResolveKey(environmentId, threadId, input.waitId);
+  cancelBatch(environmentId, threadId);
+  setPending([
+    [
+      key,
+      {
+        environmentId,
+        threadId,
+        waitId: input.waitId,
+        note: input.note?.trim() || undefined,
+        setAt: input.setAt,
+        held: true,
+      },
+    ],
+  ]);
+  const count = heldFor(environmentId, threadId).length;
+  const timer = setTimeout(() => flushThread(environmentId, threadId), UNDO_WINDOW_MS);
   const toastId = toastManager.add({
     type: "info",
     title: `Waking ${input.threadTitle} in 5s`,
+    ...(count > 1 ? { description: `${count} answers` } : {}),
     timeout: UNDO_WINDOW_MS,
-    actionProps: { children: "Undo", onClick: () => undoWaitResolve(key) },
+    actionProps: { children: "Undo", onClick: () => undoThread(environmentId, threadId) },
   });
-  update(key, {
-    environmentId: input.environmentId,
-    threadId: input.threadId,
-    waitId: input.waitId,
-    note: input.note?.trim() || undefined,
-    setAt: input.setAt,
-    timer,
-    toastId,
-  });
+  setBatch(batchKey(environmentId, threadId), { timer, toastId });
   return key;
 }
 
 if (typeof window !== "undefined") {
   window.addEventListener("pagehide", () => {
-    for (const key of usePendingWaitResolves.getState().pending.keys()) flush(key);
+    for (const entry of usePendingWaitResolves.getState().pending.values()) {
+      if (entry.held) flushThread(entry.environmentId, entry.threadId);
+    }
   });
 }
