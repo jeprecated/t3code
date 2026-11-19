@@ -19,22 +19,26 @@ import * as ThreadManagementService from "./ThreadManagementService.ts";
 export class ThreadWaitService extends Context.Service<
   ThreadWaitService,
   {
-    /** Drops one current wait and, unless `wake` is false, tells the thread's agent. */
+    /**
+     * Drops the thread's waits that `answers` name and, unless `wake` is false, tells its agent
+     * in one message. Fails only when none of them is still current.
+     */
     readonly resolve: (
       input: ThreadWaitResolveInput & { readonly resolvedBy: "user" | "agent" },
     ) => Effect.Effect<ThreadWaitResolveResult, ThreadWaitNotFoundError | ThreadWaitResolveError>;
   }
 >()("t3/orchestration-v2/ThreadWaitService") {}
 
-/** Reads as the user's reply to the wait, since the thread shows it as a message from them. */
-function wakeText(input: {
-  readonly summary: string;
-  readonly note?: string | undefined;
-  readonly resolvedBy: "user" | "agent";
-}): string {
-  const answer = input.note?.trim() || "Done.";
-  const via = input.resolvedBy === "agent" ? "\n\n(via the overview agent)" : "";
-  return `> ${input.summary.replaceAll("\n", " ")}\n\n${answer}${via}`;
+/** Reads as the user's reply to each wait, since the thread shows it as a message from them. */
+function wakeText(
+  answers: ReadonlyArray<{ readonly summary: string; readonly note?: string | undefined }>,
+  resolvedBy: "user" | "agent",
+): string {
+  const replies = answers.map(
+    (answer) => `> ${answer.summary.replaceAll("\n", " ")}\n\n${answer.note?.trim() || "Done."}`,
+  );
+  if (resolvedBy === "agent") replies.push("(via the overview agent)");
+  return replies.join("\n\n");
 }
 
 const make = Effect.gen(function* () {
@@ -45,33 +49,44 @@ const make = Effect.gen(function* () {
 
   const resolve: ThreadWaitService["Service"]["resolve"] = Effect.fn("ThreadWaitService.resolve")(
     function* (input) {
-      yield* Effect.annotateCurrentSpan({ threadId: input.threadId, waitId: input.waitId });
+      yield* Effect.annotateCurrentSpan({
+        threadId: input.threadId,
+        waitIds: input.answers.map((answer) => answer.waitId).join(","),
+      });
       const failed = (stage: "resolve" | "wake") => (cause: unknown) =>
         new ThreadWaitResolveError({ threadId: input.threadId, stage, cause });
       const before = yield* orchestrator
         .getThreadShell(input.threadId)
         .pipe(Effect.mapError(failed("resolve")));
       // The shell applies `currentThreadWaiting`, so a wait the user already answered is gone.
-      const wait = before?.waiting?.items.find((item) => item.id === input.waitId);
-      if (before == null || before.deletedAt !== null || wait === undefined) {
+      const current = before?.deletedAt === null ? (before.waiting?.items ?? []) : [];
+      const answers = input.answers.flatMap((answer) => {
+        const wait = current.find((item) => item.id === answer.waitId);
+        return wait === undefined ? [] : [{ ...answer, summary: wait.summary }];
+      });
+      if (before == null || answers.length === 0) {
         return yield* new ThreadWaitNotFoundError({
           threadId: input.threadId,
-          waitId: input.waitId,
+          waitId: input.answers[0].waitId,
         });
       }
       const uuid = yield* random.uuidV4().pipe(Effect.orDie);
-      yield* orchestrator
-        .dispatch({
-          type: "thread.waiting.resolve",
-          commandId: CommandId.make(`server:wait-resolve:${input.threadId}:${uuid}`),
-          threadId: input.threadId,
-          waitId: input.waitId,
-        })
-        .pipe(Effect.mapError(failed("resolve")));
-      // The wait is gone either way, so a stale snooze only costs a dead row.
-      yield* snoozes
-        .clear({ key: taskWaitKey(input.threadId, input.waitId) })
-        .pipe(Effect.ignore({ log: true }));
+      for (const answer of answers) {
+        yield* orchestrator
+          .dispatch({
+            type: "thread.waiting.resolve",
+            commandId: CommandId.make(
+              `server:wait-resolve:${input.threadId}:${uuid}:${answer.waitId}`,
+            ),
+            threadId: input.threadId,
+            waitId: answer.waitId,
+          })
+          .pipe(Effect.mapError(failed("resolve")));
+        // The wait is gone either way, so a stale snooze only costs a dead row.
+        yield* snoozes
+          .clear({ key: taskWaitKey(input.threadId, answer.waitId) })
+          .pipe(Effect.ignore({ log: true }));
+      }
       if (input.wake !== false) {
         yield* threads
           .sendToThread({
@@ -79,11 +94,7 @@ const make = Effect.gen(function* () {
             commandId: CommandId.make(`server:wait-resolve-wake:${input.threadId}:${uuid}`),
             threadId: input.threadId,
             messageId: MessageId.make(`wait-resolve:${input.threadId}:${uuid}`),
-            text: wakeText({
-              summary: wait.summary,
-              note: input.note,
-              resolvedBy: input.resolvedBy,
-            }),
+            text: wakeText(answers, input.resolvedBy),
             attachments: [],
             mode: "auto",
             // Not "user": a user-authored message would clear the thread's other waits.
