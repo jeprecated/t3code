@@ -183,7 +183,11 @@ describe("waiting toolkit handlers", () => {
         }),
       ).toEqual({ waiting: null });
       expect(yield* Ref.get(harness.resolved)).toEqual([
-        { threadId: THREAD_ID, waitId: "pick", note: "The user picked A.", resolvedBy: "agent" },
+        {
+          threadId: THREAD_ID,
+          answers: [{ waitId: "pick", note: "The user picked A." }],
+          resolvedBy: "agent",
+        },
       ]);
       expect(
         yield* harness
