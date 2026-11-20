@@ -3,7 +3,7 @@ import { T, useGT, useMessages } from "gt-react";
 import { Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
-import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
+import { useNewThreadPresets, useUpdateNewThreadPresetsSettings } from "../../hooks/useSettings";
 import {
   commandForNewThreadPreset,
   describeNewThreadPreset,
@@ -20,8 +20,8 @@ import { SettingsRow, SettingsSection } from "./settingsLayout";
 export function NewThreadPresetsSettings() {
   const gt = useGT();
   const messages = useMessages();
-  const presets = usePrimarySettings((settings) => settings.newThreadPresets);
-  const updateSettings = useUpdatePrimarySettings();
+  const presets = useNewThreadPresets();
+  const updateSettings = useUpdateNewThreadPresetsSettings();
   const projects = useProjects();
   const { environments } = useEnvironments();
   const pinnedLabel = (preset: NewThreadPreset): string | null => {

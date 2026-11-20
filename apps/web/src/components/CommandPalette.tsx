@@ -120,7 +120,7 @@ import {
   copyPromptLink,
   promptLinkRepositoryOf,
 } from "./promptLinks/copyPromptLink";
-import { useClientSettings, usePrimarySettings } from "../hooks/useSettings";
+import { useClientSettings, useNewThreadPresets } from "../hooks/useSettings";
 import { useStartNewThreadPreset } from "../hooks/useStartNewThreadPreset";
 import { commandForNewThreadPreset } from "../newThreadPresets";
 import { requestSaveDraftAsNewThreadPreset } from "./chat/newThreadPresetActionBus";
@@ -558,7 +558,7 @@ function OpenCommandPaletteDialog(props: {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const paletteRouteTarget = useThreadRouteTarget();
-  const newThreadPresets = usePrimarySettings((settings) => settings.newThreadPresets);
+  const newThreadPresets = useNewThreadPresets();
   const startNewThreadPreset = useStartNewThreadPreset();
   const projects = useProjects();
   const referenceThreadRef =

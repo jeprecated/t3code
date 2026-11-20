@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import type { EnvironmentId, NewThreadPreset, ScopedProjectRef } from "@t3tools/contracts";
@@ -10,8 +11,8 @@ import { resolveNewThreadPresetStart } from "../newThreadPresets";
 import { resolveThreadActionProjectRef } from "../lib/chatThreadActions";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { readProject, readProjects } from "../state/entities";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import { environmentServerConfigsAtom } from "../state/server";
+import { useEnvironments } from "../state/environments";
+import { environmentServerConfigsAtom, newThreadPresetsEnvironmentIdAtom } from "../state/server";
 import { useHandleNewThread } from "./useHandleNewThread";
 import { useScratchProject } from "./useScratchProject";
 
@@ -36,7 +37,8 @@ export function createStartNewThreadPreset(input: {
     ReturnType<typeof useScratchProject>,
     "scratchEnvironmentId" | "scratchWorkspaceRootFor" | "openScratchProject"
   >;
-  readonly primaryEnvironmentId: () => EnvironmentId | null;
+  /** Where presets live (the primary, else this machine's service); "current" without a thread. */
+  readonly homeEnvironmentId: () => EnvironmentId | null;
   readonly environments: () => ReadonlyArray<PresetEnvironment>;
 }) {
   const { scratchEnvironmentId, scratchWorkspaceRootFor, openScratchProject } = input.scratch;
@@ -66,7 +68,7 @@ export function createStartNewThreadPreset(input: {
       currentEnvironmentId:
         activeThread?.environmentId ??
         activeDraftThread?.environmentId ??
-        input.primaryEnvironmentId(),
+        input.homeEnvironmentId(),
       defaultProjectRef,
       projects: readProjects(),
       isConnected: (environmentId) =>
@@ -161,12 +163,12 @@ export function createStartNewThreadPreset(input: {
 export function useStartNewThreadPreset() {
   const newThread = useHandleNewThread();
   const scratch = useScratchProject();
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const homeEnvironmentId = useAtomValue(newThreadPresetsEnvironmentIdAtom);
   const { environments } = useEnvironments();
   return createStartNewThreadPreset({
     context: () => newThread,
     scratch,
-    primaryEnvironmentId: () => primaryEnvironmentId,
+    homeEnvironmentId: () => homeEnvironmentId,
     environments: () => environments,
   });
 }

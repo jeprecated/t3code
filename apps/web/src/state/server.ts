@@ -199,6 +199,30 @@ export const themeServerSettingsAtom = Atom.make(
   (get): ServerSettings => get(themeServerConfigAtom)?.settings ?? DEFAULT_SERVER_SETTINGS,
 ).pipe(Atom.withLabel("web-theme-server-settings"));
 
+/**
+ * New-thread presets belong to the machine the app runs on, as themes do: the
+ * primary, else the service sharing the desktop app's T3 home. A desktop app
+ * with its local environment off reaches that service as an ordinary
+ * connection, so it has no primary and would otherwise show no presets.
+ */
+export function createNewThreadPresetsAtom(input: {
+  readonly environmentIdAtom: Atom.Atom<EnvironmentId | null>;
+  readonly configValueAtom: (environmentId: EnvironmentId) => Atom.Atom<ServerConfig | null>;
+}) {
+  return Atom.make((get): ServerSettings["newThreadPresets"] => {
+    const environmentId = get(input.environmentIdAtom);
+    const config = environmentId === null ? null : get(input.configValueAtom(environmentId));
+    return config?.settings.newThreadPresets ?? DEFAULT_SERVER_SETTINGS.newThreadPresets;
+  });
+}
+
+export const newThreadPresetsEnvironmentIdAtom = localEnvironmentIdAtom;
+
+export const newThreadPresetsAtom = createNewThreadPresetsAtom({
+  environmentIdAtom: newThreadPresetsEnvironmentIdAtom,
+  configValueAtom: serverEnvironment.configValueAtom,
+}).pipe(Atom.withLabel("web-new-thread-presets"));
+
 export const providersIgnoringCheckedAtAtom = Atom.family((environmentId: EnvironmentId) =>
   Atom.make((get): ReadonlyArray<ServerProvider> =>
     reuseProvidersIgnoringCheckedAt(
