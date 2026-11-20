@@ -233,8 +233,8 @@ import {
   useClientSettings,
   useClientSettingsHydrated,
   useEnvironmentSettings,
-  usePrimarySettings,
-  useUpdatePrimarySettings,
+  useNewThreadPresets,
+  useUpdateNewThreadPresetsSettings,
 } from "../hooks/useSettings";
 import { commandForNewThreadPreset, saveNewThreadPreset } from "../newThreadPresets";
 import { requestNewThreadPresetSave } from "./NewThreadPresetNameDialog";
@@ -3317,8 +3317,8 @@ export default function ChatView(props: ChatViewProps) {
     workLocallyResendReady,
   ]);
 
-  const newThreadPresets = usePrimarySettings((settings) => settings.newThreadPresets);
-  const updatePrimarySettings = useUpdatePrimarySettings();
+  const newThreadPresets = useNewThreadPresets();
+  const updateNewThreadPresetsSettings = useUpdateNewThreadPresetsSettings();
   const saveDraftAsNewThreadPreset = async () => {
     const modelSelection = composerRef.current?.getSendContext().selectedModelSelection;
     if (!isLocalDraftThread || !modelSelection || !activeProject) return;
@@ -3356,7 +3356,7 @@ export default function ChatView(props: ChatViewProps) {
             }
           : { name, modelSelection, project: "current", ...machine, ...workspace },
     );
-    updatePrimarySettings({ newThreadPresets: presets });
+    updateNewThreadPresetsSettings({ newThreadPresets: presets });
     const saved = presets.find((preset) => preset.name.toLowerCase() === name.toLowerCase());
     toastManager.add({
       type: "success",

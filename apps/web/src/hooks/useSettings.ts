@@ -51,7 +51,12 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { toastManager } from "~/components/ui/toast";
 import { isHostedStaticApp } from "~/hostedPairing";
 import { environmentCatalog } from "~/connection/catalog";
-import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
+import {
+  newThreadPresetsAtom,
+  newThreadPresetsEnvironmentIdAtom,
+  primaryServerSettingsAtom,
+  serverEnvironment,
+} from "~/state/server";
 import { useEnvironments, usePrimaryEnvironment } from "~/state/environments";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
@@ -806,6 +811,16 @@ export function useUpdateEnvironmentSettings(environmentId: EnvironmentId | null
 
 export function useUpdatePrimarySettings() {
   return useUpdateSettingsTarget(usePrimaryEnvironment()?.environmentId ?? null);
+}
+
+/** New-thread presets, from the machine the app runs on even without a primary. */
+export function useNewThreadPresets(): ServerSettings["newThreadPresets"] {
+  return useAtomValue(newThreadPresetsAtom);
+}
+
+/** Saves settings where useNewThreadPresets reads presets from. */
+export function useUpdateNewThreadPresetsSettings() {
+  return useUpdateSettingsTarget(useAtomValue(newThreadPresetsEnvironmentIdAtom));
 }
 
 export function updateClientSettings(patch: ClientSettingsPatch): Promise<void> {
