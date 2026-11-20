@@ -32,7 +32,7 @@ import { readProjects, readThreadShell } from "../state/entities";
 import { defaultProjectFallbackReadyAtom } from "../state/projects";
 import { environmentPresentations } from "../state/presentation";
 import { primaryEnvironmentIdAtom } from "../state/primaryEnvironment";
-import { primaryServerSettingsAtom } from "../state/server";
+import { newThreadPresetsAtom, newThreadPresetsEnvironmentIdAtom } from "../state/server";
 import { readEnvironmentScope } from "../state/session";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
@@ -116,7 +116,7 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
   const startNewThreadPreset = createStartNewThreadPreset({
     context: readThreadContext,
     scratch,
-    primaryEnvironmentId: () => appAtomRegistry.get(primaryEnvironmentIdAtom),
+    homeEnvironmentId: () => appAtomRegistry.get(newThreadPresetsEnvironmentIdAtom),
     environments: () =>
       [...appAtomRegistry.get(environmentPresentations.presentationsAtom)].map(
         ([environmentId, presentation]) => ({
@@ -131,8 +131,8 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
     if (presetId === null) return undefined;
     return (event) => {
       const preset = appAtomRegistry
-        .get(primaryServerSettingsAtom)
-        .newThreadPresets.find((candidate) => candidate.id === presetId);
+        .get(newThreadPresetsAtom)
+        .find((candidate) => candidate.id === presetId);
       if (!preset) return false;
       claim(event);
       if (!event.repeat) void startNewThreadPreset(preset);
