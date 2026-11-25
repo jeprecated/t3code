@@ -186,6 +186,13 @@ reported by `orchestrator_capabilities`. `true` and `false` set on/off options.
 2 when the agent waits for an answer you give in the app. Add `--json` for a
 result that always includes the thread id.
 
+`t3 thread list --all --busy` lists every project's threads with work a server
+restart would cut short, so a script can wait for an empty list before
+updating or restarting T3 Code. `t3 thread start` without a message (pass
+`--title`) makes an idle thread. A script can then keep its notes for you there
+with `t3 thread set-waiting "$id" '[{"id":"…","kind":"manual_step","summary":"…"}]'`.
+`[]` clears them.
+
 ## Remove an agent
 
 Approved agents appear under **Settings → Sharing & access** like other clients.

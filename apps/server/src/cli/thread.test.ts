@@ -151,6 +151,131 @@ it.effect("list includes delegated threads across pages and still leaves out sub
   ),
 );
 
+const runAgainstFakeServer = (
+  argv: ReadonlyArray<string>,
+  reply: (tool: string, args: Record<string, unknown>) => unknown,
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-thread-fake-" });
+    yield* persistServerRuntimeState({
+      path: path.join(baseDir, "userdata", "server-runtime.json"),
+      state: yield* makePersistedServerRuntimeState({
+        config: { host: "127.0.0.1", devUrl: undefined },
+        port: 3_773,
+      }),
+    });
+    const calls: Array<{ tool: string; args: Record<string, unknown> }> = [];
+    using _session = vi.spyOn(McpBridge, "mcpToolSession").mockReturnValue(
+      Effect.succeed({
+        call: (tool, args) => {
+          calls.push({ tool, args: args as Record<string, unknown> });
+          return Effect.succeed({
+            structuredContent: reply(tool, args as Record<string, unknown>),
+          });
+        },
+      }),
+    );
+    yield* Command.runWith(threadCommand, { version: "0.0.0" })([...argv, "--base-dir", baseDir]);
+    return { calls, lines: yield* TestConsole.logLines };
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        NodeCrypto.layer,
+        NetService.layer,
+        ConfigProvider.layer(ConfigProvider.fromEnv({ env: { T3CODE_PORT: "3773" } })),
+      ),
+    ),
+  );
+
+it.effect("list --all --busy asks every project for work a restart would interrupt", () =>
+  Effect.gen(function* () {
+    const { calls } = yield* runAgainstFakeServer(["list", "--all", "--busy", "--json"], () => ({
+      projectId: null,
+      currentThreadId: null,
+      threads: [],
+      nextCursor: null,
+      total: 0,
+    }));
+    assert.deepStrictEqual(
+      calls.map((call) => call.tool),
+      ["t3_thread_list"],
+    );
+    assert.strictEqual(calls[0]?.args.allProjects, true);
+    assert.strictEqual(calls[0]?.args.projectId, undefined);
+    assert.deepStrictEqual(calls[0]?.args.statuses, [
+      "preparing",
+      "queued",
+      "starting",
+      "running",
+      "waiting",
+    ]);
+  }),
+);
+
+it.effect("start without a message launches an idle thread under --title", () =>
+  Effect.gen(function* () {
+    const projectId = ProjectId.make("project-1");
+    const { calls, lines } = yield* runAgainstFakeServer(
+      ["start", projectId, "--title", "Board"],
+      (tool) =>
+        tool === "t3_project_list"
+          ? {
+              projects: [{ id: projectId, title: "Project", workspaceRoot: "/x" }],
+              nextCursor: null,
+            }
+          : { threadId, projectId, runId: null },
+    );
+    const launch = calls.find((call) => call.tool === "t3_thread_launch");
+    assert.strictEqual(launch?.args.title, "Board");
+    assert.isFalse(launch !== undefined && "message" in launch.args);
+    assert.strictEqual(lines.at(-1), threadId);
+  }),
+);
+
+it.effect("start without a message or --title stops before reaching the server", () =>
+  Effect.gen(function* () {
+    const error = yield* Command.runWith(threadCommand, { version: "0.0.0" })(["start", "."]).pipe(
+      Effect.flip,
+    );
+    assert.strictEqual(error.message, "Pass --title or a message.");
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer, TestConsole.layer),
+    ),
+  ),
+);
+
+it.effect("set-waiting replaces a thread's waits", () =>
+  Effect.gen(function* () {
+    const wait = { id: "prism", kind: "manual_step", summary: "Switch Prism to the new build." };
+    const { calls, lines } = yield* runAgainstFakeServer(
+      ["set-waiting", threadId, JSON.stringify([wait])],
+      () => ({ waiting: { items: [wait], setAt: "2026-01-01T00:00:00.000Z" } }),
+    );
+    assert.deepStrictEqual(calls, [{ tool: "set_waiting", args: { threadId, waits: [wait] } }]);
+    assert.strictEqual(lines.at(-1), "Waiting on 1.");
+  }),
+);
+
+it.effect("set-waiting refuses waits that are not a JSON array of waits", () =>
+  Effect.gen(function* () {
+    const error = yield* Command.runWith(threadCommand, { version: "0.0.0" })([
+      "set-waiting",
+      threadId,
+      '{"id":"x"}',
+    ]).pipe(Effect.flip);
+    assert.match(error.message, /^The waits are not a JSON array of waits/);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer, TestConsole.layer),
+    ),
+  ),
+);
+
 it.effect(
   "start resolves home-relative project paths while preserving ids and relative paths",
   () =>
