@@ -380,6 +380,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "floating-terminal-border",
+    title: msg("Floating terminal border"),
+    to: "/settings/appearance",
+    searchTerms: [msg("popover outline frame edge width thickness color colour")],
+  },
+  {
     id: "chat-width",
     title: msg("Chat width"),
     to: "/settings/appearance",
@@ -492,6 +498,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("snooze presets times later tonight tomorrow next week remind")],
     environmentOnly: true,
     scope: "environment-defaults",
+  },
+  {
+    id: "thread-categories",
+    title: msg("Thread categories"),
+    to: "/settings/general",
+    searchTerms: [
+      msg(
+        "filter sidebar threads repositories client work color stripe rules groups focus suggested tags agents",
+      ),
+    ],
+  },
+  {
+    id: "thread-category-views",
+    title: msg("Sidebar views"),
+    to: "/settings/general",
+    searchTerms: [msg("filter sidebar categories combine several shortcut cycle order")],
   },
   {
     id: "snooze-limited-threads",
@@ -1264,6 +1286,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/source-control",
     scope: "project-defaults",
     searchTerms: [msg("auto pull default branch current checkout fast forward upstream")],
+  },
+  {
+    id: "jujutsu-workspaces",
+    title: msg("Jujutsu workspaces"),
+    to: "/settings/source-control",
+    scope: "project-defaults",
+    searchTerms: [msg("jj jujutsu workspace colocate colocated worktree vcs")],
   },
   {
     id: "remove-agent-credits-on-merge",

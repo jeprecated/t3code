@@ -53,3 +53,5 @@ t3 thread list
 
 - Pass `--worktree <base-branch>`, `--title` / `--generate-title`, `--provider <id> --model <slug>`, `--option id=value` (e.g. `reasoningEffort=high` for Codex, `effort=high` for Claude), or `-` to read the prompt from stdin.
 - `--wait` prints the reply and exits `1` on failure/stop or `2` when waiting for user input. Add `--json` for structured output including the thread ID.
+- `t3 thread list --all --busy` lists every project's threads with work a server restart would cut short, so a script can wait for an empty list before updating or restarting T3 Code.
+- `t3 thread start` without a message (pass `--title`) makes an idle thread. A script can then keep its notes for you there with `t3 thread set-waiting "$id" '[{"id":"…","kind":"manual_step","summary":"…"}]'`; `[]` clears them.

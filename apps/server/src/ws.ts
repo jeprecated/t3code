@@ -61,6 +61,7 @@ import {
   OrchestrationGetFullThreadDiffError,
   OrchestrationSearchThreadsError,
   OrchestrationV2SearchThreadError,
+  OrchestrationV2SuggestThreadCategoriesError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_V2_WS_METHODS,
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
@@ -137,6 +138,10 @@ import * as DocumentText from "./provider/DocumentText.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as Workflows from "./workflows/Workflows.ts";
 import * as WorkflowRuntime from "./workflows/WorkflowRuntime.ts";
+import * as UserTodoService from "./userTodos/UserTodoService.ts";
+import * as TaskSnoozeService from "./taskSnoozes/TaskSnoozeService.ts";
+import * as OverviewService from "./overview/OverviewService.ts";
+import * as ThreadWaitService from "./orchestration-v2/ThreadWaitService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as FeedbackStore from "./feedback/FeedbackStore.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
@@ -184,6 +189,7 @@ import {
 } from "./orchestration-v2/WireProjection.ts";
 import { dedupeSnapshotBodies } from "@t3tools/shared/orchestrationV2DedupedBodies";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
+import * as ThreadCategoryService from "./orchestration-v2/ThreadCategoryService.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as OrchestrationEventStore from "./persistence/OrchestrationEventStore.ts";
 import { userFacingDispatchErrorMessage } from "./orchestration-v2/UserFacingErrors.ts";
@@ -1482,6 +1488,7 @@ export const layerWsRpc = (
       const scratchThreadPromotion = yield* ScratchThreadPromotion.ScratchThreadPromotion;
       const eventLoopMonitor = yield* EventLoopMonitor.EventLoopMonitor;
       const threadSearch = yield* ThreadSearch.ThreadSearch;
+      const threadCategories = yield* ThreadCategoryService.ThreadCategoryService;
 
       const providerSessionsV2 = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const mcpAppRequests = yield* McpAppRequests.McpAppRequests;
@@ -1515,6 +1522,10 @@ export const layerWsRpc = (
       // The service's messages are built from its own attributes, so they are safe to send.
       const toWorkflowRequestError = (error: Workflows.WorkflowError) =>
         new WorkflowRequestError({ message: error.message });
+      const userTodos = yield* UserTodoService.UserTodoService;
+      const taskSnoozes = yield* TaskSnoozeService.TaskSnoozeService;
+      const overview = yield* OverviewService.OverviewService;
+      const threadWaits = yield* ThreadWaitService.ThreadWaitService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const feedbackStore = yield* FeedbackStore.FeedbackStore;
       const guestShares = yield* GuestShareService.GuestShareService;
@@ -2156,6 +2167,14 @@ export const layerWsRpc = (
           threadManagement
             .searchThreadStream(input)
             .pipe(Stream.mapError((cause) => new OrchestrationV2SearchThreadError({ cause }))),
+        [ORCHESTRATION_V2_WS_METHODS.suggestThreadCategories]: (input) =>
+          threadCategories
+            .suggest(input.threadId)
+            .pipe(
+              Effect.mapError(
+                (cause) => new OrchestrationV2SuggestThreadCategoriesError({ cause }),
+              ),
+            ),
         [ORCHESTRATION_V2_WS_METHODS.searchThreads]: (input) =>
           ThreadSearch.searchThreadsWithOlderSettledRows({
             request: input,
@@ -2404,6 +2423,12 @@ export const layerWsRpc = (
               Effect.as(commandOutputHub.subscribe(input)),
             ),
           ),
+        [ORCHESTRATION_V2_WS_METHODS.subscribeBackgroundTaskOutput]: (input) =>
+          Stream.unwrap(
+            Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+              Effect.as(threadManagement.streamBackgroundTaskOutput(input)),
+            ),
+          ),
         [ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion]: (input) =>
           providerSessionManager.subscribePromptSuggestion(input.threadId),
         [WS_METHODS.workflowsSubscribe]: (input) =>
@@ -2463,6 +2488,18 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
             Effect.andThen(scheduledTasks.rotateWebhookToken(input)),
           ),
+        [WS_METHODS.userTodosSubscribe]: (_input) => userTodos.subscribeList(),
+        [WS_METHODS.userTodosUpsert]: (input) => userTodos.upsert({ ...input, createdBy: "user" }),
+        [WS_METHODS.userTodosSetCompleted]: (input) => userTodos.setCompleted(input),
+        [WS_METHODS.userTodosDelete]: (input) => userTodos.delete(input),
+        [WS_METHODS.taskSnoozesSubscribe]: (_input) => taskSnoozes.subscribeList(),
+        [WS_METHODS.taskSnoozesSet]: (input) => taskSnoozes.set(input),
+        [WS_METHODS.taskSnoozesClear]: (input) => taskSnoozes.clear(input),
+        [WS_METHODS.threadWaitsResolve]: (input) =>
+          Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+            Effect.andThen(threadWaits.resolve({ ...input, resolvedBy: "user" })),
+          ),
+        [WS_METHODS.overviewStart]: (input) => overview.start(input),
         [WS_METHODS.guestShareCreate]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(guestShares.create(input)),

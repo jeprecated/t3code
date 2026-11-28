@@ -14,6 +14,7 @@ import * as Struct from "effect/Struct";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import {
   EnvironmentId,
+  ForwardCompatibleArray,
   ForwardCompatibleNullable,
   ForwardCompatibleOptional,
   OmittedWhenNull,
@@ -27,7 +28,7 @@ import { UsageModelFilter } from "./usage.ts";
 import { SecretProviderId, SecretProviderSlug } from "./secretReference.ts";
 import { containsSecretReference, SettingsSecretValue } from "./settingsSecretValue.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
-import { KeybindingShortcut } from "./keybindings.ts";
+import { KeybindingShortcut, NewThreadPresetId } from "./keybindings.ts";
 import {
   CustomModelSetting,
   DEFAULT_TEXT_GENERATION_MODEL,
@@ -35,7 +36,7 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ProjectScript, type ProjectMutation } from "./project.ts";
+import { ProjectIconColor, ProjectScript, type ProjectMutation } from "./project.ts";
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
 import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
 import {
@@ -87,6 +88,43 @@ export const SidebarProjectGroupingMode = Schema.Literals([
 ]);
 export type SidebarProjectGroupingMode = typeof SidebarProjectGroupingMode.Type;
 const DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE: SidebarProjectGroupingMode = "repository";
+
+// Fields stay plain strings so a half-edited category can never fail decoding,
+// which would reset every server setting. The matcher ignores blank entries.
+export const ThreadCategoryRule = Schema.Struct({
+  repositories: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  environments: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  providerInstances: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  branches: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  workspacePaths: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  /** Project names rather than ids, so the same project on several machines matches once. */
+  projects: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type ThreadCategoryRule = typeof ThreadCategoryRule.Type;
+
+export const ThreadCategory = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  /** What belongs in the category, in the user's words, so suggestions can recognize it. */
+  description: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  color: ProjectIconColor,
+  rules: Schema.Array(ThreadCategoryRule).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type ThreadCategory = typeof ThreadCategory.Type;
+
+/** A saved sidebar filter showing threads in any of its categories. */
+export const ThreadCategoryView = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  categoryIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  excludedCategoryIds: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+});
+export type ThreadCategoryView = typeof ThreadCategoryView.Type;
+
 export const MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS = 1;
 export const MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS = 90;
 export const SidebarAutoSettleAfterDays = Schema.Number.check(
@@ -135,6 +173,15 @@ export const DEFAULT_SNOOZE_PRESETS: ReadonlyArray<SnoozePresetSetting> = [
   { kind: "at", day: "tomorrow", time: "09:00" },
   { kind: "at", day: "monday", time: "09:00" },
 ];
+/** For one task rather than a thread: shorter, since a task is often minutes from doable. */
+export const TASK_SNOOZE_PRESETS: ReadonlyArray<SnoozePresetSetting> = [
+  { kind: "after", minutes: 10 },
+  { kind: "after", minutes: 30 },
+  { kind: "after", minutes: 60 },
+  { kind: "at", day: "today", time: "18:00" },
+  { kind: "at", day: "tomorrow", time: "09:00" },
+  { kind: "at", day: "monday", time: "09:00" },
+];
 
 export const MIN_GLASS_OPACITY = 40;
 export const MAX_GLASS_OPACITY = 100;
@@ -146,6 +193,22 @@ export const GlassOpacity = Schema.Int.check(
 );
 export type GlassOpacity = typeof GlassOpacity.Type;
 const DEFAULT_GLASS_OPACITY: GlassOpacity = 80;
+
+export const MIN_FLOATING_TERMINAL_BORDER_WIDTH = 0;
+export const MAX_FLOATING_TERMINAL_BORDER_WIDTH = 6;
+/** Frame thickness of the floating terminal, in CSS pixels. */
+export const FloatingTerminalBorderWidth = Schema.Int.check(
+  Schema.isBetween({
+    minimum: MIN_FLOATING_TERMINAL_BORDER_WIDTH,
+    maximum: MAX_FLOATING_TERMINAL_BORDER_WIDTH,
+  }),
+);
+export type FloatingTerminalBorderWidth = typeof FloatingTerminalBorderWidth.Type;
+const DEFAULT_FLOATING_TERMINAL_BORDER_WIDTH: FloatingTerminalBorderWidth = 2;
+
+/** Theme color the floating terminal's frame takes, so it follows light and dark themes. */
+export const FloatingTerminalBorderColor = Schema.Literals(["subtle", "accent", "text"]);
+export type FloatingTerminalBorderColor = typeof FloatingTerminalBorderColor.Type;
 
 export const MIN_APPEARANCE_CONTRAST = 50;
 export const MAX_APPEARANCE_CONTRAST = 200;
@@ -494,6 +557,12 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
+  ),
+  floatingTerminalBorderWidth: FloatingTerminalBorderWidth.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_FLOATING_TERMINAL_BORDER_WIDTH)),
+  ),
+  floatingTerminalBorderColor: FloatingTerminalBorderColor.pipe(
+    Schema.withDecodingDefault(Effect.succeed("accent" as const)),
   ),
   fontSizeInterface: InterfaceFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_INTERFACE_FONT_SIZE)),
@@ -1214,6 +1283,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "defaultRuntimeMode",
   "defaultThreadEnvMode",
   "newWorktreesStartFromOrigin",
+  "jujutsuWorkspaces",
   "worktreeSubmodules",
   "defaultAutoPull",
   "defaultProjectScripts",
@@ -1252,6 +1322,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
+  jujutsuWorkspaces: Schema.optionalKey(Schema.Boolean),
   worktreeSubmodules: ForwardCompatibleOptional(WorktreeSubmodules),
   defaultAutoPull: Schema.optionalKey(Schema.Boolean),
   defaultProjectScripts: Schema.optionalKey(Schema.Array(ProjectScript)),
@@ -1406,6 +1477,44 @@ export const CloudSpeechCredentials = Schema.Struct({
   xai: CloudSpeechCredential,
   openrouter: CloudSpeechCredential,
 });
+
+const NewThreadPresetBase = {
+  id: NewThreadPresetId,
+  name: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+};
+// An absent workspace or origin field defers to the project's new-thread defaults.
+const NewThreadPresetWorkspace = {
+  envMode: Schema.optionalKey(ThreadEnvMode),
+  startFromOrigin: Schema.optionalKey(Schema.Boolean),
+};
+
+/**
+ * A named starting point for new threads. "current" follows the thread the user
+ * is in; "pinned" always opens one project on one machine; "none" starts without
+ * a project. An absent machine on "current" or "none" means the current one.
+ */
+export const NewThreadPreset = Schema.Union([
+  Schema.Struct({
+    ...NewThreadPresetBase,
+    project: Schema.Literal("current"),
+    environmentId: Schema.optionalKey(EnvironmentId),
+    ...NewThreadPresetWorkspace,
+  }),
+  Schema.Struct({
+    ...NewThreadPresetBase,
+    project: Schema.Literal("pinned"),
+    environmentId: EnvironmentId,
+    projectId: ProjectId,
+    ...NewThreadPresetWorkspace,
+  }),
+  Schema.Struct({
+    ...NewThreadPresetBase,
+    project: Schema.Literal("none"),
+    environmentId: Schema.optionalKey(EnvironmentId),
+  }),
+]);
+export type NewThreadPreset = typeof NewThreadPreset.Type;
 
 export const ServerSettings = Schema.Struct({
   // Null means unmigrated; empty is authoritative and must not resurrect cleared preferences.
@@ -1577,6 +1686,19 @@ export const ServerSettings = Schema.Struct({
   newWorktreesStartFromOrigin: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
+  /**
+   * Creates new worktrees with `jj workspace add --colocate`, so they show up
+   * in jj as well as git. Needs a colocated jj repository and jj 0.46+.
+   */
+  jujutsuWorkspaces: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
+   * The program, plus any leading arguments, that runs jj, such as `tick jj`
+   * for Agent Tick repositories, where the system jj refuses to run.
+   */
+  jujutsuCommand: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("jj"))),
+  newThreadPresets: ForwardCompatibleArray(NewThreadPreset).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   /** Null inherits t3.json, then recursive; unknown values decode to null for older clients. */
   worktreeSubmodules: ForwardCompatibleNullable(WorktreeSubmodules).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -1584,6 +1706,18 @@ export const ServerSettings = Schema.Struct({
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   /** Clones default to `<addProjectBaseDirectory>/<host>/<owner>/<repo>`, like ghq. */
   ghqCloneLayout: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
+   * Clients write the same list to every connected environment, so a category
+   * keeps one id everywhere; each environment answers agents from its own copy.
+   */
+  threadCategories: Schema.Array(ThreadCategory).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  threadCategoryViews: Schema.Array(ThreadCategoryView).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  /** The thread the overview agent runs in; the server sets it when the user starts one. */
+  overviewThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -1995,9 +2129,15 @@ export const ServerSettingsPatch = Schema.Struct({
   environmentIcon: Schema.optionalKey(Schema.NullOr(EnvironmentMachineKind)),
   defaultThreadEnvMode: Schema.optionalKey(Schema.NullOr(ThreadEnvMode)),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
+  jujutsuWorkspaces: Schema.optionalKey(Schema.Boolean),
+  jujutsuCommand: Schema.optionalKey(TrimmedString),
+  newThreadPresets: Schema.optionalKey(Schema.Array(NewThreadPreset)),
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   ghqCloneLayout: Schema.optionalKey(Schema.Boolean),
+  threadCategories: Schema.optionalKey(Schema.Array(ThreadCategory)),
+  threadCategoryViews: Schema.optionalKey(Schema.Array(ThreadCategoryView)),
+  overviewThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
@@ -2153,6 +2293,8 @@ export const ClientSettingsPatch = Schema.Struct({
   diffLayout: Schema.optionalKey(DiffLayout),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
+  floatingTerminalBorderWidth: Schema.optionalKey(FloatingTerminalBorderWidth),
+  floatingTerminalBorderColor: Schema.optionalKey(FloatingTerminalBorderColor),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),

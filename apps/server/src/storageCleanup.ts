@@ -63,6 +63,7 @@ import { isFilesystemRoot, managedWorktreesDirectories } from "./worktreesDirect
 import * as CheckpointCaptureIndex from "./vcs/checkpointCaptureIndex.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import { isNonRepositoryGitStderr } from "./vcs/GitVcsDriverCore.ts";
+import * as JjWorkspaces from "./vcs/JjWorkspaces.ts";
 import { isLinkedWorktree, removeLinkedWorktree } from "./vcs/worktreeRemoval.ts";
 import * as TaskFolders from "./workspace/TaskFolders.ts";
 import { withWorkspaceLease } from "./workspace/workspaceLease.ts";
@@ -344,6 +345,7 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const taskFolders = yield* TaskFolders.TaskFolders;
+  const jj = yield* JjWorkspaces.make();
   const liveTerminals = new Map<string, Map<string, TerminalSummary>>();
   const orphanSizes = new Map<string, number | null>();
   const noteTerminal = (terminal: TerminalSummary) => {
@@ -1950,6 +1952,16 @@ const make = Effect.gen(function* () {
               execute: git.execute,
               run: (args, cwd) => cleanupGit(cwd, [...args], "git worktree remove"),
             }).pipe(Effect.tapError(() => noteLeftover(adminDir, entry)));
+            // jj keeps listing a workspace whose folder git removed. Fails fast
+            // and is ignored outside jj repositories.
+            yield* jj
+              .forgetAt({
+                operation: "StorageCleanup.forgetJjWorkspace",
+                jjCommand: serverSettings.jujutsuCommand,
+                cwd: repository,
+                path: worktreePath,
+              })
+              .pipe(Effect.ignore);
             entries.push({ ...entry, outcome: "removed", reason: sentence(removalReason), bytes });
             yield* gitManager.invalidateStatus(project.workspaceRoot);
             // Preserve branch/path so ProviderTurnStartService can recreate the checkout on resume.

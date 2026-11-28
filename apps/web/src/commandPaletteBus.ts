@@ -9,7 +9,7 @@ export interface CommandPaletteLinkedThreads {
 }
 
 export interface CommandPaletteOpenDetail {
-  readonly open?: "add-project" | "new-thread-in";
+  readonly open?: "add-project" | "new-thread-in" | "new-thread-preset";
   /** With add-project: the draft the new project is picked for. */
   readonly draftId?: DraftId | null;
   readonly query?: string;
@@ -22,6 +22,8 @@ export function openCommandPalette(detail: CommandPaletteOpenDetail = {}): void 
   if (!isCommandPaletteMounted()) return;
   if (detail.open === "new-thread-in") {
     dispatchCommandPalette({ _tag: "OpenNewThreadIn" });
+  } else if (detail.open === "new-thread-preset") {
+    dispatchCommandPalette({ _tag: "OpenNewThreadPreset" });
   } else if (detail.open === "add-project") {
     dispatchCommandPalette({
       _tag: "OpenAddProject",

@@ -1494,11 +1494,15 @@ function keybindingAnchorIds(rows: ReturnType<typeof buildKeybindingRows>) {
 // Cache rows in a separate hook so the compiler does not rebuild them per search keystroke.
 function useKeybindingCatalog() {
   const sendShortcut = useClientSettings((settings) => settings.sendShortcut);
-  const serverKeybindings = useSettingsScope().environment?.serverConfig?.keybindings;
-  const merged = mergeWithDefaultKeybindings(serverKeybindings ?? []);
+  const serverConfig = useSettingsScope().environment?.serverConfig;
+  const merged = mergeWithDefaultKeybindings(serverConfig?.keybindings ?? []);
   const m = useMessages();
   return {
-    commandOptions: buildKeybindingCommandOptions(merged, m),
+    commandOptions: buildKeybindingCommandOptions(
+      merged,
+      (serverConfig?.settings.newThreadPresets ?? []).map((preset) => preset.id),
+      m,
+    ),
     allRows: buildKeybindingRows(merged, navigator.platform, sendShortcut, m),
   };
 }

@@ -14,7 +14,7 @@ Use the **"Applying settings for …"** selector at the top of Settings (web/des
 
 ## Pin and archive projects
 
-- **Pin**: Pinned projects sort first in project pickers, the command palette, the sidebar filter, and mobile (`mod+shift+p` on a highlighted row, or **Settings → Projects**).
+- **Pin**: Pinned projects sort first in project pickers, the command palette, the sidebar filter, and mobile (`mod+shift+p` on a highlighted row, or **Settings → Projects**). In the boring sidebar, pinned projects get the top folders, even with no active threads.
 - **Archive**: Archive finished projects in **Settings → Projects** (mobile: **Settings → Projects → Organize**). Archived projects leave pickers while keeping their threads, settings, and files; unarchive anytime from Settings.
 - Pinning or archiving a project that exists on multiple machines requires all of those machines to be connected.
 
@@ -32,6 +32,17 @@ Configure worktrees in **Settings → Worktrees** (environment default or projec
 - **Sparse checkout**: Set `"worktreeSparsePatternsPath"` in `t3.json` to a repo-relative file of Git sparse-checkout patterns (non-cone syntax; requires Git 2.35+; enables `extensions.worktreeConfig`). Set Submodules to **Skip** if you don't want submodules initialized under excluded paths.
 - **Worktree location** (per machine): Set an absolute path (e.g. `D:\worktrees` or `~/worktrees`) to store new worktrees elsewhere. Existing worktrees stay where they are; cleanup covers both folders.
 - **Fast worktree checkout (macOS beta)**: Enable **Settings → Labs → Fast worktree checkout** (Git 2.42+) to clone new worktrees via APFS copy-on-write from a local cache. Falls back to normal checkout for cross-drive paths, sparse checkouts, or Git LFS/filter repos.
+
+### Jujutsu workspaces
+
+If you use [Jujutsu](https://jj-vcs.github.io/jj/) in a colocated repository (`.jj` beside
+`.git`), turn on **Jujutsu workspaces** in **Settings → Source control & issues**, with the project
+selected to turn it on for one project only. New worktrees are then created with
+`jj workspace add`, so they appear in `jj workspace list` and `jj log` as well as
+`git worktree list`. Everything else in the worktree still runs git. It needs jj 0.46 or newer on
+the machine running T3 Code; without it, or in a repository that is not colocated, creating the
+worktree fails with a message saying why. Removing a worktree also removes jj's workspace, whether
+or not the setting is still on.
 
 ### Storage cleanup
 

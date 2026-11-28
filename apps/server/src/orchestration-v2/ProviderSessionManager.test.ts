@@ -47,6 +47,7 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ServerConfig from "../config.ts";
 import {
   CodexProviderCapabilitiesV2,
   normalizeCodexThreadLoadModelSelection,
@@ -690,6 +691,7 @@ function layerTest(input: {
   readonly eventStreamsEnded?: Queue.Queue<ProviderSessionId>;
   readonly releaseRecorded?: Deferred.Deferred<void>;
   readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
+  readonly serverConfigLayer?: ReturnType<typeof ServerConfig.layerTest>;
   readonly projectServiceLayer?: Layer.Layer<ProjectService.ProjectService>;
   readonly installationGateLayer?: Layer.Layer<ProviderInstallationGate.ProviderInstallationGate>;
 }) {
@@ -791,6 +793,7 @@ function layerTest(input: {
           layerTestStores,
           input.installationGateLayer ?? ProviderInstallationGate.layer,
           ...(input.serverSettingsLayer === undefined ? [] : [input.serverSettingsLayer]),
+          ...(input.serverConfigLayer === undefined ? [] : [input.serverConfigLayer]),
           ...(input.projectServiceLayer === undefined ? [] : [input.projectServiceLayer]),
         ),
       ),
@@ -1358,6 +1361,70 @@ it.effect(
         Effect.provideService(AgentScope, agentScope),
       );
     }),
+);
+
+it.effect("ProviderSessionManagerV2 puts the jj shim on PATH only for jj workspaces", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const base = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-jj-shim-session-" });
+    const jjWorkspace = `${base}/workspace`;
+    yield* fileSystem.makeDirectory(`${jjWorkspace}/.jj`, { recursive: true });
+    const state = yield* Ref.make(emptyState);
+    const prefixes = new Map<string, string | undefined>();
+    const agentScope = {
+      ...AgentScope.defaultValue(),
+      setPathPrefix: (id: string, directory: string | undefined) =>
+        Effect.sync(() => void prefixes.set(id, directory)),
+    };
+    const jjThread = ThreadId.make("thread-provider-session-manager-jj-shim");
+    const gitThread = ThreadId.make("thread-provider-session-manager-no-jj-shim");
+
+    yield* Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const { stateDir } = yield* ServerConfig.ServerConfig;
+      const now = yield* DateTime.now;
+      yield* eventSink.write({
+        events: [
+          yield* makeThreadCreatedEvent({ idAllocator, threadId: jjThread, now }),
+          yield* makeThreadCreatedEvent({ idAllocator, threadId: gitThread, now }),
+        ],
+      });
+      for (const [threadId, cwd] of [
+        [jjThread, jjWorkspace],
+        [gitThread, base],
+      ] as const) {
+        yield* manager.open({
+          threadId,
+          providerSessionId: yield* idAllocator.allocate.providerSession({
+            providerInstanceId: modelSelection.instanceId,
+            threadId,
+          }),
+          modelSelection,
+          runtimePolicy: { ...runtimePolicy, cwd },
+        });
+      }
+
+      assert.equal(prefixes.get(jjThread), `${stateDir}/jj-shim`);
+      assert.isTrue(yield* fileSystem.exists(`${stateDir}/jj-shim/jj`));
+      assert.isTrue(prefixes.has(gitThread));
+      assert.isUndefined(prefixes.get(gitThread));
+    }).pipe(
+      Effect.provide(
+        Layer.merge(
+          layerTest({
+            state,
+            idleTimeoutMs: 60_000,
+            serverSettingsLayer: ServerSettings.layerTest({ jujutsuCommand: "sh -c" }),
+            serverConfigLayer: ServerConfig.layerTest(base, base),
+          }),
+          ServerConfig.layerTest(base, base),
+        ),
+      ),
+      Effect.provideService(AgentScope, agentScope),
+    );
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
 it.effect("ProviderSessionManagerV2 cleans up an open interrupted mid-handshake", () =>

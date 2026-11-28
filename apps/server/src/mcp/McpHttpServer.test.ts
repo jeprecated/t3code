@@ -1,4 +1,5 @@
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as ThreadWaitService from "../orchestration-v2/ThreadWaitService.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import { expect, it } from "@effect/vitest";
@@ -2016,7 +2017,7 @@ it.effect("offers agent feedback tools only while the setting is on, to every cl
 );
 
 it.effect(
-  "lists watch tools only to threads that are not delegated children, and forge tools only where the project has a forge",
+  "lists watch tools and wait tools only to threads that are not delegated children, and forge tools only where the project has a forge",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -2042,7 +2043,7 @@ it.effect(
           ["noForgeToken", scopeFor("noForgeToken", false)],
         ]);
         const serverLayer = McpHttpServer.layerMcpTransport(
-          McpHttpServer.layerPullRequestsToolkit,
+          Layer.mergeAll(McpHttpServer.layerPullRequestsToolkit, McpHttpServer.layerWaitingToolkit),
         ).pipe(
           Layer.provide(ServerSettings.layerTest()),
           Layer.provide(
@@ -2060,6 +2061,7 @@ it.effect(
               }),
               Layer.mock(GitManager.GitManager)({}),
               Layer.mock(Orchestrator.OrchestratorV2)({}),
+              Layer.mock(ThreadWaitService.ThreadWaitService)({}),
               Layer.mock(ProjectionStore.ProjectionStoreV2)({
                 getThreadShell: (threadId) =>
                   Effect.succeed({
@@ -2112,11 +2114,15 @@ it.effect(
             "link_pull_request",
             "watch_pull_request",
             "unwatch_pull_request",
+            "set_waiting",
+            "resolve_wait",
           ]),
         );
         expect(childTools).toContain("link_pull_request");
         expect(childTools).not.toContain("watch_pull_request");
         expect(childTools).not.toContain("unwatch_pull_request");
+        expect(childTools).not.toContain("set_waiting");
+        expect(childTools).not.toContain("resolve_wait");
         expect(parentTools).toEqual(
           expect.arrayContaining([
             "pull_request_read",

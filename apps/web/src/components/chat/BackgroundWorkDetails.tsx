@@ -7,6 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
+import { backgroundWorkOutputSource } from "@t3tools/client-runtime/state/thread-execution";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { T, useGT } from "gt-react";
 import { useState } from "react";
@@ -22,7 +23,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../ui/dialog";
-import { CommandOutputPanel, useCommandOutputStreaming } from "./CommandOutputPanel";
+import {
+  CommandOutputPanel,
+  useBackgroundTaskOutput,
+  useCommandOutputStreaming,
+} from "./CommandOutputPanel";
 import { ShellCommandBlock } from "./ShellCommandBlock";
 
 function RemoteSubagentOpenButton(props: {
@@ -76,6 +81,7 @@ export function BackgroundWorkDetails(props: {
   const [open, setOpen] = useState(false);
   const streamsOutput = useCommandOutputStreaming(props.environmentId);
   const parentRef = scopeThreadRef(props.environmentId, props.threadId);
+  const streamsTaskOutput = useBackgroundTaskOutput(props.environmentId);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<InlineButton />}>
@@ -105,8 +111,7 @@ export function BackgroundWorkDetails(props: {
                   : command
                     ? gt("Command", { $context: "title of a background shell command" })
                     : kindLabel(task.kind);
-              const itemId =
-                task.itemId ?? (item?.type === "command_execution" ? item.id : undefined);
+              const output = backgroundWorkOutputSource(task, props.turnItems);
               const childThreadId = task.kind === "subagent" ? task.childThreadId : undefined;
               const remoteChild =
                 task.kind === "subagent" && item?.type === "subagent"
@@ -127,12 +132,20 @@ export function BackgroundWorkDetails(props: {
                       <ShellCommandBlock command={command} />
                     </div>
                   ) : null}
-                  {itemId && streamsOutput && item?.status === "running" ? (
+                  {output?.kind === "item" && streamsOutput ? (
                     <div className="font-mono text-xs whitespace-pre-wrap break-words">
                       <CommandOutputPanel
                         environmentId={props.environmentId}
-                        threadId={task.sourceThreadId ?? item?.threadId ?? props.threadId}
-                        itemId={itemId}
+                        threadId={output.threadId ?? props.threadId}
+                        itemId={output.itemId}
+                      />
+                    </div>
+                  ) : output?.kind === "task" && streamsTaskOutput ? (
+                    <div className="font-mono text-xs whitespace-pre-wrap break-words">
+                      <CommandOutputPanel
+                        environmentId={props.environmentId}
+                        threadId={props.threadId}
+                        taskId={output.taskId}
                       />
                     </div>
                   ) : null}

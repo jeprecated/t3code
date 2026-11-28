@@ -1,5 +1,7 @@
 import {
   NonNegativeInt,
+  OrchestrationV2ThreadWait,
+  OrchestrationV2ThreadWaiting,
   OrchestratorMcpFailure,
   OrchestratorMcpThreadListResult,
   OrchestratorMcpThreadReadResult,
@@ -52,6 +54,14 @@ const TERMINAL_RUN_STATUSES = new Set<OrchestratorMcpThreadRun["status"]>([
   "interrupted",
   "rolled_back",
 ]);
+// Every status but idle and the terminal ones: work a server restart would cut short.
+const BUSY_STATUSES: ReadonlyArray<OrchestratorMcpThreadStatus> = [
+  "preparing",
+  "queued",
+  "starting",
+  "running",
+  "waiting",
+];
 const READ_PAGE_LIMIT = 100;
 const READ_ITEM_MAX_CHARS = 20_000;
 const TITLE_MAX_CHARS = 80;
@@ -943,6 +953,16 @@ const threadListCommand = Command.make("list", {
     Flag.withDescription("Project id or a path inside the project. Defaults to this directory."),
     Flag.withDefault("."),
   ),
+  all: Flag.Boolean("all").pipe(
+    Flag.withDescription("List every project's threads instead of one project's."),
+    Flag.withDefault(false),
+  ),
+  busy: Flag.Boolean("busy").pipe(
+    Flag.withDescription(
+      "Only threads whose run is preparing, queued, starting, running or waiting: work a server restart would interrupt.",
+    ),
+    Flag.withDefault(false),
+  ),
   json: jsonFlag,
 }).pipe(
   Command.withDescription("List a project's threads, newest first."),
@@ -950,13 +970,21 @@ const threadListCommand = Command.make("list", {
     withThreadTools(
       flags,
       Effect.fn("cli.thread.list")(function* (tools) {
-        const project = yield* resolveProject(tools, flags.project);
+        const scope = flags.all
+          ? { allProjects: true }
+          : { projectId: (yield* resolveProject(tools, flags.project)).id };
         const threads: Array<OrchestratorMcpThreadListItem> = [];
         let cursor: number | null = 0;
         while (cursor !== null) {
           const page: OrchestratorMcpThreadListResult = yield* tools.call(
             "t3_thread_list",
-            { projectId: project.id, includeSubagents: true, limit: 100, cursor },
+            {
+              ...scope,
+              ...(flags.busy ? { statuses: BUSY_STATUSES } : {}),
+              includeSubagents: true,
+              limit: 100,
+              cursor,
+            },
             OrchestratorMcpThreadListResult,
           );
           threads.push(
@@ -980,7 +1008,12 @@ const threadStartCommand = Command.make("start", {
   project: Argument.String("project").pipe(
     Argument.withDescription("Project id or a path inside the project, such as ."),
   ),
-  message: messageArgument,
+  message: messageArgument.pipe(
+    Argument.withDescription(
+      "Message for the agent, or - to read it from stdin. Without one the thread starts idle and needs --title.",
+    ),
+    Argument.optional,
+  ),
   title: Flag.String("title").pipe(
     Flag.withDescription("Thread title. Defaults to the message's first line."),
     Flag.optional,
@@ -1022,13 +1055,24 @@ const threadStartCommand = Command.make("start", {
   Command.withDescription("Start a thread in a project and print its id."),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const message = yield* readMessageArgument(flags.message);
+      const message = Option.isSome(flags.message)
+        ? yield* readMessageArgument(flags.message.value)
+        : undefined;
       const output = yield* readOutputSchema(flags.outputSchema);
       const workspaceStrategy = yield* launchWorkspaceStrategy(flags);
       const modelSelection = yield* launchModelSelection(flags);
       const title = yield* decodeTitle(
-        Option.getOrElse(flags.title, () => titleFromMessage(message)),
-      ).pipe(Effect.mapError(() => new ThreadUsageError({ detail: "The title is empty." })));
+        Option.getOrElse(flags.title, () =>
+          message === undefined ? "" : titleFromMessage(message),
+        ),
+      ).pipe(
+        Effect.mapError(
+          () =>
+            new ThreadUsageError({
+              detail: message === undefined ? "Pass --title or a message." : "The title is empty.",
+            }),
+        ),
+      );
       yield* withThreadTools(
         flags,
         Effect.fn("cli.thread.start")(function* (tools) {
@@ -1039,7 +1083,7 @@ const threadStartCommand = Command.make("start", {
               projectId: project.id,
               title,
               ...(flags.generateTitle ? { generateTitle: true } : {}),
-              message,
+              ...(message === undefined ? {} : { message }),
               ...output,
               ...(workspaceStrategy === undefined ? {} : { workspaceStrategy }),
               ...(modelSelection === undefined ? {} : { modelSelection }),
@@ -1169,6 +1213,46 @@ const threadShowCommand = Command.make("show", {
   ),
 );
 
+const decodeWaits = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Array(OrchestrationV2ThreadWait)),
+);
+const SetWaitingResult = Schema.Struct({ waiting: Schema.NullOr(OrchestrationV2ThreadWaiting) });
+
+const threadSetWaitingCommand = Command.make("set-waiting", {
+  ...projectLocationFlags,
+  thread: threadArgument,
+  waits: Argument.String("waits").pipe(
+    Argument.withDescription(
+      "JSON array of waits ({id, kind, summary, detail?}), or - to read it from stdin. [] clears them.",
+    ),
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription(
+    "Replace what a thread waits on from the user, as its agent's set_waiting does.",
+  ),
+  Command.withHandler((flags) =>
+    Effect.gen(function* () {
+      const threadId = yield* decodeThreadId(flags.thread);
+      const waits = yield* decodeWaits(yield* readMessageArgument(flags.waits)).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ThreadUsageError({ detail: `The waits are not a JSON array of waits: ${cause}` }),
+        ),
+      );
+      yield* withThreadTools(
+        flags,
+        Effect.fn("cli.thread.setWaiting")(function* (tools) {
+          const result = yield* tools.call("set_waiting", { threadId, waits }, SetWaitingResult);
+          yield* flags.json
+            ? printJson(result)
+            : Console.log(waits.length === 0 ? "Cleared." : `Waiting on ${waits.length}.`);
+        }),
+      );
+    }).pipe(reportThreadErrors),
+  ),
+);
+
 export const threadCommand = Command.make("thread").pipe(
   Command.withDescription("Start, message, and read threads on the running server."),
   Command.withSubcommands([
@@ -1176,5 +1260,6 @@ export const threadCommand = Command.make("thread").pipe(
     threadStartCommand,
     threadSendCommand,
     threadShowCommand,
+    threadSetWaitingCommand,
   ]),
 );

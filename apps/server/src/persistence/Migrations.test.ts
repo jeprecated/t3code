@@ -240,6 +240,35 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
+  it.effect("runs main's 77 and 78 over a fork's old ids and keeps the fork's tables", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 76 });
+      yield* sql`CREATE TABLE user_todos (todo_id TEXT PRIMARY KEY, title TEXT NOT NULL)`;
+      yield* sql`CREATE TABLE task_snoozes (key TEXT PRIMARY KEY, snoozed_until TEXT NOT NULL)`;
+      yield* sql`INSERT INTO user_todos (todo_id, title) VALUES ('todo-1', 'Renew domain')`;
+      yield* sql`INSERT INTO task_snoozes (key, snoozed_until) VALUES ('todo:todo-1', '2026-12-01')`;
+      yield* sql`
+        INSERT INTO effect_sql_migrations (migration_id, name)
+        VALUES (77, 'UserTodos'), (78, 'TaskSnoozes')
+      `;
+
+      assert.deepStrictEqual(
+        yield* runMigrations(),
+        migrationManifest.filter(([id]) => id >= 77),
+      );
+      assert.deepStrictEqual(yield* history, migrationManifest);
+      assert.deepStrictEqual(yield* sql`SELECT todo_id, title FROM user_todos`, [
+        { todo_id: "todo-1", title: "Renew domain" },
+      ]);
+      assert.deepStrictEqual(yield* sql`SELECT key, snoozed_until FROM task_snoozes`, [
+        { key: "todo:todo-1", snoozed_until: "2026-12-01" },
+      ]);
+      assert.deepStrictEqual(yield* runMigrations(), []);
+      assert.deepStrictEqual(yield* history, migrationManifest);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect("still starts after a newer build recorded a later V2 migration", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

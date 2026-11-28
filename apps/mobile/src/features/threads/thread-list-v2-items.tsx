@@ -34,6 +34,7 @@ import { toServerClock } from "@t3tools/client-runtime/clock";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
 import { canSnooze } from "@t3tools/client-runtime/state/thread-settled";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
+import { hasRunningBackgroundCommand } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useNavigation } from "@react-navigation/native";
 import { msg, T, useGT, useMessages } from "gt-react-native";
@@ -171,6 +172,12 @@ const DONE_STATUS_LABEL: StatusLabel = {
   icon: "checkmark.circle",
   className: "text-adaptive-emerald-700-300",
   iconTintClassName: "accent-adaptive-emerald-700-300",
+};
+const RUNNING_STATUS_LABEL: StatusLabel = {
+  label: msg("Running", { $context: "thread status, a command the agent left running" }),
+  icon: "terminal",
+  className: "text-foreground-muted",
+  iconTintClassName: "accent-foreground-muted",
 };
 
 // DM Sans has no tabular figures, so a ticking timer in it reflows the row every second.
@@ -887,7 +894,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           ...workingLabel,
           label: msg("Goal", { $context: "thread status, working toward a goal" }),
         }
-      : workingLabel) ?? (isUnread ? DONE_STATUS_LABEL : undefined);
+      : workingLabel) ??
+    (isUnread
+      ? DONE_STATUS_LABEL
+      : hasRunningBackgroundCommand(thread.pendingBackgroundTasks)
+        ? RUNNING_STATUS_LABEL
+        : undefined);
   const statusLabel = statusEntry && {
     ...statusEntry,
     label: statusEntry.label === null ? null : m(statusEntry.label),

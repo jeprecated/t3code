@@ -22,6 +22,7 @@ import {
   shortcutForContext,
   shortcutKeyFromEvent,
 } from "../../keybindings";
+import { commandForNewThreadPreset, newThreadPresetIdFromCommand } from "../../newThreadPresets";
 import { isMacPlatform } from "../../lib/utils";
 import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
 
@@ -265,10 +266,11 @@ const KEYBINDING_GROUPS = [
       "commandPalette",
       "filePicker",
       "projectSearch",
+      "threadSwitcher",
       "editor",
     ],
   },
-  { id: "threads", title: msg("Threads"), prefixes: ["thread", "chat", "pullRequest"] },
+  { id: "threads", title: msg("Threads"), prefixes: ["thread", "chat", "preset", "pullRequest"] },
   { id: "composer", title: msg("Composer"), prefixes: ["composer", "modelPicker"] },
   { id: "terminal", title: msg("Terminal"), prefixes: ["terminal"] },
   { id: "preview", title: msg("Preview & diff"), prefixes: ["preview", "diff"] },
@@ -453,9 +455,13 @@ export function buildWhenVariableOptions(): ReadonlyArray<WhenVariableOption> {
 
 export function buildKeybindingCommandOptions(
   keybindings: ResolvedKeybindingsConfig,
+  newThreadPresetIds: ReadonlyArray<string> = [],
   resolve: MessageResolver = m,
 ): ReadonlyArray<KeybindingCommandOption> {
   const commands = new Set<KeybindingCommand>(STATIC_KEYBINDING_COMMANDS);
+  for (const presetId of newThreadPresetIds) {
+    commands.add(commandForNewThreadPreset(presetId));
+  }
   for (const binding of keybindings) {
     commands.add(binding.command);
   }
@@ -484,6 +490,9 @@ const COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
   "terminal.close": msg("Terminal: Close"),
   "terminal.previous": msg("Terminal: Previous"),
   "terminal.next": msg("Terminal: Next"),
+  "terminal.toggleFloating": msg("Terminal: Toggle Floating"),
+  "terminal.cycleFloatingLayout": msg("Terminal: Cycle Floating Layout"),
+  "terminal.toggleDocked": msg("Terminal: Toggle Docked"),
   "rightPanel.toggle": msg("Right Panel: Toggle"),
   "rightPanel.new": msg("Right Panel: New"),
   "threadPanel.toggle": msg("Thread Panel: Toggle"),
@@ -499,6 +508,7 @@ const COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
   "commandPalette.toggle": msg("Command Palette: Toggle"),
   "filePicker.toggle": msg("File Picker: Toggle"),
   "projectSearch.toggle": msg("Project Search: Toggle"),
+  "threadSwitcher.toggle": msg("Thread Switcher: Toggle"),
   "usage.open": msg("Usage: Toggle"),
   "theme.select": msg("Theme: Select"),
   "appearance.cycle": msg("Appearance: Cycle"),
@@ -510,12 +520,15 @@ const COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
   "composer.increaseEffort": msg("Composer: Increase Effort"),
   "composer.decreaseEffort": msg("Composer: Decrease Effort"),
   "composer.mode": msg("Composer: Mode"),
+  "composer.project": msg("Composer: Project"),
   "composer.workspace": msg("Composer: Workspace"),
   "composer.previousWorktree": msg("Composer: Previous Worktree"),
   "composer.branch": msg("Composer: Branch"),
+  "composer.toggleStartFromOrigin": msg("Composer: Toggle Start from Origin"),
   "chat.new": msg("Chat: New"),
   "chat.newLocal": msg("Chat: New Local"),
   "chat.newWithoutProject": msg("Chat: New Without Project"),
+  "chat.newFromPreset": msg("Chat: New From Preset"),
   "chat.find": msg("Chat: Find"),
   "editor.openFavorite": msg("Editor: Open Favorite"),
   "modelPicker.toggle": msg("Model Picker: Toggle"),
@@ -527,7 +540,27 @@ const COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
   "thread.settle": msg("Thread: Settle"),
   "thread.pin": msg("Thread: Pin"),
   "thread.regenerateTitle": msg("Thread: Regenerate Title"),
+  "thread.snooze": msg("Thread: Snooze or Wake"),
+  "thread.snooze.hour": msg("Thread: Snooze 1 Hour"),
+  "thread.snooze.threeHours": msg("Thread: Snooze 3 Hours"),
+  "thread.snooze.evening": msg("Thread: Snooze Until Evening"),
+  "thread.snooze.tomorrow": msg("Thread: Snooze Until Tomorrow"),
+  "thread.snooze.nextWeek": msg("Thread: Snooze Until Next Week"),
   "thread.undo": msg("Thread: Undo"),
+  "cockpit.toggle": msg("Cockpit: Open or Close"),
+  "cockpit.primary": msg("Cockpit: Done (Main Action)"),
+  "cockpit.snooze": msg("Cockpit: Snooze Task"),
+  "cockpit.openThere": msg("Cockpit: Open Its Thread"),
+  "cockpit.next": msg("Cockpit: Next Entry"),
+  "cockpit.previous": msg("Cockpit: Previous Entry"),
+  "cockpit.approve": msg("Cockpit: Approve"),
+  "cockpit.approveForThread": msg("Cockpit: Approve for This Thread"),
+  "cockpit.deny": msg("Cockpit: Deny"),
+  "cockpit.reply": msg("Cockpit: Reply or Add a Note"),
+  "cockpit.openLink": msg("Cockpit: Open First Link"),
+  "cockpit.undo": msg("Cockpit: Undo Last Outcome"),
+  "cockpit.focusOverview": msg("Cockpit: Message the Overview Agent"),
+  "cockpit.help": msg("Cockpit: Show Keys"),
 };
 
 // Whole labels: search titles keep the encoded message, which cannot nest another one.
@@ -570,6 +603,10 @@ export function commandLabel(command: KeybindingCommand, resolve: MessageResolve
         name: titleCaseCommandSegment(raw.slice("script.".length, -".run".length)),
       }),
     );
+  }
+  const presetId = newThreadPresetIdFromCommand(raw);
+  if (presetId !== null) {
+    return resolve(msg("New Thread Preset: {name}", { name: titleCaseCommandSegment(presetId) }));
   }
   return raw.split(".").map(titleCaseCommandSegment).join(": ");
 }

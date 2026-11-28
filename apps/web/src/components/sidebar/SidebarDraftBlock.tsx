@@ -13,9 +13,9 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId } from "@t3tools/contracts";
 import { useShallow } from "zustand/react/shallow";
 import { terminalContextDisplayLabels } from "~/lib/terminalContext";
+import type { EnvironmentId, OrchestrationV2ThreadCategories, ProjectId } from "@t3tools/contracts";
 import { cn } from "~/lib/utils";
 import { useTerminalLabelsByThreadKey } from "~/state/terminalSessions";
 import { resolveSidebarRowAccessibility } from "../Sidebar.logic";
@@ -221,7 +221,7 @@ function listedDraftComposer(draftId: string | null): ComposerThreadDraftState |
  * row it had on arrival (frozen content), so its row and jump number stay put.
  */
 export function useSidebarDrafts(
-  scopedProjectKeys: ReadonlySet<string> | null,
+  inScope: ((subject: SidebarScopeSubject) => boolean) | null,
   routeDraftId: string | null,
   terminalLabels: ReadonlyMap<string, string>,
 ): { draftIds: readonly DraftId[]; routeDraftComposer: ComposerThreadDraftState | null } {
@@ -240,8 +240,8 @@ export function useSidebarDrafts(
       for (const [draftKey, session] of Object.entries(store.draftThreadsByThreadKey)) {
         if (session.promotedTo != null) continue;
         if (
-          scopedProjectKeys !== null &&
-          !scopedProjectKeys.has(`${session.environmentId}:${session.projectId}`)
+          inScope !== null &&
+          !inScope(draftScopeSubject(session, store.draftsByThreadKey[draftKey]))
         ) {
           continue;
         }
@@ -258,6 +258,22 @@ export function useSidebarDrafts(
     }),
   );
   return { draftIds, routeDraftComposer };
+}
+
+export interface SidebarScopeSubject {
+  /** A thread's own category changes; drafts only have their rule matches. */
+  readonly categories?: OrchestrationV2ThreadCategories | null | undefined;
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly branch: string | null;
+  readonly providerInstanceId: string | null;
+}
+
+export function draftScopeSubject(
+  session: DraftSessionState,
+  composer: ComposerThreadDraftState | undefined,
+): SidebarScopeSubject {
+  return { ...session, providerInstanceId: composer?.activeProvider ?? null };
 }
 
 export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {

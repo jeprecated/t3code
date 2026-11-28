@@ -1,12 +1,18 @@
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
-import { EnvironmentId, type KeybindingRule, type ServerConfig } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type KeybindingRule,
+  type NewThreadPreset,
+  type ServerConfig,
+} from "@t3tools/contracts";
 import { compileResolvedKeybindingsConfig } from "@t3tools/shared/keybindings";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { resolveShortcutCommand } from "../keybindings";
-import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
+import { createLocalEnvironmentIdAtom, primaryEnvironmentIdAtom } from "./primaryEnvironment";
 import {
+  createNewThreadPresetsAtom,
   createShortcutKeybindingsAtom,
   primaryRelayTracingAllowedAtom,
   serverEnvironment,
@@ -163,4 +169,53 @@ it("clears relay tracing permission when the primary session ends", () => {
   registry.set(sessionConfig, config([], false));
 
   expect(answers).toEqual([true, null, false]);
+});
+
+describe("createNewThreadPresetsAtom", () => {
+  const SERVICE = EnvironmentId.make("service");
+  const preset = (id: string) =>
+    ({
+      id,
+      name: id,
+      modelSelection: { instanceId: "codex", model: "gpt-5" },
+      project: "none",
+    }) as unknown as NewThreadPreset;
+  const presetsConfig = (presets: ReadonlyArray<NewThreadPreset>) =>
+    ({ settings: { newThreadPresets: presets } }) as unknown as ServerConfig;
+
+  it("reads presets from this machine's service when the app has no primary", () => {
+    const configAtoms = new Map([
+      [PRIMARY, Atom.make<ServerConfig | null>(presetsConfig([preset("primary")]))],
+      [SERVICE, Atom.make<ServerConfig | null>(presetsConfig([preset("service")]))],
+      [A, Atom.make<ServerConfig | null>(presetsConfig([preset("remote")]))],
+    ]);
+    const primaryEnvironmentIdAtom = Atom.make<EnvironmentId | null>(null);
+    const catalogValueAtom = Atom.make<{ entries: ReadonlyMap<EnvironmentId, unknown> }>({
+      entries: new Map([
+        [A, null],
+        [SERVICE, null],
+      ]),
+    });
+    const presetsAtom = createNewThreadPresetsAtom({
+      environmentIdAtom: createLocalEnvironmentIdAtom({
+        primaryEnvironmentIdAtom,
+        hostEnvironmentIdAtom: Atom.make<string | null>("service"),
+        catalogValueAtom,
+      }),
+      configValueAtom: (environmentId) => configAtoms.get(environmentId) ?? Atom.make(null),
+    });
+    const registry = AtomRegistry.make();
+    registries.push(registry);
+    registry.subscribe(presetsAtom, () => {});
+    const presetIds = () => registry.get(presetsAtom).map((candidate) => candidate.id);
+
+    expect(presetIds()).toEqual(["service"]);
+
+    registry.set(primaryEnvironmentIdAtom, PRIMARY);
+    expect(presetIds()).toEqual(["primary"]);
+
+    registry.set(primaryEnvironmentIdAtom, null);
+    registry.set(catalogValueAtom, { entries: new Map([[A, null]]) });
+    expect(presetIds()).toEqual([]);
+  });
 });

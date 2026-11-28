@@ -4,6 +4,9 @@ import {
   OrchestrationV2SearchThreadResult,
   OrchestrationV2SearchThreadsInput,
   OrchestrationV2SearchThreadsResult,
+  OrchestrationV2SuggestThreadCategoriesError,
+  OrchestrationV2SuggestThreadCategoriesInput,
+  OrchestrationV2SuggestThreadCategoriesResult,
 } from "./orchestrationV2.ts";
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
 import {
@@ -291,6 +294,10 @@ import {
   OrchestrationV2RpcSchemas,
   OrchestrationV2ThreadHistoryPage,
   OrchestrationV2ThreadLaunchError,
+  ThreadWaitNotFoundError,
+  ThreadWaitResolveError,
+  ThreadWaitResolveInput,
+  ThreadWaitResolveResult,
 } from "./orchestrationV2.ts";
 import {
   ProjectCreateNewInput,
@@ -461,6 +468,26 @@ import {
   ScheduledTaskUpsertInput,
   ScheduledTaskMutationResult,
 } from "./scheduledTask.ts";
+import {
+  UserTodoDeleteInput,
+  UserTodoDeleteResult,
+  UserTodoError,
+  UserTodoListInput,
+  UserTodoListResult,
+  UserTodoMutationResult,
+  UserTodoSetCompletedInput,
+  UserTodoUpsertInput,
+} from "./userTodo.ts";
+import {
+  TaskSnoozeClearInput,
+  TaskSnoozeClearResult,
+  TaskSnoozeListInput,
+  TaskSnoozeListResult,
+  TaskSnoozePersistenceError,
+  TaskSnoozeSetInput,
+  TaskSnoozeSetResult,
+} from "./taskSnooze.ts";
+import { OverviewStartError, OverviewStartInput, OverviewStartResult } from "./overview.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
 import { AgentFeedbackAnswerInput, AgentFeedbackRequestError } from "./agentFeedback.ts";
 import {
@@ -661,6 +688,15 @@ export const WS_METHODS = {
   scheduledTasksDelete: "scheduledTasks.delete",
   scheduledTasksRunNow: "scheduledTasks.runNow",
   scheduledTasksRotateWebhookToken: "scheduledTasks.rotateWebhookToken",
+  userTodosSubscribe: "userTodos.subscribe",
+  userTodosUpsert: "userTodos.upsert",
+  userTodosSetCompleted: "userTodos.setCompleted",
+  userTodosDelete: "userTodos.delete",
+  taskSnoozesSubscribe: "taskSnoozes.subscribe",
+  taskSnoozesSet: "taskSnoozes.set",
+  taskSnoozesClear: "taskSnoozes.clear",
+  threadWaitsResolve: "threadWaits.resolve",
+  overviewStart: "overview.start",
   secretsAnswerRequest: "secrets.answerRequest",
   agentFeedbackAnswerRequest: "agentFeedback.answerRequest",
   guestShareCreate: "guestShare.create",
@@ -2174,6 +2210,18 @@ const WsOrchestrationV2SearchThreadStreamRpc = Rpc.make(
   },
 );
 
+const WsOrchestrationV2SuggestThreadCategoriesRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.suggestThreadCategories,
+  {
+    payload: OrchestrationV2SuggestThreadCategoriesInput,
+    success: OrchestrationV2SuggestThreadCategoriesResult,
+    error: Schema.Union([
+      OrchestrationV2SuggestThreadCategoriesError,
+      EnvironmentAuthorizationError,
+    ]),
+  },
+);
+
 const WsOrchestrationV2SearchThreadsRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.searchThreads, {
   payload: OrchestrationV2SearchThreadsInput,
   success: OrchestrationV2SearchThreadsResult,
@@ -2303,6 +2351,16 @@ const WsOrchestrationV2SubscribeCommandOutputRpc = Rpc.make(
   },
 );
 
+const WsOrchestrationV2SubscribeBackgroundTaskOutputRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.subscribeBackgroundTaskOutput,
+  {
+    payload: OrchestrationV2RpcSchemas.subscribeBackgroundTaskOutput.input,
+    success: OrchestrationV2RpcSchemas.subscribeBackgroundTaskOutput.output,
+    error: Schema.Union([OrchestrationV2CommandOutputError, EnvironmentAuthorizationError]),
+    stream: true,
+  },
+);
+
 const WsOrchestrationV2SubscribePromptSuggestionRpc = Rpc.make(
   ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion,
   {
@@ -2416,6 +2474,66 @@ const WsScheduledTasksSubscribeRpc = Rpc.make(WS_METHODS.scheduledTasksSubscribe
   success: ScheduledTaskListResult,
   error: Schema.Union([ScheduledTaskError, EnvironmentAuthorizationError]),
   stream: true,
+});
+
+const WsUserTodosSubscribeRpc = Rpc.make(WS_METHODS.userTodosSubscribe, {
+  payload: UserTodoListInput,
+  success: UserTodoListResult,
+  error: Schema.Union([UserTodoError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+const WsUserTodosUpsertRpc = Rpc.make(WS_METHODS.userTodosUpsert, {
+  payload: UserTodoUpsertInput,
+  success: UserTodoMutationResult,
+  error: Schema.Union([UserTodoError, EnvironmentAuthorizationError]),
+});
+
+const WsUserTodosSetCompletedRpc = Rpc.make(WS_METHODS.userTodosSetCompleted, {
+  payload: UserTodoSetCompletedInput,
+  success: UserTodoMutationResult,
+  error: Schema.Union([UserTodoError, EnvironmentAuthorizationError]),
+});
+
+const WsUserTodosDeleteRpc = Rpc.make(WS_METHODS.userTodosDelete, {
+  payload: UserTodoDeleteInput,
+  success: UserTodoDeleteResult,
+  error: Schema.Union([UserTodoError, EnvironmentAuthorizationError]),
+});
+
+const WsTaskSnoozesSubscribeRpc = Rpc.make(WS_METHODS.taskSnoozesSubscribe, {
+  payload: TaskSnoozeListInput,
+  success: TaskSnoozeListResult,
+  error: Schema.Union([TaskSnoozePersistenceError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+const WsTaskSnoozesSetRpc = Rpc.make(WS_METHODS.taskSnoozesSet, {
+  payload: TaskSnoozeSetInput,
+  success: TaskSnoozeSetResult,
+  error: Schema.Union([TaskSnoozePersistenceError, EnvironmentAuthorizationError]),
+});
+
+const WsTaskSnoozesClearRpc = Rpc.make(WS_METHODS.taskSnoozesClear, {
+  payload: TaskSnoozeClearInput,
+  success: TaskSnoozeClearResult,
+  error: Schema.Union([TaskSnoozePersistenceError, EnvironmentAuthorizationError]),
+});
+
+const WsThreadWaitsResolveRpc = Rpc.make(WS_METHODS.threadWaitsResolve, {
+  payload: ThreadWaitResolveInput,
+  success: ThreadWaitResolveResult,
+  error: Schema.Union([
+    ThreadWaitNotFoundError,
+    ThreadWaitResolveError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsOverviewStartRpc = Rpc.make(WS_METHODS.overviewStart, {
+  payload: OverviewStartInput,
+  success: OverviewStartResult,
+  error: Schema.Union([OverviewStartError, EnvironmentAuthorizationError]),
 });
 
 const WsScheduledTasksUpsertRpc = Rpc.make(WS_METHODS.scheduledTasksUpsert, {
@@ -2603,6 +2721,15 @@ export const WsRpcGroup = RpcGroup.make(
   WsScheduledTasksDeleteRpc,
   WsScheduledTasksRunNowRpc,
   WsScheduledTasksRotateWebhookTokenRpc,
+  WsUserTodosSubscribeRpc,
+  WsUserTodosUpsertRpc,
+  WsUserTodosSetCompletedRpc,
+  WsUserTodosDeleteRpc,
+  WsTaskSnoozesSubscribeRpc,
+  WsTaskSnoozesSetRpc,
+  WsTaskSnoozesClearRpc,
+  WsThreadWaitsResolveRpc,
+  WsOverviewStartRpc,
   WsSecretsAnswerRequestRpc,
   WsAgentFeedbackAnswerRequestRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
@@ -2752,6 +2879,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2GetTurnDiffRpc,
   WsOrchestrationV2GetFullThreadDiffRpc,
   WsOrchestrationV2SearchThreadsRpc,
+  WsOrchestrationV2SuggestThreadCategoriesRpc,
   WsOrchestrationV2SearchThreadRpc,
   WsOrchestrationV2SearchThreadStreamRpc,
   WsOrchestrationV2GetArchivedShellSnapshotRpc,
@@ -2765,5 +2893,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
   WsOrchestrationV2SubscribeCommandOutputRpc,
+  WsOrchestrationV2SubscribeBackgroundTaskOutputRpc,
   WsOrchestrationV2SubscribePromptSuggestionRpc,
 ).middleware(RpcScopeAuthorization);

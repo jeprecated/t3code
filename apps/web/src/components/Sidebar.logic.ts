@@ -5,7 +5,10 @@ import {
   resolveThreadWorkingStartedAt,
 } from "@t3tools/client-runtime/state/models";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
-import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import {
+  backgroundWorkHoldsCompletion,
+  hasRunningBackgroundCommand,
+} from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
 import { msg } from "gt-react";
@@ -24,6 +27,7 @@ import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/sh
 import {
   type ContextMenuItem,
   type EnvironmentId,
+  isListedThreadLineage,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type ThreadId,
@@ -212,6 +216,19 @@ export function resolveSidebarThreadSection(input: {
   if (input.settled) return "settled";
   if (input.pinned) return "pinned";
   return "active";
+}
+
+/** The bottom row above the Snoozed shelf. Working rows count only while that shelf is open. */
+export function lastSidebarJumpThread<T>(input: {
+  readonly mainThreads: readonly T[];
+  readonly workingThreads: readonly T[];
+  readonly workingShelfExpanded: boolean;
+}): T | null {
+  return (
+    (input.workingShelfExpanded ? input.workingThreads.at(-1) : undefined) ??
+    input.mainThreads.at(-1) ??
+    null
+  );
 }
 
 const SIDEBAR_MARKER_PREFIX = "sidebar-marker-";
@@ -598,12 +615,10 @@ export async function deleteSelectedThreadEntries<
  * the sidebar lists, by thread key; they show under that thread, as subagents do.
  */
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage"> & {
-    projectId: string;
-  },
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage">,
 >(
   threads: readonly T[],
-  scopedProjectKeys: ReadonlySet<string> | null,
+  inScope: ((thread: T) => boolean) | null,
   delegatedUnderParent: ReadonlySet<string>,
 ): T[] {
   return threads.filter(
@@ -614,9 +629,44 @@ export function filterSidebarV2VisibleThreads<
         thread.lineage,
         delegatedUnderParent,
       ) &&
-      (scopedProjectKeys === null ||
-        scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+      (inScope === null || inScope(thread)),
   );
+}
+
+/**
+ * The held threads the server's older settled counts cover, to subtract from them. The counts are
+ * per project, so under a category, whose pages read every project, they cover every visible
+ * thread, not only the category's; subtracting only those would count the rest as unloaded even
+ * once every page has loaded.
+ */
+export function sidebarOlderSettledCountedThreads<
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage">,
+>(input: {
+  readonly threads: readonly T[];
+  readonly visibleThreads: readonly T[];
+  readonly inScope: ((thread: T) => boolean) | null;
+  /** Older settled pages read every project: no project scope applies. */
+  readonly pagesEveryProject: boolean;
+  readonly delegatedUnderParent: ReadonlySet<string>;
+}): readonly T[] {
+  return input.pagesEveryProject && input.inScope !== null
+    ? filterSidebarV2VisibleThreads(input.threads, null, input.delegatedUnderParent)
+    : input.visibleThreads;
+}
+
+/** Threads a scope hides that are blocked on the user, so a focus never buries them. */
+export function countSidebarThreadsNeedingUserOutsideScope<
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & SidebarThreadStatusInput,
+>(threads: readonly T[], inScope: ((thread: T) => boolean) | null): number {
+  if (inScope === null) return 0;
+  let count = 0;
+  for (const thread of threads) {
+    if (thread.archivedAt !== null || !isListedThreadLineage(thread.lineage) || inScope(thread))
+      continue;
+    const status = resolveSidebarThreadStatus(thread);
+    if (status === "approval" || status === "input") count += 1;
+  }
+  return count;
 }
 
 export function buildBulkTitleRegenerationContextMenuItem(input: {
@@ -1353,6 +1403,15 @@ export function resolveThreadStatusPill(input: {
       label: msg("Completed"),
       colorClass: "text-emerald-600 dark:text-emerald-300/90",
       dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+      pulse: false,
+    };
+  }
+
+  if (hasRunningBackgroundCommand(thread.pendingBackgroundTasks ?? [])) {
+    return {
+      label: msg("Running"),
+      colorClass: "text-sidebar-muted-foreground",
+      dotClass: "bg-sidebar-muted-foreground",
       pulse: false,
     };
   }

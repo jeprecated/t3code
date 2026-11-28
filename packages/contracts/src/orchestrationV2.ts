@@ -472,6 +472,115 @@ export const OrchestrationV2LimitRecoveryUpdate = Schema.Struct({
 );
 export type OrchestrationV2LimitRecoveryUpdate = typeof OrchestrationV2LimitRecoveryUpdate.Type;
 
+export const MAX_THREAD_WAITS = 10;
+
+export const OrchestrationV2ThreadWaitKind = Schema.Literals([
+  "decision",
+  "manual_step",
+  "blocked",
+  "review",
+]);
+export type OrchestrationV2ThreadWaitKind = typeof OrchestrationV2ThreadWaitKind.Type;
+
+export const OrchestrationV2ThreadWaitId = Schema.String.check(
+  Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,39}$/),
+).annotate({ description: "Short slug, such as pick-theme. Keep it when you set the list again." });
+export type OrchestrationV2ThreadWaitId = typeof OrchestrationV2ThreadWaitId.Type;
+
+/** What a thread's agent declared it needs before its next step; see `set_waiting`. */
+export const OrchestrationV2ThreadWait = Schema.Struct({
+  id: OrchestrationV2ThreadWaitId,
+  kind: OrchestrationV2ThreadWaitKind.annotate({
+    description:
+      "decision: they can answer anywhere, even by voice. manual_step: they must act at a computer. blocked: on something outside you both, such as CI or a third party, that T3 will not wake you for. review: you finished something they should judge; detail says what to look at and where.",
+  }),
+  summary: TrimmedNonEmptyString.check(Schema.isMaxLength(200)).annotate({
+    description: "One short sentence that reads well aloud.",
+  }),
+  options: Schema.optional(
+    Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(100)))
+      .check(Schema.isMaxLength(8))
+      .annotate({ description: "The choices, for a decision." }),
+  ),
+  detail: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(2000)).annotate({
+      description: "Exact steps or commands to run.",
+    }),
+  ),
+  where: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(80)).annotate({
+      description:
+        "A place or device only, never steps or links: on Clippy, iPhone in hand, browser with their logins.",
+    }),
+  ),
+  notBefore: Schema.optional(IsoDateTime.annotate({ description: "Not doable before this time." })),
+});
+export type OrchestrationV2ThreadWait = typeof OrchestrationV2ThreadWait.Type;
+
+export const OrchestrationV2ThreadWaiting = Schema.Struct({
+  items: Schema.Array(OrchestrationV2ThreadWait).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(MAX_THREAD_WAITS),
+  ),
+  setAt: IsoDateTime,
+  /** When each wait id was first filed; a re-set keeps it, so re-filing does not reorder queues. */
+  filedAt: Schema.optional(Schema.Record(Schema.String, IsoDateTime)),
+});
+export type OrchestrationV2ThreadWaiting = typeof OrchestrationV2ThreadWaiting.Type;
+
+export const ThreadWaitAnswer = Schema.Struct({
+  waitId: OrchestrationV2ThreadWaitId,
+  note: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2000))),
+});
+export type ThreadWaitAnswer = typeof ThreadWaitAnswer.Type;
+
+export const ThreadWaitResolveInput = Schema.Struct({
+  threadId: ThreadId,
+  /** Several answers to one thread wake its agent once. */
+  answers: Schema.NonEmptyArray(ThreadWaitAnswer).check(Schema.isMaxLength(10)),
+  /** Default true: tell the thread's agent so it continues. */
+  wake: Schema.optional(Schema.Boolean),
+});
+export type ThreadWaitResolveInput = typeof ThreadWaitResolveInput.Type;
+
+export const ThreadWaitResolveResult = Schema.Struct({
+  /** What the thread still waits on. */
+  waiting: Schema.NullOr(OrchestrationV2ThreadWaiting),
+});
+export type ThreadWaitResolveResult = typeof ThreadWaitResolveResult.Type;
+
+export class ThreadWaitNotFoundError extends Schema.TaggedError<ThreadWaitNotFoundError>()(
+  "ThreadWaitNotFoundError",
+  { threadId: ThreadId, waitId: Schema.String },
+) {
+  override get message(): string {
+    return `Thread ${this.threadId} is not waiting on ${this.waitId}.`;
+  }
+}
+
+export class ThreadWaitResolveError extends Schema.TaggedError<ThreadWaitResolveError>()(
+  "ThreadWaitResolveError",
+  { threadId: ThreadId, stage: Schema.Literals(["resolve", "wake"]), cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return this.stage === "resolve"
+      ? `Could not resolve the wait on thread ${this.threadId}.`
+      : `Resolved the wait, but could not wake thread ${this.threadId}.`;
+  }
+}
+
+/** Waits stand until the user writes in the thread; wakes and agent messages leave them. */
+export function currentThreadWaiting(
+  waiting: OrchestrationV2ThreadWaiting | null | undefined,
+  latestUserAuthoredMessageAt: DateTime.Utc | null | undefined,
+): OrchestrationV2ThreadWaiting | null {
+  if (waiting == null) return null;
+  if (latestUserAuthoredMessageAt == null) return waiting;
+  return Date.parse(waiting.setAt) > DateTime.toEpochMillis(latestUserAuthoredMessageAt)
+    ? waiting
+    : null;
+}
+
 /**
  * `score` is an open count that halves every two weeks, as of `openedAt`.
  * `picks` stores lowercase palette queries, newest first.
@@ -498,6 +607,32 @@ const OrchestrationV2LastTitleRegeneration = Schema.Struct({
   completedAt: Schema.DateTimeUtc,
 });
 
+const CategoryIds = Schema.Array(Schema.String).pipe(
+  Schema.withDecodingDefault(Effect.succeed([])),
+);
+
+/**
+ * A thread's own changes to the categories its environment's rules give it,
+ * plus suggestion bookkeeping, so a dismissed or removed category is never
+ * offered again. Ids refer to `threadCategories` in server settings; unknown
+ * ids (a deleted category) are ignored rather than cleaned up.
+ */
+export const OrchestrationV2ThreadCategories = Schema.Struct({
+  included: CategoryIds,
+  excluded: CategoryIds,
+  suggested: CategoryIds,
+  dismissed: CategoryIds,
+  /** Substantive user messages the thread had when categories were last suggested. */
+  reviewedMessageCount: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+});
+export type OrchestrationV2ThreadCategories = typeof OrchestrationV2ThreadCategories.Type;
+
+/** `inherit` drops the thread's own choice, leaving the category to the rules. */
+export const OrchestrationV2ThreadCategoryChange = Schema.Struct({
+  categoryId: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  state: Schema.Literals(["include", "exclude", "inherit"]),
+});
+export type OrchestrationV2ThreadCategoryChange = typeof OrchestrationV2ThreadCategoryChange.Type;
 export const OrchestrationV2AppThread = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
@@ -545,7 +680,10 @@ export const OrchestrationV2AppThread = Schema.Struct({
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   lastSnoozeWakeAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
+  /** Stored as last set; readers apply `currentThreadWaiting`. */
+  waiting: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWaiting)),
   guestShare: Schema.optional(Schema.NullOr(ThreadGuestShare)),
+  categories: Schema.optional(Schema.NullOr(OrchestrationV2ThreadCategories)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -2212,6 +2350,7 @@ export const OrchestrationV2DomainEvent = Schema.Union([
       "thread.unsnoozed",
       "thread.pinned",
       "thread.auto-settle-set",
+      "thread.waiting-set",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",
@@ -2402,6 +2541,8 @@ export const OrchestrationV2PendingRuntimeRequestSummary = Schema.Struct({
   blocking: Schema.optional(Schema.Boolean),
   /** Secret and link cards: only the user can answer them, never a coordinating agent. */
   userOnly: Schema.optional(Schema.Boolean),
+  /** The question, or what is being approved, for lists. Absent from older servers. */
+  title: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(120))),
 });
 export type OrchestrationV2PendingRuntimeRequestSummary =
   typeof OrchestrationV2PendingRuntimeRequestSummary.Type;
@@ -2482,6 +2623,9 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
+  /** Null once the user has written since the agent set it. Absent from older servers. */
+  waiting: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWaiting)),
+  categories: Schema.optional(Schema.NullOr(OrchestrationV2ThreadCategories)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -3173,6 +3317,7 @@ export const OrchestrationV2DomainEventJson = Schema.Union([
       "thread.unsnoozed",
       "thread.pinned",
       "thread.auto-settle-set",
+      "thread.waiting-set",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",
@@ -3440,6 +3585,16 @@ export const OrchestrationV2Command = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     enabled: Schema.Boolean,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.categories.update"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    changes: Schema.optional(
+      Schema.Array(OrchestrationV2ThreadCategoryChange).check(Schema.isMaxLength(100)),
+    ),
+    /** Clears the pending suggestion; what it offered and `changes` did not include is dismissed. */
+    resolveSuggestion: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pin"),
@@ -3884,6 +4039,20 @@ const OrchestrationV2InternalCommand = Schema.Union([
     text: Schema.String,
     attachments: Schema.optional(Schema.Array(ChatAttachment)),
   }),
+  /** The agent's complete list of waits, replacing the last one; empty clears it. */
+  Schema.Struct({
+    type: Schema.Literal("thread.waiting.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    items: Schema.Array(OrchestrationV2ThreadWait).check(Schema.isMaxLength(MAX_THREAD_WAITS)),
+  }),
+  /** Drops one wait and keeps `setAt`; the rest still stand. */
+  Schema.Struct({
+    type: Schema.Literal("thread.waiting.resolve"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    waitId: OrchestrationV2ThreadWaitId,
+  }),
   /** Moves a thread to a project rooted at the folder it already works in, so its cwd never changes. */
   Schema.Struct({
     type: Schema.Literal("thread.project.adopt-folder"),
@@ -4016,6 +4185,13 @@ const OrchestrationV2InternalCommand = Schema.Union([
     providerTurnId: ProviderTurnId,
   }),
   Schema.Struct({
+    type: Schema.Literal("thread.categories.suggestion.record"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    suggested: Schema.Array(Schema.String).check(Schema.isMaxLength(100)),
+    reviewedMessageCount: NonNegativeInt,
+  }),
+  Schema.Struct({
     type: Schema.Literal("thread.background-work.settle"),
     commandId: CommandId,
     threadId: ThreadId,
@@ -4114,6 +4290,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   searchThreads: "orchestration.searchThreads",
   searchThread: "orchestration.searchThread",
   searchThreadStream: "orchestration.searchThreadStream",
+  suggestThreadCategories: "orchestration.suggestThreadCategories",
   getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
   getThreadFamily: "orchestration.getThreadFamily",
   getThreadTitles: "orchestration.getThreadTitles",
@@ -4130,6 +4307,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
   subscribeCommandOutput: "orchestration.subscribeCommandOutput",
+  subscribeBackgroundTaskOutput: "orchestration.subscribeBackgroundTaskOutput",
   subscribePromptSuggestion: "orchestration.subscribePromptSuggestion",
 } as const;
 
@@ -4139,6 +4317,13 @@ export const OrchestrationV2SubscribeCommandOutputInput = Schema.Struct({
 });
 export type OrchestrationV2SubscribeCommandOutputInput =
   typeof OrchestrationV2SubscribeCommandOutputInput.Type;
+
+export const OrchestrationV2SubscribeBackgroundTaskOutputInput = Schema.Struct({
+  threadId: ThreadId,
+  taskId: TrimmedNonEmptyString,
+});
+export type OrchestrationV2SubscribeBackgroundTaskOutputInput =
+  typeof OrchestrationV2SubscribeBackgroundTaskOutputInput.Type;
 
 /** Unpersisted stream for expanded rows: replace resets the bounded tail, append extends it, and running:false ends it.
  * Feed both through @t3tools/shared/terminalOutput appendTerminalOutput to preserve cursor and style escapes. */
@@ -4776,6 +4961,32 @@ export class OrchestrationV2SearchThreadError extends Schema.TaggedError<Orchest
   }
 }
 
+/**
+ * Asks the thread's environment to suggest from its `threadCategories`. The
+ * server decides whether a suggestion is due and stores the answer on the
+ * thread, so two clients asking at once still produce one model call.
+ */
+export const OrchestrationV2SuggestThreadCategoriesInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type OrchestrationV2SuggestThreadCategoriesInput =
+  typeof OrchestrationV2SuggestThreadCategoriesInput.Type;
+
+export const OrchestrationV2SuggestThreadCategoriesResult = Schema.Struct({
+  suggested: Schema.Array(Schema.String),
+});
+export type OrchestrationV2SuggestThreadCategoriesResult =
+  typeof OrchestrationV2SuggestThreadCategoriesResult.Type;
+
+export class OrchestrationV2SuggestThreadCategoriesError extends Schema.TaggedError<OrchestrationV2SuggestThreadCategoriesError>()(
+  "OrchestrationV2SuggestThreadCategoriesError",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not suggest categories for this thread.";
+  }
+}
+
 export const OrchestrationV2RpcSchemas = {
   searchThread: {
     input: OrchestrationV2SearchThreadInput,
@@ -4855,6 +5066,10 @@ export const OrchestrationV2RpcSchemas = {
   },
   subscribeCommandOutput: {
     input: OrchestrationV2SubscribeCommandOutputInput,
+    output: OrchestrationV2CommandOutputFrame,
+  },
+  subscribeBackgroundTaskOutput: {
+    input: OrchestrationV2SubscribeBackgroundTaskOutputInput,
     output: OrchestrationV2CommandOutputFrame,
   },
   subscribePromptSuggestion: {

@@ -1,6 +1,7 @@
 import {
-  type CommandId,
+  CommandId,
   type RuntimeRequestId,
+  type ThreadCategory,
   ThreadId,
   type OrchestrationV2ThreadProjection,
   type RunId,
@@ -10,6 +11,7 @@ import {
 import * as Effect from "effect/Effect";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
 import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
+import { threadCategoryLabel } from "@t3tools/shared/threadCategories";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -25,6 +27,7 @@ import { firstLineTitle } from "../../firstLineTitle.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import type * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
+import * as ThreadCategoryService from "../../../orchestration-v2/ThreadCategoryService.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ScheduledTasks from "../../../scheduledTasks/ScheduledTaskService.ts";
 import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
@@ -71,6 +74,28 @@ const topOfPinnedRunKey = Effect.fn("mcp.topOfPinnedRunKey")(function* (
   return topOfPinnedRunOrderKey(pinnedKeys) ?? undefined;
 });
 
+function categoryMembershipResult(
+  categories: ReadonlyArray<ThreadCategory>,
+  membership: ThreadCategoryService.ThreadCategoryMembership,
+) {
+  const names = (ids: ReadonlyArray<string>) =>
+    categories.filter((category) => ids.includes(category.id)).map(threadCategoryLabel);
+  return {
+    threadId: membership.threadId,
+    categories: names(membership.categoryIds),
+    fromRules: names(membership.ruleCategoryIds),
+    suggested: names(membership.state?.suggested ?? []),
+  };
+}
+
+const categoryReadFailure = (error: { readonly _tag: string }) =>
+  error._tag === "ThreadCategoryNotFoundError"
+    ? new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message:
+          "No category in this environment matches that name or id. Call t3_thread_categories for the list; only the user creates categories.",
+      })
+    : unavailable();
 const readQuestion = Effect.fn("mcp.readQuestion")(function* (input: {
   threadId?: ThreadId | undefined;
   requestId: RuntimeRequestId;
@@ -413,6 +438,49 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         }
       }),
     ),
+  ),
+  t3_thread_categories: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const service = yield* ThreadCategoryService.ThreadCategoryService;
+      const categories = yield* service.list.pipe(Effect.mapError(unavailable));
+      const context = yield* readCaller();
+      const threadId = input.threadId ?? context.caller?.id;
+      const entries = categories.map((category) => ({
+        id: category.id,
+        name: threadCategoryLabel(category),
+        description: category.description,
+      }));
+      if (threadId === undefined) return { categories: entries };
+      const { projection } = yield* readThread(threadId);
+      const membership = yield* service
+        .membership(projection.thread.id)
+        .pipe(Effect.mapError(categoryReadFailure));
+      return { categories: entries, thread: categoryMembershipResult(categories, membership) };
+    }),
+  ),
+  t3_thread_categorize: writesThread((input) =>
+    Effect.gen(function* () {
+      const service = yield* ThreadCategoryService.ThreadCategoryService;
+      const { projection } = yield* readThread(input.threadId);
+      const threadId = projection.thread.id;
+      const commandId =
+        input.clientRequestId === undefined
+          ? yield* newCommandId()
+          : CommandId.make(`mcp:thread-categorize:${threadId}:${input.clientRequestId}`);
+      const membership = yield* service
+        .update({ threadId, commandId, add: input.add ?? [], remove: input.remove ?? [] })
+        .pipe(
+          Effect.mapError((error) =>
+            error._tag === "OrchestratorDispatchError" ||
+            error._tag === "OrchestratorCommandRejectedError" ||
+            error._tag === "ThreadManagementProviderInstanceDisabledError"
+              ? dispatchFailure(error)
+              : categoryReadFailure(error),
+          ),
+        );
+      const categories = yield* service.list.pipe(Effect.mapError(unavailable));
+      return categoryMembershipResult(categories, membership);
+    }),
   ),
   t3_thread_organize: writesThread((input) =>
     Effect.gen(function* () {

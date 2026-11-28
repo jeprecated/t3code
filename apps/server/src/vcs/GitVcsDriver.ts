@@ -169,9 +169,30 @@ export interface CreateWorktreeOptions {
   readonly progress?: CreateWorktreeProgress;
   /** Null or omitted defers to the checkout's t3.json. */
   readonly submodules?: WorktreeSubmodules | null;
+  /**
+   * The project-over-environment `jujutsuWorkspaces` setting: create the
+   * worktree as a colocated jj workspace instead of with `git worktree add`.
+   */
+  readonly jujutsu?: boolean;
+  /** The `jujutsuCommand` setting, which runs jj for a jj workspace. */
+  readonly jujutsuCommand?: string;
   readonly worktreesDirectory?: string;
   /** Clone the checkout from the macOS worktree checkout cache. */
   readonly fastCheckout?: boolean;
+}
+
+export interface RemoveWorktreeOptions {
+  /** The `jujutsuCommand` setting, which forgets the worktree's jj workspace. */
+  readonly jujutsuCommand?: string;
+}
+
+export interface ListRefsOptions {
+  /**
+   * The `jujutsuCommand` setting, set when the project creates jj workspaces:
+   * the repository's jj bookmarks are then offered as bases too, since a
+   * workspace jj leaves at a detached HEAD may have no git branch to offer.
+   */
+  readonly jujutsuCommand?: string;
 }
 
 export interface GitCommitProgress {
@@ -488,6 +509,7 @@ export class GitVcsDriver extends Context.Service<
     ) => Effect.Effect<string | null, GitCommandError>;
     readonly listRefs: (
       input: VcsListRefsInput,
+      options?: ListRefsOptions,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
     readonly pullCurrentBranch: (cwd: string) => Effect.Effect<VcsPullResult, GitCommandError>;
     readonly createWorktree: (
@@ -496,6 +518,17 @@ export class GitVcsDriver extends Context.Service<
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
     /** Deletes the macOS worktree checkout cache in the background. */
     readonly clearWorktreeCheckoutCache: Effect.Effect<void>;
+    /**
+     * Start-from-origin for jj workspaces: `jj git fetch` in the colocated
+     * repository, then the commit of `<refName>@origin`, else of `<refName>`
+     * (Agent Tick has no remote; its fetch syncs the local bookmarks), or null
+     * when jj names neither.
+     */
+    readonly fetchJjBase: (input: {
+      readonly cwd: string;
+      readonly refName: string;
+      readonly jujutsuCommand: string;
+    }) => Effect.Effect<string | null, GitCommandError>;
     /** Force-updates local `branch` to the primary remote's `ref`. */
     readonly fetchRefIntoBranch: (
       input: GitFetchRefInput & { readonly branch: string },
@@ -549,6 +582,7 @@ export class GitVcsDriver extends Context.Service<
     ) => Effect.Effect<void, GitCommandError>;
     readonly removeWorktree: (
       input: VcsRemoveWorktreeInput,
+      options?: RemoveWorktreeOptions,
     ) => Effect.Effect<void, GitCommandError>;
     readonly pruneWorktrees: (input: {
       readonly cwd: string;

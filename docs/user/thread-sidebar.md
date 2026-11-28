@@ -16,6 +16,27 @@ Threads don't require a project. Pick **No project** (or press `mod+alt+n` on we
 - Git branch, worktree, and diff controls are hidden (and scratch threads are unavailable if your T3 data directory itself is inside a Git repo).
 - Choose **Turn into project** from the thread menu to promote the folder into a real project in place, then **Initialize Git** if needed.
 
+### Start from a preset
+
+A preset saves a new thread's model, effort, and workspace, plus where it starts:
+a specific project on its machine, whichever project you are in, or no project.
+Set up a new thread the way you want it, open the command palette, and choose
+**Save draft as new-thread preset…**, then pick the project option. Saving under
+an existing name replaces that preset.
+
+A preset that follows your current project, or starts without one, can be tied to
+one machine, for example when its model's provider only exists there. Started
+from a project on another machine, it opens the same repository on the pinned
+machine, or no project there when that machine lacks the repository. It never
+starts elsewhere: while the pinned machine is disconnected, it shows a warning.
+Choose the machine when saving, or change it later in Settings → Threads.
+
+To pick a preset, bind **Chat: New From Preset** in Settings → Keybindings; it
+opens a list of your presets. They also appear at the top of **New thread in…**
+and under **New thread from preset…** in the command palette. To start one
+directly, bind its `preset.{id}.new` command. Presets are saved on each machine,
+and you can rename, re-pin, or delete them in Settings → Threads.
+
 ### Start in the background and multi-model runs
 
 - **Background start** (web/desktop): Press `Cmd+Enter` (macOS) or `Ctrl+Enter` (Windows/Linux) in a new thread to submit it and immediately open another draft with the same workspace mode and base branch.
@@ -59,7 +80,7 @@ Enable **Settings → Labs → Boring sidebar (group by project)** on web/deskto
 
 ### Snooze options
 
-Customize presets in **Settings → Threads → Snooze options** (durations like `3 hours` or times like `9:00 PM tomorrow`), or pick **Snooze → Custom…** for an exact date/time or duration. **Snooze → Indefinitely** keeps a thread snoozed until you wake it (it still wakes early on approvals, questions, errors, or new messages). Choose **Wake thread** to bring a thread back early.
+Customize presets in **Settings → Threads → Snooze options** (durations like `3 hours` or times like `9:00 PM tomorrow`), or pick **Snooze → Custom…** for an exact date/time or duration. **Snooze → Indefinitely** keeps a thread snoozed until you wake it (it still wakes early on approvals, questions, errors, or new messages). Choose **Wake thread** to bring a thread back early. To snooze from the keyboard, bind `thread.snooze`; see [keybindings](./keybindings.md#commands-with-special-behavior).
 
 ## Link a pull request
 
@@ -69,6 +90,62 @@ The server automatically links open PRs matching an unsettled thread's branch. O
 
 - **Command palette** (`Cmd/Ctrl+K`): Searches threads across connected environments by title, branch, PR, project, and message contents (use `"exact phrase"` for exact matches). On mobile, use the thread list search (or `Cmd+K` on iPad with a keyboard).
 - **Copy reference**: Copies the linked PR URL if one exists, otherwise a thread link that pastes into any composer as a thread chip. Use **Copy → Thread** (or **Copy thread** on mobile) to force a thread link, or **Thread ID** for scripts and the `t3` CLI.
+
+### Group threads into categories
+
+On web and desktop, a category names a set of threads you want to see together,
+such as one client's repositories or everything about your mobile apps. Create one
+with **New category…** in the sidebar's filter menu or the command palette, or in
+**Settings → General → Thread categories**, where you drag categories into the order
+the sidebar shows and expand one to edit its rules. They are saved on every
+connected environment, so agents there can see them too; an environment that was
+offline picks up the list on your next edit.
+
+A category's rules match on project, repository, environment, provider, branch, or
+project path. Type in **Projects** to pick projects by name; a name matches that
+project on every machine, wherever its folder is, and stops matching if you rename
+the project. Repository, branch, and path fields take comma-separated patterns where
+`*` matches anything, for example `github.com/acme/*`. A thread joins a category when
+every field of any one rule matches. Repositories match by remote, so one rule
+covers the same repository on every connected environment.
+
+A thread can also join or leave a category on its own, whatever the rules say. Open
+**Categories** from the thread's menu in the sidebar or chat header, or **Thread
+categories…** in the command palette. Unchecking a category the rules give a thread
+removes it for that thread only; checking it again restores the rule. Changing a
+thread's categories never changes its project, checkout, or provider. Agents can
+list categories and tag threads with the `t3_thread_categories` and
+`t3_thread_categorize` tools.
+
+After a thread's first substantive message, T3 Code asks the environment's text
+generation model which categories fit and shows **Suggested categories** above the
+composer. **Apply** adds them, **Edit** lets you pick, and dismissing hides them.
+Suggestions only see category names and descriptions, so give a category whose name
+says little a short description, such as "Skool, content creation". A dismissed or
+removed category is not suggested for that thread again. As a thread grows, T3 Code
+occasionally checks again in case it changed direction.
+
+Pick a category from the sidebar's filter menu to show only its threads; search and
+thread shortcuts then stay within it. **Uncategorized** shows threads in no category.
+Each thread is marked on its left edge with the colors of its categories, except the
+one you are filtering by. When the filter hides a thread that needs your input or
+approval, the top of the list says so; click it to show all threads.
+
+To show several categories at once, choose **New view…** in the filter menu, name the
+view, and set each category to **Include** or **Exclude**. A view shows threads in any
+included category and in no excluded one; with nothing included, it shows every thread
+outside the excluded categories, uncategorized ones too. Views are shared by every device connected to your
+machines. Edit or delete one with the pencil beside it, or with **Edit sidebar view…**
+in the command palette while it is showing. The alarm clock beside the pencil snoozes
+every thread the view lists until the time you pick, then moves to the next view.
+Threads waiting on your reply or approval are left alone.
+
+To step through filters from the keyboard, assign `sidebar.nextCategory` and
+`sidebar.previousCategory` in **Settings → Keybindings**. Once you have views, the
+shortcut steps through All and each view, passing over views whose threads are all
+snoozed or settled; until then it steps through All, each category, and
+Uncategorized. The command palette also lists **Filter sidebar by
+category…**.
 
 ## Usage limits, subagents, and thread details
 
@@ -94,3 +171,56 @@ Ask a quick side question about a thread without polluting its history. A side c
 - **Find later**: Listed under **Side chats** in thread details (web/desktop) or above the composer (mobile); hidden from the main sidebar.
 - **Bring results back**: Click **Add to chat** in the side chat, or `@`-mention its title in the parent composer (not readable by external OpenCode servers).
 - **Lifecycle**: Closing an unused side chat deletes it. Deleting or archiving the parent thread deletes or archives its side chats.
+
+## Cockpit
+
+The cockpit collects everything agents wait on you for, on every connected machine:
+approvals and questions, decisions, manual steps, blocked work and review requests that
+agents filed, proposed plans, failed or rate-limited runs, and your own todos. Open it with
+**Cockpit** at the top of the sidebar, `mod+alt+y` (`cockpit.toggle`), or **Open cockpit**
+in the command palette. The count is what you can do now.
+
+The list on the left reads like the thread sidebar: **Overview agent** first, then every
+task waiting on you, then **Snoozed**. Select an entry to see it on the right. A task shows
+the thread that asked, the agent's latest message, and any details it attached. Answer a
+question or approve a request right there. For a decision, pick an option; for a manual step
+or blocked work, choose **Done**, with an optional note; for a review, **Looks good**, or
+write feedback first. The agent is woken five seconds later, so the toast's **Undo** can
+take it back. Secret and link requests, plans and failures are handled in their thread:
+**Open there** jumps to the message. When a task is done, the next one in the list takes
+its place.
+
+**Snooze** puts one task off without snoozing its thread: pick 10 min, 30 min, 1 hour,
+18:00, tomorrow 9:00 or Monday 9:00, or type a time such as `30m`, `14:30` or
+`tomorrow 9`. Snoozes sync to your other devices. Snoozed tasks wait under **Snoozed** at
+the bottom of the list until their time, or until you choose **Unsnooze**. Tasks an agent
+gave a start time wait there too. In a thread, **Waiting on you** above the composer has
+the same **Snooze**, and hides snoozed tasks behind **n snoozed**.
+
+Everything works from the keyboard. Tab moves between the list and the selected entry. In
+the list, the arrow keys select and Enter goes in; in a task, they move between its
+controls. Esc goes back to the list, then closes. Press `?` in the cockpit to see every key
+as you have bound it.
+
+| Key       | Action                                                |
+| --------- | ----------------------------------------------------- |
+| `e`       | Done: answer, approve, resolve or complete            |
+| `1`–`9`   | Pick an option; Space toggles one that allows several |
+| `s`       | Snooze, then `1`–`6` or Tab to type a time            |
+| `o`       | Open there                                            |
+| `j` / `k` | Next / previous entry in the list                     |
+| `y` / `n` | Approve / deny                                        |
+| `shift+y` | Approve for this thread                               |
+| `r`       | Write a note, your own answer, or feedback            |
+| `l`       | Open the first link in the details                    |
+| `u`       | Undo the last outcome                                 |
+| `/`       | Select the overview agent and write to it             |
+| `?`       | Show every key                                        |
+
+Change any of them in **Settings → Keybindings**.
+
+Select **Overview agent** and choose **Start overview agent** to create an Overview thread.
+Tell it what you did, such as "the Stripe key is in", and it resolves the matching waits and
+wakes those threads. It can also add todos for you. Its row shows when it is working or has
+replied. Every morning at 09:00 it sweeps your threads for asks nobody recorded; change or
+pause that in **Settings → Scheduled tasks**.

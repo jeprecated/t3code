@@ -25,6 +25,16 @@ Configure whether `Enter` sends or requires `mod+Enter` in **Settings → Chat �
 
 In the model picker, use `Left`/`Shift+Tab` to move to the provider list, `Right` to return to search or move into effort levels, and `Up`/`Down`/`Enter` to select.
 
+Two more composer commands have no default shortcut. **Composer: Project** opens a new thread's project menu. **Composer: Toggle Start from Origin** switches whether a new worktree starts from origin, without opening the branch picker.
+
+## Switch threads
+
+**Thread Switcher: Toggle** opens a quick search over your threads. It has no default shortcut. Bind it in Settings → Keybindings, or choose **Switch thread** in the command palette. Type part of a thread's name, project, or branch.
+
+- Closer matches rank first. Between equally close matches, the thread's name beats its project, which beats its branch or worktree.
+- `Enter` opens the top result, and the thread you are on is always listed last.
+- Only active threads appear at first. Press `Tab` to include settled and snoozed threads.
+
 ## Copy pull request and thread references
 
 - `mod+shift+c`: Copies the open PR's URL (or copies a thread chip link when no PR is open).
@@ -58,13 +68,15 @@ New default bindings are added on startup without overwriting customized command
 
 ### Rule shape and key syntax
 
-Each rule requires `key` and `command`, plus an optional `when` condition. Project scripts use `script.{id}.run` (e.g. `script.test.run`).
+Each rule requires `key` and `command`, plus an optional `when` condition. Project scripts use `script.{id}.run` (e.g. `script.test.run`). [New thread presets](./thread-sidebar.md#start-from-a-preset) use `preset.{id}.new` (e.g. `preset.quick.new`); **Settings → General** lists each preset's command.
 
 Join modifiers and keys with `+` (`mod`, `cmd`/`meta`, `ctrl`/`control`, `alt`/`option`, `shift`).
 
 ### When conditions
 
-Available context keys: `terminalFocus`, `terminalOpen`, `previewFocus`, `previewOpen`, `rightPanelOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`, `turnRunning`, `composerEmpty`, `editableFocus`, `isWeb`, `isDesktop`. Unknown keys evaluate to `false`.
+Available context keys: `terminalFocus`, `terminalOpen`, `terminalFloating`, `previewFocus`, `previewOpen`, `rightPanelOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`, `turnRunning`, `composerEmpty`, `editableFocus`, `cockpitOpen`, `isWeb`, `isDesktop`. Unknown keys evaluate to `false`.
+
+`terminalFloating` is true while the terminal is showing as a [floating popover](terminal.md#floating-terminal). `cockpitOpen` is true while the [cockpit](thread-sidebar.md#cockpit) is open.
 
 Combine with `!`, `&&`, `||`, and parentheses:
 
@@ -83,6 +95,8 @@ The last matching rule in `keybindings.json` wins, even across different command
 - `thread.stop`: Interrupts the running turn (unbound by default).
 - `thread.regenerateTitle`: Regenerates the focused thread's title (unbound by default).
 - `thread.undo` (`mod+z`): Undoes recent sidebar actions (unpin, settle, snooze, archive, discard draft) within 5 seconds, including consecutive actions of the same kind.
+- `thread.snooze`: Opens a snooze picker on the open thread (unbound by default). Arrow keys or `Tab` move between presets and `Enter` picks one, or type a time such as `3h`, `5d`, `14`, `tomorrow 14`, `fri 9`, or `oct 20 8am` (days without a time mean 9:00). **Custom…** opens the thread menu's date and duration dialog. On an already snoozed thread it wakes it instead. `thread.snooze.hour`, `thread.snooze.threeHours`, `thread.snooze.evening`, `thread.snooze.tomorrow`, and `thread.snooze.nextWeek` skip the picker and snooze to that preset directly.
+- `cockpit.*`: Act on the cockpit's current task. Their single-key defaults use `cockpitOpen && !editableFocus`, so they never fire while you type in a note or the overview agent's composer. See [Cockpit](thread-sidebar.md#cockpit) for the full list.
 - `navigation.back` (`mod+[`) / `navigation.forward` (`mod+]`): Moves through visited pages.
 - `chat.new` / `chat.newLocal` / `chat.newWithoutProject` (`mod+alt+n`): Start new threads using your [new-thread defaults](./thread-sidebar.md#start-a-thread) or [without a project](./thread-sidebar.md#start-without-a-project).
 

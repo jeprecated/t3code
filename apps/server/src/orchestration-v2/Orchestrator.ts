@@ -1,3 +1,4 @@
+import { applyThreadCategoryChanges } from "@t3tools/shared/threadCategories";
 import type {
   OrchestrationV2ThreadLinkMetadata,
   GuestShareId,
@@ -662,6 +663,8 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.snooze":
     case "thread.unsnooze":
     case "thread.auto-settle.set":
+    case "thread.waiting.set":
+    case "thread.waiting.resolve":
     case "thread.pin":
     case "thread.unpin":
     case "thread.pin.reorder":
@@ -681,6 +684,8 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request.sync":
     case "thread.title.regeneration.complete":
     case "thread.project.adopt-folder":
+    case "thread.categories.update":
+    case "thread.categories.suggestion.record":
     case "thread.runtime-mode.set":
     case "thread.interaction-mode.set":
     case "thread.model-selection.set":
@@ -4540,6 +4545,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.snooze"
           | "thread.unsnooze"
           | "thread.auto-settle.set"
+          | "thread.waiting.set"
+          | "thread.waiting.resolve"
           | "thread.pin"
           | "thread.unpin"
           | "thread.pin.reorder"
@@ -4557,6 +4564,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.pull-request-watch.checks-reopen"
           | "thread.pull-request.sync"
           | "thread.title.regeneration.complete"
+          | "thread.categories.update"
+          | "thread.categories.suggestion.record"
           | "thread.runtime-mode.set"
           | "thread.interaction-mode.set"
           | "thread.model-selection.set"
@@ -4703,6 +4712,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.type === "thread.snooze" ||
         command.type === "thread.unsnooze" ||
         command.type === "thread.auto-settle.set" ||
+        command.type === "thread.waiting.set" ||
+        command.type === "thread.waiting.resolve" ||
         command.type === "thread.pin" ||
         command.type === "thread.unpin" ||
         command.type === "thread.pin.reorder" ||
@@ -5142,6 +5153,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       markUnreadVisitedAt = DateTime.subtract(latestRunCompletedAt, { milliseconds: 1 });
     }
+    if (
+      command.type === "thread.waiting.resolve" &&
+      !(thread.waiting?.items.some((item) => item.id === command.waitId) ?? false)
+    ) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Thread ${command.threadId} is not waiting on ${command.waitId}.`,
+      });
+    }
     const updatedThread: OrchestrationV2AppThread = (() => {
       switch (command.type) {
         case "thread.archive":
@@ -5150,6 +5171,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             archivedAt: now,
             titleRegeneration: null,
             guestShare: null,
+            waiting: null,
             pullRequests: thread.pullRequests?.map((link) => withPullRequestWatch(link, undefined)),
             updatedAt: now,
           };
@@ -5174,6 +5196,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             activeOrderKey: null,
             snoozedUntil: null,
             snoozedAt: null,
+            waiting: null,
             updatedAt:
               alreadySettled && thread.snoozedUntil == null && thread.snoozedAt == null
                 ? thread.updatedAt
@@ -5220,6 +5243,39 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...thread,
             autoSettleDisabledAt: command.enabled ? null : (thread.autoSettleDisabledAt ?? now),
             updatedAt: unchanged ? thread.updatedAt : now,
+          };
+        }
+        case "thread.waiting.set": {
+          const setAt = DateTime.formatIso(now);
+          const previous = thread.waiting;
+          const filedAt = Object.fromEntries(
+            command.items.map((item) => [
+              item.id,
+              previous?.filedAt?.[item.id] ??
+                (previous?.items.some((old) => old.id === item.id) ? previous.setAt : setAt),
+            ]),
+          );
+          return {
+            ...thread,
+            waiting: command.items.length === 0 ? null : { items: command.items, setAt, filedAt },
+            updatedAt: now,
+          };
+        }
+        case "thread.waiting.resolve": {
+          const items = (thread.waiting?.items ?? []).filter((item) => item.id !== command.waitId);
+          const filedAt =
+            thread.waiting?.filedAt === undefined
+              ? undefined
+              : Object.fromEntries(
+                  Object.entries(thread.waiting.filedAt).filter(([id]) => id !== command.waitId),
+                );
+          return {
+            ...thread,
+            waiting:
+              thread.waiting == null || items.length === 0
+                ? null
+                : { ...thread.waiting, items, ...(filedAt === undefined ? {} : { filedAt }) },
+            updatedAt: now,
           };
         }
         case "thread.pin": {
@@ -5649,6 +5705,38 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 }),
             updatedAt: thread.updatedAt,
           };
+        // Categories are filing, not activity: they keep `updatedAt` so tagging a
+        // thread never postpones its auto-settle.
+        case "thread.categories.update":
+          return {
+            ...thread,
+            categories: applyThreadCategoryChanges(
+              thread.categories,
+              command.changes ?? [],
+              command.resolveSuggestion === true,
+            ),
+          };
+        case "thread.categories.suggestion.record": {
+          const current = thread.categories;
+          const ruledOut = new Set([
+            ...(current?.included ?? []),
+            ...(current?.excluded ?? []),
+            ...(current?.dismissed ?? []),
+          ]);
+          return {
+            ...thread,
+            categories: {
+              included: current?.included ?? [],
+              excluded: current?.excluded ?? [],
+              dismissed: current?.dismissed ?? [],
+              suggested: [...new Set(command.suggested)].filter((id) => !ruledOut.has(id)),
+              reviewedMessageCount: Math.max(
+                current?.reviewedMessageCount ?? 0,
+                command.reviewedMessageCount,
+              ),
+            },
+          };
+        }
         case "thread.title.regeneration.complete":
           return thread.titleRegeneration?.requestId === command.requestId
             ? {
@@ -5734,6 +5822,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.unsnoozed" as const;
         case "thread.auto-settle.set":
           return "thread.auto-settle-set" as const;
+        case "thread.waiting.set":
+        case "thread.waiting.resolve":
+          return "thread.waiting-set" as const;
         case "thread.pin":
           return "thread.pinned" as const;
         case "thread.unpin":
@@ -5748,6 +5839,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.marked-unread" as const;
         case "thread.metadata.update":
         case "thread.title.regeneration.complete":
+        case "thread.categories.update":
+        case "thread.categories.suggestion.record":
           return "thread.metadata-updated" as const;
         case "thread.pull-request.link":
         case "thread.pull-request.unlink":
@@ -16349,6 +16442,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.snooze":
       case "thread.unsnooze":
       case "thread.auto-settle.set":
+      case "thread.waiting.set":
+      case "thread.waiting.resolve":
       case "thread.pin":
       case "thread.unpin":
       case "thread.pin.reorder":
@@ -16363,6 +16458,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pull-request.watch":
       case "thread.pull-request.sync":
       case "thread.title.regeneration.complete":
+      case "thread.categories.update":
+      case "thread.categories.suggestion.record":
       case "thread.runtime-mode.set":
       case "thread.interaction-mode.set":
       case "thread.model-selection.set":

@@ -329,6 +329,24 @@ export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* 
   return (row?.latestId ?? 0) < latestMigrationId || (row?.previewRows ?? 0) > 0;
 });
 
+// A fork once recorded these ids for tables it now creates itself; drop the rows so main's 77/78 run.
+const releaseForkMigrationIds = Effect.fn("releaseForkMigrationIds")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const tables = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+  `;
+  if (tables.length === 0) return;
+  const found = yield* sql`
+    SELECT migration_id FROM effect_sql_migrations
+    WHERE (migration_id = 77 AND name = 'UserTodos') OR (migration_id = 78 AND name = 'TaskSnoozes')
+  `;
+  if (found.length === 0) return;
+  yield* sql`
+    DELETE FROM effect_sql_migrations
+    WHERE (migration_id = 77 AND name = 'UserTodos') OR (migration_id = 78 AND name = 'TaskSnoozes')
+  `;
+});
+
 const run = Migrator.make({});
 
 export interface RunMigrationsOptions {
@@ -346,6 +364,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
   // The reconcile takes the write lock; CLI startup must not contend with the server for a no-op.
   const previewMigrations = includesV2 && hasPending ? yield* reconcileV2PreviewMigration() : [];
+  if (includesV2 && hasPending) yield* releaseForkMigrationIds();
   if (includesV2) {
     yield* assertV2MigrationsCanRun(toMigrationInclusive);
   }

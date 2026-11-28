@@ -42,11 +42,27 @@ On web and desktop with 2+ connected machines, enable **Settings → Environment
 
 ## Desktop-managed SSH
 
-In the desktop app, open **Settings → Environments → Add environment → SSH** and enter a host or SSH alias (e.g. `user@example.com`). T3 Code downloads its runtime to `~/.t3/runtime` on the Linux or Apple Silicon macOS host, starts or reuses a server, and manages port forwarding automatically.
+In the desktop app, open **Settings → Environments → Add environment → SSH** and enter a host or SSH alias (e.g. `user@example.com`). T3 Code downloads its runtime to `~/.t3/runtime` on the Linux or Apple Silicon macOS host, starts or reuses a server, and manages port forwarding automatically. A host that has `t3` on the `PATH` of a non-interactive shell uses that copy instead, even when it is a different version from your app.
 
 - Provider CLIs must be on a non-interactive login shell's `PATH` (check with `ssh user@example.com 'sh -lc "command -v claude codex"'`).
 - For 2FA/Duo hosts on macOS/Linux, enable SSH `ControlMaster` in `~/.ssh/config` and open a terminal SSH session first.
 - Revoke unused SSH sessions in **Settings → Sharing & access** or `t3 auth session revoke <id>`.
+
+### Keep a host's server under its own control
+
+When the host is a machine you also use directly, a remote desktop app can
+otherwise start its own server there while the host's app is closed, possibly
+an older version. To stop that, create `~/.t3/ssh-attach-only` on the host:
+
+```bash
+touch ~/.t3/ssh-attach-only
+```
+
+SSH connections then only use the server the host's own T3 Code is running.
+While it is closed, they fail with a message to start T3 Code there, and they
+never install, start, replace, or stop a server on that host. Pairing uses the
+host's own `t3`. Remote apps need a version with this check; older ones ignore
+the file.
 
 ## Browser on a remote environment
 
